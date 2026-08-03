@@ -165,6 +165,23 @@ export function useThreadPreviewState(ref: ScopedThreadRef | null | undefined): 
   return useAtomValue(atom);
 }
 
+// Sidebar rows only need "does this thread have a browser open", and one row
+// exists per thread on screen. Deriving the boolean keeps a row from
+// re-rendering on every navigation event in its own thread, and keeps it off
+// the cross-thread index entirely.
+const threadHasPreviewSessionAtom = Atom.family((threadKey: string) =>
+  Atom.make((get) => Object.keys(get(previewStateAtom(threadKey)).sessions).length > 0).pipe(
+    Atom.withLabel(`preview:has-session:${threadKey}`),
+  ),
+);
+
+const noPreviewSessionAtom = Atom.make(false).pipe(Atom.withLabel("preview:has-session:none"));
+
+export function useThreadHasPreviewSession(ref: ScopedThreadRef | null | undefined): boolean {
+  const atom = ref ? threadHasPreviewSessionAtom(scopedThreadKey(ref)) : noPreviewSessionAtom;
+  return useAtomValue(atom);
+}
+
 export function useActivePreviewSessions(): Record<string, ThreadPreviewState> {
   return useAtomValue(activePreviewSessionsAtom);
 }

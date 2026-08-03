@@ -1,6 +1,7 @@
 "use client";
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   FILL_PREVIEW_VIEWPORT,
@@ -37,6 +38,10 @@ import {
   stopBrowserRecording,
 } from "~/browser/browserRecording";
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
+import {
+  beginBrowserAutomationRequest,
+  browserAutomationCountsAsActivity,
+} from "~/browser/browserAutomationActivityStore";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { browserDefaultOpenViewport, resolveBrowserDefaults } from "~/browser/browserDefaults";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
@@ -306,6 +311,12 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         environmentId,
         threadId: request.threadId,
       };
+      // Marks the thread as driving its browser for the sidebar indicator.
+      // This host is the only cross-thread view of browser activity, so the
+      // signal has to be raised here rather than in the routed preview panel.
+      const settleActivity = browserAutomationCountsAsActivity(request.operation)
+        ? beginBrowserAutomationRequest(scopedThreadKey(threadRef))
+        : null;
       let tabId = request.tabId ?? null;
       try {
         let state = readThreadPreviewState(threadRef);
@@ -678,6 +689,8 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           tabId,
           cause,
         });
+      } finally {
+        settleActivity?.();
       }
     },
     [environmentId, listPreviews, open, registry, resize],

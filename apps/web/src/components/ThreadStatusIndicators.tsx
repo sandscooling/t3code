@@ -35,6 +35,12 @@ export interface TerminalStatusIndicator {
   pulse: boolean;
 }
 
+export interface BrowserStatusIndicator {
+  label: "Agent using browser" | "Browser tab open";
+  colorClass: string;
+  pulse: boolean;
+}
+
 export type ThreadPr = VcsStatusResult["pr"];
 
 export function settledPrHoverColorClass(state: NonNullable<ThreadPr>["state"]): string {
@@ -299,6 +305,34 @@ export function resolveDisplayedThreadPrProvider(input: {
   }
 
   return undefined;
+}
+
+/**
+ * Two-state browser indicator: present but idle, or actively driven.
+ *
+ * Unlike the terminal indicator — which only ever reflects a subprocess in a
+ * terminal pane the user opened — this reports agent work, because browser
+ * tool calls are the one agent capability routed through our own services.
+ */
+export function browserStatusIndicator(input: {
+  readonly hasPreviewSession: boolean;
+  readonly isAutomating: boolean;
+}): BrowserStatusIndicator | null {
+  if (input.isAutomating) {
+    return {
+      label: "Agent using browser",
+      colorClass: "text-fuchsia-600 dark:text-fuchsia-300/90",
+      pulse: true,
+    };
+  }
+  if (input.hasPreviewSession) {
+    return {
+      label: "Browser tab open",
+      colorClass: "text-muted-foreground/40",
+      pulse: false,
+    };
+  }
+  return null;
 }
 
 export function terminalStatusFromRunningIds(
