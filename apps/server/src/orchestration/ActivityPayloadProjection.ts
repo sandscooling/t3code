@@ -539,6 +539,57 @@ function dropSupersededToolUpdatedActivities(
   });
 }
 
+/**
+ * Keeps only the newest rate-limit row per window kind. Providers re-send the
+ * same windows on every change, and the client reads one value per kind, so the
+ * history is dead weight. Pruning is by kind rather than by turn (as with
+ * context windows) because both providers send sparse updates — a row that
+ * carries only the 5h window must not evict the last row that carried the
+ * weekly one. Rows this projection cannot read pass through untouched rather
+ * than being dropped on a guess about what a client can make of them.
+ */
+function dropStaleRateLimitActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  const latestIndexByWindowKind = new Map<string, number>();
+  for (let index = 0; index < activities.length; index += 1) {
+    for (const kind of rateLimitWindowKinds(activities[index]!)) {
+      latestIndexByWindowKind.set(kind, index);
+    }
+  }
+  if (latestIndexByWindowKind.size === 0) {
+    return activities;
+  }
+  return activities.filter((activity, index) => {
+    if (activity.kind !== "rate-limits.updated") {
+      return true;
+    }
+    const kinds = rateLimitWindowKinds(activity);
+    if (kinds.length === 0) {
+      return true;
+    }
+    return kinds.some((kind) => latestIndexByWindowKind.get(kind) === index);
+  });
+}
+
+function rateLimitWindowKinds(activity: OrchestrationThreadActivity): ReadonlyArray<string> {
+  if (activity.kind !== "rate-limits.updated") {
+    return [];
+  }
+  const windows = asRecord(activity.payload)?.windows;
+  if (!Array.isArray(windows)) {
+    return [];
+  }
+  const kinds: string[] = [];
+  for (const window of windows) {
+    const kind = asTrimmedString(asRecord(window)?.kind);
+    if (kind) {
+      kinds.push(kind);
+    }
+  }
+  return kinds;
+}
+
 export function projectThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
 ): OrchestrationThreadDetailSnapshot {
@@ -547,7 +598,7 @@ export function projectThreadDetailSnapshot(
     thread: {
       ...snapshot.thread,
       activities: dropSupersededToolUpdatedActivities(
-        dropStaleContextWindowActivities(snapshot.thread.activities),
+        dropStaleRateLimitActivities(dropStaleContextWindowActivities(snapshot.thread.activities)),
       ).map(projectActivityPayload),
     },
   };

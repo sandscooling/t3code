@@ -699,8 +699,45 @@ const AccountUpdatedPayload = Schema.Struct({
 });
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
+/**
+ * Canonical usage windows across providers. Claude reports one window per
+ * `rate_limit_event` (keyed by `rateLimitType`); Codex reports a `primary` +
+ * `secondary` pair keyed only by `windowDurationMins`, so both map onto the
+ * same kinds and consumers never branch on the provider.
+ */
+export const ProviderRateLimitWindowKind = Schema.Literals([
+  "five_hour",
+  "weekly",
+  "weekly_opus",
+  "weekly_sonnet",
+  "monthly",
+  "overage",
+  "unknown",
+]);
+export type ProviderRateLimitWindowKind = typeof ProviderRateLimitWindowKind.Type;
+
+const ProviderRateLimitStatus = Schema.Literals(["allowed", "warning", "rejected"]);
+export type ProviderRateLimitStatus = typeof ProviderRateLimitStatus.Type;
+
+/**
+ * Providers expose utilization, never the quota itself — there is no token or
+ * message ceiling to report, only `usedPercent` (0-100) and when it resets.
+ */
+export const ProviderRateLimitWindow = Schema.Struct({
+  kind: ProviderRateLimitWindowKind,
+  usedPercent: Schema.Number,
+  resetsAt: Schema.optional(IsoDateTime),
+  windowDurationMins: Schema.optional(PositiveInt),
+  status: Schema.optional(ProviderRateLimitStatus),
+});
+export type ProviderRateLimitWindow = typeof ProviderRateLimitWindow.Type;
+
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  rateLimits: Schema.Unknown,
+  windows: Schema.Array(ProviderRateLimitWindow),
+  planLabel: Schema.optional(TrimmedNonEmptyStringSchema),
+  // Unnormalized provider snapshot, retained for debugging and for fields no
+  // surface reads yet (credits, spend controls).
+  rateLimits: Schema.optional(Schema.Unknown),
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

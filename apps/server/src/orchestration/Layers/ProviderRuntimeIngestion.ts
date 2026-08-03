@@ -846,6 +846,30 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "account.rate-limits.updated": {
+      // Sparse update from both providers: an event with no usable window
+      // carries no information, and persisting it would shadow the last row
+      // that did during the client's backward walk.
+      if (event.payload.windows.length === 0) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "rate-limits.updated",
+          summary: "Usage limits updated",
+          payload: {
+            windows: event.payload.windows,
+            ...(event.payload.planLabel ? { planLabel: event.payload.planLabel } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.started": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];

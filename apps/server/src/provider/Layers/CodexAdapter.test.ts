@@ -1247,6 +1247,54 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       // until the suite timeout instead of failing here.
     }).pipe(TestClock.withLive),
   );
+
+  it.effect("maps Codex rate limit windows onto canonical usage windows", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-codex-account-rate-limits-updated"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            planType: "pro",
+            // Codex identifies windows only by duration, in minutes.
+            primary: { usedPercent: 37, windowDurationMins: 300, resetsAt: 1_767_225_600 },
+            secondary: { usedPercent: 12, windowDurationMins: 10_080 },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "account.rate-limits.updated");
+      if (firstEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+
+      NodeAssert.equal(firstEvent.value.payload.planLabel, "pro");
+      NodeAssert.deepEqual(
+        [...firstEvent.value.payload.windows],
+        [
+          {
+            kind: "five_hour",
+            usedPercent: 37,
+            resetsAt: "2026-01-01T00:00:00.000Z",
+            windowDurationMins: 300,
+          },
+          { kind: "weekly", usedPercent: 12, windowDurationMins: 10_080 },
+        ],
+      );
+    }),
+  );
 });
 
 const scopedLifecycleRuntimeFactory = makeScopedRuntimeFactory();

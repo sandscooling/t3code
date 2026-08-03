@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -32,6 +33,8 @@ import {
   ProviderInstanceId,
   type ModelSelection,
   ProviderItemId,
+  type ProviderRateLimitWindow,
+  type ProviderRateLimitWindowKind,
   type ProviderRuntimeEvent,
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
@@ -94,6 +97,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { isoFromEpoch, makeRateLimitWindow, normalizeUsedPercent } from "../rateLimits.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -109,6 +113,63 @@ type ClaudeSdkEffort = NonNullable<ClaudeQueryOptions["effort"]>;
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
+}
+
+function claudeRateLimitWindowKind(
+  rateLimitType: SDKRateLimitInfo["rateLimitType"],
+): ProviderRateLimitWindowKind {
+  switch (rateLimitType) {
+    case "five_hour":
+      return "five_hour";
+    case "seven_day":
+      return "weekly";
+    case "seven_day_opus":
+      return "weekly_opus";
+    case "seven_day_sonnet":
+      return "weekly_sonnet";
+    case "overage":
+      return "overage";
+    default:
+      return "unknown";
+  }
+}
+
+// The SDK names the window but never states its length; the durations are fixed
+// by the claude.ai plan, so they are filled in here for consistent labelling.
+const CLAUDE_WINDOW_DURATION_MINS: Partial<Record<ProviderRateLimitWindowKind, number>> = {
+  five_hour: 5 * 60,
+  weekly: 7 * 24 * 60,
+  weekly_opus: 7 * 24 * 60,
+  weekly_sonnet: 7 * 24 * 60,
+};
+
+function claudeRateLimitStatus(
+  status: SDKRateLimitInfo["status"],
+): NonNullable<ProviderRateLimitWindow["status"]> {
+  switch (status) {
+    case "allowed_warning":
+      return "warning";
+    case "rejected":
+      return "rejected";
+    default:
+      return "allowed";
+  }
+}
+
+/**
+ * Claude reports one window per event rather than a full snapshot, so a single
+ * event never carries both the 5h and weekly figures — consumers merge the
+ * latest event per `kind`.
+ */
+function claudeRateLimitWindow(info: SDKRateLimitInfo): ProviderRateLimitWindow | null {
+  const kind = claudeRateLimitWindowKind(info.rateLimitType);
+  return makeRateLimitWindow({
+    kind,
+    usedPercent: normalizeUsedPercent(info.utilization),
+    resetsAt: isoFromEpoch(info.resetsAt),
+    windowDurationMins: CLAUDE_WINDOW_DURATION_MINS[kind],
+    status: claudeRateLimitStatus(info.status),
+  });
 }
 
 type PromptQueueItem =
@@ -3505,10 +3566,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (message.type === "rate_limit_event") {
+      const window = claudeRateLimitWindow(message.rate_limit_info);
       yield* offerRuntimeEvent({
         ...base,
         type: "account.rate-limits.updated",
         payload: {
+          windows: window ? [window] : [],
           rateLimits: message,
         },
       });

@@ -1293,6 +1293,75 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("normalizes claude.ai rate limit events into canonical usage windows", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      // The SDK reports one window per event, in epoch seconds.
+      harness.query.emit({
+        type: "rate_limit_event",
+        session_id: "sdk-session-rate-limits",
+        uuid: "rate-limit-1",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "seven_day_opus",
+          utilization: 82,
+          resetsAt: 1_767_225_600,
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-rate-limits",
+        uuid: "result-rate-limits",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const rateLimits = runtimeEvents.find(
+        (event) => event.type === "account.rate-limits.updated",
+      );
+      assert.equal(rateLimits?.type, "account.rate-limits.updated");
+      if (rateLimits?.type === "account.rate-limits.updated") {
+        assert.deepEqual(
+          [...rateLimits.payload.windows],
+          [
+            {
+              kind: "weekly_opus",
+              usedPercent: 82,
+              resetsAt: "2026-01-01T00:00:00.000Z",
+              windowDurationMins: 10_080,
+              status: "warning",
+            },
+          ],
+        );
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("falls back to a default plan step label for blank TodoWrite content", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

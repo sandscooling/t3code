@@ -14,6 +14,7 @@ import {
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
+  type ProviderRateLimitWindow,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
   type ThreadTokenUsageSnapshot,
@@ -52,6 +53,12 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import {
+  isoFromEpoch,
+  makeRateLimitWindow,
+  normalizeUsedPercent,
+  rateLimitWindowKindFromDurationMins,
+} from "../rateLimits.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -154,6 +161,32 @@ const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
 function isFatalCodexProcessStderrMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
+}
+
+/**
+ * Codex sends sparse rolling updates: a snapshot may carry only the window that
+ * changed, so absent windows are omitted rather than reported as zero and
+ * consumers merge on top of what they already have.
+ */
+function normalizeCodexRateLimitWindows(
+  snapshot: EffectCodexSchema.V2AccountRateLimitsUpdatedNotification["rateLimits"],
+): ReadonlyArray<ProviderRateLimitWindow> {
+  const windows: ProviderRateLimitWindow[] = [];
+  for (const source of [snapshot.primary, snapshot.secondary]) {
+    if (!source) {
+      continue;
+    }
+    const window = makeRateLimitWindow({
+      kind: rateLimitWindowKindFromDurationMins(source.windowDurationMins),
+      usedPercent: normalizeUsedPercent(source.usedPercent),
+      resetsAt: isoFromEpoch(source.resetsAt),
+      windowDurationMins: source.windowDurationMins,
+    });
+    if (window) {
+      windows.push(window);
+    }
+  }
+  return windows;
 }
 
 function normalizeCodexTokenUsage(
@@ -1394,14 +1427,21 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+    const payload = readPayload(
+      EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+      event.payload,
+    );
+    if (!payload) {
       return [];
     }
+    const planLabel = trimText(payload.rateLimits.limitName ?? payload.rateLimits.planType);
     return [
       {
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
+          windows: normalizeCodexRateLimitWindows(payload.rateLimits),
+          ...(planLabel ? { planLabel } : {}),
           rateLimits: event.payload ?? {},
         },
       },

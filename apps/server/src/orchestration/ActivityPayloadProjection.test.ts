@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
-import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
+import {
+  EventId,
+  type OrchestrationThreadActivity,
+  type OrchestrationThreadDetailSnapshot,
+  TurnId,
+} from "@t3tools/contracts";
+
+import {
+  projectActivityPayload,
+  projectThreadDetailSnapshot,
+} from "./ActivityPayloadProjection.ts";
 
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
   return {
@@ -12,6 +21,33 @@ function activity(payload: Record<string, unknown>): OrchestrationThreadActivity
     turnId: null,
     createdAt: "2026-08-01T10:00:00.000Z",
   } as unknown as OrchestrationThreadActivity;
+}
+
+function makeActivity(
+  id: string,
+  kind: string,
+  payload: unknown,
+  turnId = "turn-1",
+): OrchestrationThreadActivity {
+  return {
+    id: EventId.make(id),
+    tone: "info",
+    kind,
+    summary: kind,
+    payload,
+    turnId: TurnId.make(turnId),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function project(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  const snapshot = {
+    snapshotSequence: 1,
+    thread: { activities },
+  } as unknown as OrchestrationThreadDetailSnapshot;
+  return projectThreadDetailSnapshot(snapshot).thread.activities;
 }
 
 /**
@@ -205,5 +241,65 @@ describe("projectActivityPayload", () => {
     });
     const projected = projectActivityPayload(source);
     expect(projected.payload).toEqual(source.payload);
+  });
+});
+
+describe("projectThreadDetailSnapshot rate limit pruning", () => {
+  it("keeps only the newest row per window kind", () => {
+    const retained = project([
+      makeActivity("a1", "rate-limits.updated", {
+        windows: [{ kind: "five_hour", usedPercent: 10 }],
+      }),
+      makeActivity("a2", "rate-limits.updated", {
+        windows: [{ kind: "five_hour", usedPercent: 20 }],
+      }),
+      makeActivity("a3", "rate-limits.updated", {
+        windows: [{ kind: "five_hour", usedPercent: 30 }],
+      }),
+    ]);
+
+    expect(retained.map((activity) => activity.id)).toEqual(["a3"]);
+  });
+
+  it("retains the last row carrying a window kind that later rows omit", () => {
+    // Both providers send sparse updates, so a 5h-only row must not evict the
+    // last row that reported the weekly window.
+    const retained = project([
+      makeActivity("weekly", "rate-limits.updated", {
+        windows: [{ kind: "weekly", usedPercent: 44 }],
+      }),
+      makeActivity("five-hour", "rate-limits.updated", {
+        windows: [{ kind: "five_hour", usedPercent: 8 }],
+      }),
+    ]);
+
+    expect(retained.map((activity) => activity.id)).toEqual(["weekly", "five-hour"]);
+  });
+
+  it("leaves other activities and context-window pruning intact", () => {
+    const retained = project([
+      makeActivity("ctx-1", "context-window.updated", { usedTokens: 10 }),
+      makeActivity("ctx-2", "context-window.updated", { usedTokens: 20 }),
+      makeActivity("tool", "tool.started", {}),
+      makeActivity("rate-1", "rate-limits.updated", {
+        windows: [{ kind: "weekly", usedPercent: 5 }],
+      }),
+      makeActivity("rate-2", "rate-limits.updated", {
+        windows: [{ kind: "weekly", usedPercent: 6 }],
+      }),
+    ]);
+
+    expect(retained.map((activity) => activity.id)).toEqual(["ctx-2", "tool", "rate-2"]);
+  });
+
+  it("passes malformed rate limit rows through rather than dropping them", () => {
+    const retained = project([
+      makeActivity("bad", "rate-limits.updated", { windows: "nope" }),
+      makeActivity("good", "rate-limits.updated", {
+        windows: [{ kind: "five_hour", usedPercent: 1 }],
+      }),
+    ]);
+
+    expect(retained.map((activity) => activity.id)).toEqual(["bad", "good"]);
   });
 });
