@@ -902,6 +902,74 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
+  it("shows submitted user input answers labelled by their question headers", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-requested",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-1",
+          questions: [
+            {
+              id: "Which authentication method should we use?",
+              header: "Auth method",
+              question: "Which authentication method should we use?",
+              options: [{ label: "OAuth", description: "Delegate to a provider" }],
+              multiSelect: false,
+            },
+            {
+              id: "Which features should be enabled?",
+              header: "Features",
+              question: "Which features should be enabled?",
+              options: [{ label: "Search", description: "Full text search" }],
+              multiSelect: true,
+            },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "user-input-resolved",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: {
+          requestId: "req-1",
+          answers: {
+            "Which authentication method should we use?": "Use passkeys instead",
+            "Which features should be enabled?": ["Search", "Exports"],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    const resolved = entries.find((entry) => entry.id === "user-input-resolved");
+    expect(resolved?.detail).toBe("Auth method: Use passkeys instead\nFeatures: Search, Exports");
+  });
+
+  it("falls back to the question id when the matching request carries no header", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-resolved-orphan",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: {
+          requestId: "req-missing",
+          answers: { sandbox_mode: "workspace-write", ignored: "  " },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries[0]?.detail).toBe("sandbox_mode: workspace-write");
+  });
+
   it("omits task.started but shows task.progress and task.completed", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

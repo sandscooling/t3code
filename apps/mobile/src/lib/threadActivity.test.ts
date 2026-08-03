@@ -203,6 +203,54 @@ describe("buildThreadFeed", () => {
     ]);
   });
 
+  it("shows submitted user input answers labelled by their question headers", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-user-input"),
+      projectId: ProjectId.make("project-1"),
+      title: "Answered questions",
+      activities: [
+        makeActivity({
+          id: EventId.make("user-input-requested"),
+          kind: "user-input.requested",
+          summary: "User input requested",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            requestId: "req-1",
+            questions: [
+              {
+                id: "Which authentication method should we use?",
+                header: "Auth method",
+                question: "Which authentication method should we use?",
+                options: [{ label: "OAuth", description: "Delegate to a provider" }],
+                multiSelect: false,
+              },
+            ],
+          },
+        }),
+        makeActivity({
+          id: EventId.make("user-input-resolved"),
+          kind: "user-input.resolved",
+          summary: "User input submitted",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            requestId: "req-1",
+            answers: {
+              "Which authentication method should we use?": "Use passkeys instead",
+            },
+          },
+        }),
+      ],
+    });
+
+    const activities = buildThreadFeed(thread).flatMap((entry) =>
+      entry.type === "activity-group" ? entry.activities : [],
+    );
+    const resolved = activities.find((activity) => activity.id === "user-input-resolved");
+    expect(resolved?.detail).toBe("Auth method: Use passkeys instead");
+  });
+
   it("collapses matching tool lifecycle rows like desktop", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-2"),

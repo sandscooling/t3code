@@ -840,6 +840,7 @@ export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const userInputHeaders = collectUserInputQuestionHeaders(ordered);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
@@ -855,7 +856,7 @@ export function deriveWorkLogEntries(
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
-    entries.push(toDerivedWorkLogEntry(activity));
+    entries.push(toDerivedWorkLogEntry(activity, userInputHeaders));
   }
   return collapseDerivedWorkLogEntries(entries).map((entry) => {
     const { activityKind, collapseKey: _collapseKey, ...rest } = entry;
@@ -894,7 +895,65 @@ function extractWorkLogToolLifecycleStatus(
   return undefined;
 }
 
-function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+/**
+ * Question headers from `user-input.requested`, keyed by request id then question
+ * id. `user-input.resolved` only carries the answers map, whose keys are question
+ * ids (the full question text for Claude), so the short header has to come from
+ * the matching request.
+ */
+function collectUserInputQuestionHeaders(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): Map<string, Map<string, string>> {
+  const headersByRequestId = new Map<string, Map<string, string>>();
+  for (const activity of activities) {
+    if (activity.kind !== "user-input.requested") continue;
+    const payload = asRecord(activity.payload);
+    const requestId = asTrimmedString(payload?.requestId);
+    if (!requestId || !Array.isArray(payload?.questions)) continue;
+    const headersByQuestionId = new Map<string, string>();
+    for (const entry of payload.questions) {
+      const question = asRecord(entry);
+      const questionId = asTrimmedString(question?.id);
+      const header = asTrimmedString(question?.header);
+      if (questionId && header) {
+        headersByQuestionId.set(questionId, header);
+      }
+    }
+    if (headersByQuestionId.size > 0) {
+      headersByRequestId.set(requestId, headersByQuestionId);
+    }
+  }
+  return headersByRequestId;
+}
+
+/** Renders submitted answers as `Header: answer` lines, one per question. */
+function formatSubmittedUserInputAnswers(
+  payload: Record<string, unknown> | null,
+  headersByQuestionId: Map<string, string> | undefined,
+): string | null {
+  const answers = asRecord(payload?.answers);
+  if (!answers) {
+    return null;
+  }
+  const lines: string[] = [];
+  for (const [questionId, rawAnswer] of Object.entries(answers)) {
+    const answer = Array.isArray(rawAnswer)
+      ? rawAnswer
+          .map((value) => asTrimmedString(value))
+          .filter((value): value is string => value !== null)
+          .join(", ")
+      : asTrimmedString(rawAnswer);
+    if (!answer) continue;
+    const label = headersByQuestionId?.get(questionId) ?? questionId;
+    lines.push(`${label}: ${answer}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+function toDerivedWorkLogEntry(
+  activity: OrchestrationThreadActivity,
+  userInputHeaders: Map<string, Map<string, string>>,
+): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
@@ -918,14 +977,20 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? payload.detail
       : null;
   const taskLabel = taskSummary || taskDetailAsLabel;
-  const detail = isTaskActivity
-    ? !taskDetailAsLabel &&
-      payload &&
-      typeof payload.detail === "string" &&
-      payload.detail.length > 0
-      ? stripTrailingExitCode(payload.detail).output
-      : null
-    : extractToolDetail(payload, title ?? activity.summary);
+  const detail =
+    activity.kind === "user-input.resolved"
+      ? formatSubmittedUserInputAnswers(
+          payload,
+          userInputHeaders.get(asTrimmedString(payload?.requestId) ?? ""),
+        )
+      : isTaskActivity
+        ? !taskDetailAsLabel &&
+          payload &&
+          typeof payload.detail === "string" &&
+          payload.detail.length > 0
+          ? stripTrailingExitCode(payload.detail).output
+          : null
+        : extractToolDetail(payload, title ?? activity.summary);
   const toolCallId = isTaskActivity ? null : extractToolCallId(payload);
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
