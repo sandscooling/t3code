@@ -1,7 +1,6 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import {
   useEffect,
-  useId,
   memo,
   useRef,
   useState,
@@ -11,13 +10,16 @@ import {
 } from "react";
 import type { RenderResult } from "mermaid";
 
+import { fnv1a32 } from "../lib/diffRendering";
+import { LRUCache } from "../lib/lruCache";
 import { Button } from "./ui/button";
 
 type MermaidTheme = "light" | "dark";
 
 interface MermaidRenderState {
   readonly inputKey: string;
-  readonly result: RenderResult | null;
+  readonly svg: string | null;
+  readonly bindFunctions?: RenderResult["bindFunctions"];
 }
 
 export interface MermaidViewportTransform {
@@ -47,6 +49,31 @@ const MERMAID_KEYBOARD_PAN_STEP = 24;
 const DEFAULT_MERMAID_TRANSFORM: MermaidViewportTransform = { x: 0, y: 0, scale: 1 };
 
 let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
+
+const MAX_MERMAID_CACHE_ENTRIES = 100;
+const MAX_MERMAID_CACHE_MEMORY_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Rendered SVG by `theme\0code`, mirroring the Shiki highlight cache in
+ * ChatMarkdown. Without it every remount — switching threads, most visibly —
+ * replays the dynamic import and layout pass, so each diagram flips from its
+ * source text to the diagram again. The render queue serializes those replays,
+ * turning one blink into a cascade down the transcript.
+ */
+const renderedMermaidCache = new LRUCache<string>(
+  MAX_MERMAID_CACHE_ENTRIES,
+  MAX_MERMAID_CACHE_MEMORY_BYTES,
+);
+
+/**
+ * Mermaid bakes this id into the SVG it returns, so it has to be a function of
+ * the cache key rather than per-instance state — otherwise a cache hit renders
+ * markup stamped with some other instance's id. Identical content collides by
+ * design: the markup is identical too, so the shared id refers to identical defs.
+ */
+function mermaidDiagramId(inputKey: string): string {
+  return `t3-mermaid-${fnv1a32(inputKey).toString(36)}`;
+}
 
 export function zoomMermaidTransform(
   transform: MermaidViewportTransform,
@@ -116,9 +143,9 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
   readonly code: string;
   readonly theme: MermaidTheme;
 }) {
-  const reactId = useId();
-  const diagramId = `t3-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const inputKey = `${props.theme}\0${props.code}`;
+  const diagramId = mermaidDiagramId(inputKey);
+  const cachedSvg = renderedMermaidCache.get(inputKey);
   const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const transformRef = useRef<MermaidViewportTransform>(DEFAULT_MERMAID_TRANSFORM);
@@ -127,18 +154,31 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
   const [scale, setScale] = useState(DEFAULT_MERMAID_TRANSFORM.scale);
   const [hasPan, setHasPan] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const stateForInput = renderState?.inputKey === inputKey ? renderState : null;
+  // A cache hit paints the diagram on the first frame, so no source text is
+  // shown on the way in.
+  const stateForInput =
+    renderState?.inputKey === inputKey
+      ? renderState
+      : cachedSvg != null
+        ? { inputKey, svg: cachedSvg }
+        : null;
   const markdownSource = `\`\`\`mermaid\n${props.code.trimEnd()}\n\`\`\``;
 
   useEffect(() => {
+    if (renderedMermaidCache.get(inputKey) != null) {
+      return;
+    }
     let active = true;
 
     void renderMermaidDiagram(diagramId, props.code, props.theme)
       .then((result) => {
-        if (active) setRenderState({ inputKey, result });
+        renderedMermaidCache.set(inputKey, result.svg, result.svg.length * 2);
+        if (active) {
+          setRenderState({ inputKey, svg: result.svg, bindFunctions: result.bindFunctions });
+        }
       })
       .catch(() => {
-        if (active) setRenderState({ inputKey, result: null });
+        if (active) setRenderState({ inputKey, svg: null });
       });
 
     return () => {
@@ -147,20 +187,20 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
   }, [diagramId, inputKey, props.code, props.theme]);
 
   useEffect(() => {
-    if (!stateForInput?.result || !containerRef.current) return;
+    if (!stateForInput?.svg || !containerRef.current) return;
     transformRef.current = DEFAULT_MERMAID_TRANSFORM;
     containerRef.current.style.transform = mermaidTransformStyle(DEFAULT_MERMAID_TRANSFORM);
     dragRef.current = null;
     setScale(DEFAULT_MERMAID_TRANSFORM.scale);
     setHasPan(false);
     setIsPanning(false);
-    stateForInput.result.bindFunctions?.(containerRef.current);
+    stateForInput.bindFunctions?.(containerRef.current);
   }, [stateForInput]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
     const container = containerRef.current;
-    if (!stateForInput?.result || !viewport || !container) return;
+    if (!stateForInput?.svg || !viewport || !container) return;
 
     const constrainCurrentTransform = () => {
       const transform = constrainMermaidTransform(transformRef.current, {
@@ -342,7 +382,7 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
       className="chat-markdown-mermaid border border-border/70 bg-secondary dark:border-transparent dark:bg-input/32"
       data-markdown-copy={markdownSource}
     >
-      {stateForInput?.result ? (
+      {stateForInput?.svg ? (
         <>
           <div className="chat-markdown-mermaid-toolbar" role="toolbar" aria-label="Diagram zoom">
             <Button
@@ -397,7 +437,7 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
             <div
               ref={containerRef}
               className="chat-markdown-mermaid-svg"
-              dangerouslySetInnerHTML={{ __html: stateForInput.result.svg }}
+              dangerouslySetInnerHTML={{ __html: stateForInput.svg }}
             />
           </div>
         </>
