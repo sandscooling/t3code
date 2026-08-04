@@ -321,7 +321,7 @@ export function browserStatusIndicator(input: {
   if (input.isAutomating) {
     return {
       label: "Agent using browser",
-      colorClass: "text-fuchsia-600 dark:text-fuchsia-300/90",
+      colorClass: "text-sky-600 dark:text-sky-300/90",
       pulse: true,
     };
   }
