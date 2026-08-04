@@ -923,6 +923,39 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("gap-1.5 py-0.5 px-1");
   });
 
+  it("renders submitted question answers as an always-visible block", () => {
+    // Free-form answers are long and multi-line; the one-line row preview
+    // truncates them away, so they get their own block instead.
+    const freeForm = "I want the resting state to stay plain and only light up while it is active.";
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-1",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Answered question",
+              tone: "info",
+              sourceActivityKind: "user-input.resolved",
+              detail: `Globe color: Sky, as you asked\nBehavior: ${freeForm}`,
+            },
+          },
+        ]}
+      />,
+    );
+
+    // Both lines survive, and the second is not clipped to the row width.
+    expect(markup).toContain("Globe color: Sky, as you asked");
+    expect(markup).toContain(freeForm);
+    // The block wraps rather than truncating, and needs no disclosure to read.
+    expect(markup).toContain("whitespace-pre-wrap");
+    expect(markup).not.toContain(`truncate text-muted-foreground/55">Globe color`);
+  });
+
   it("renders Windows work-log image paths after Markdown URL sanitization", () => {
     const imagePath = "C:\\Users\\mike\\dev-stuff\\t3code\\result.png";
     assetUrlMocks.useAssetUrlState.mockClear();

@@ -2614,8 +2614,20 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const entryIconName =
     showWarningIndicator || showFailedIndicator ? "x" : workEntryIconName(workEntry);
-  const displayText = workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
-  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
+  // Submitted answers read as a block rather than a one-line preview: free-form
+  // text truncates away in the row, and re-reading a decision you already made
+  // shouldn't cost a click. The block replaces both the preview and the
+  // disclosure, since `detail` is the entire body for these entries.
+  const submittedAnswers =
+    workEntry.sourceActivityKind === "user-input.resolved"
+      ? workEntry.detail?.trim() || null
+      : null;
+  const displayText = submittedAnswers
+    ? toolWorkEntryHeading(workEntry)
+    : (workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry));
+  const expandedBody = submittedAnswers
+    ? null
+    : buildToolCallExpandedBody(workEntry, workspaceRoot);
   const canExpand = expandedBody !== null;
   const showDestructiveRowStyle =
     showFailedIndicator &&
@@ -2701,6 +2713,17 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           </span>
         </div>
       </div>
+      {submittedAnswers ? (
+        <div
+          className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
+          onClick={stopRowToggle}
+          onPointerDown={stopRowToggle}
+        >
+          <pre className="cursor-text whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+            {submittedAnswers}
+          </pre>
+        </div>
+      ) : null}
       {workEntry.imagePath && timeline.threadRef ? (
         <div
           className="mt-1.5 ms-7 cursor-default"
