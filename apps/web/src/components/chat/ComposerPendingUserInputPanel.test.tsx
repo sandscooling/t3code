@@ -22,15 +22,16 @@ const prompt: PendingUserInput = {
   ],
 };
 
-function renderPanel() {
+function renderPanel(respondingRequestIds: ReadonlyArray<ApprovalRequestId> = []) {
   return renderToStaticMarkup(
     <ComposerPendingUserInputPanel
       pendingUserInputs={[prompt]}
-      respondingRequestIds={[]}
+      respondingRequestIds={[...respondingRequestIds]}
       answers={{}}
       questionIndex={0}
       onToggleOption={() => {}}
       onAdvance={() => {}}
+      onDismiss={() => {}}
     />,
   );
 }
@@ -57,5 +58,20 @@ describe("ComposerPendingUserInputPanel", () => {
     expect(markup).toContain("Which approach should the migration take?");
     expect(markup).toContain("Incremental");
     expect(markup).toContain("Big bang");
+  });
+
+  it("offers a dismiss control so a prompt can be closed without answering it", () => {
+    const markup = renderPanel();
+
+    expect(markup).toContain('data-pending-user-input-dismiss="true"');
+    expect(markup).toContain("Dismiss question");
+  });
+
+  it("disables dismissal while an answer is in flight", () => {
+    const markup = renderPanel([prompt.requestId]);
+
+    const dismiss = markup.match(/<button[^>]*data-pending-user-input-dismiss="true"[^>]*>/)?.[0];
+    expect(dismiss).toBeDefined();
+    expect(dismiss).toContain("disabled");
   });
 });

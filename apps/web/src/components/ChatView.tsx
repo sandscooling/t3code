@@ -93,6 +93,7 @@ import {
   deriveTurnPlans,
   findLatestProposedPlan,
   deriveWorkLogEntries,
+  deriveTurnInterruptionNotice,
   hasActionableProposedPlan,
   isLatestTurnSettled,
 } from "../session-logic";
@@ -1385,6 +1386,15 @@ function ChatViewContent(props: ChatViewProps) {
     window.addEventListener("dragend", clearWorkspaceFileDrag);
     return () => window.removeEventListener("dragend", clearWorkspaceFileDrag);
   }, [isWorkspaceFileDragActive]);
+  // Requests the user closed outright. A pending question is otherwise only cleared
+  // by an answer (`user-input.resolved`) or a stale-request failure, so dismissal has
+  // to be tracked here — request ids are unique, so this never crosses threads.
+  const [dismissedUserInputRequestIds, setDismissedUserInputRequestIds] = useState<
+    ApprovalRequestId[]
+  >([]);
+  // Turns whose interruption came from dismissing a question, so the timeline notice
+  // can say so rather than reporting a bare stop.
+  const [dismissedQuestionTurnIds, setDismissedQuestionTurnIds] = useState<TurnId[]>([]);
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
   >({});
@@ -2253,10 +2263,13 @@ function ChatViewContent(props: ChatViewProps) {
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
   );
-  const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
-  );
+  const pendingUserInputs = useMemo(() => {
+    const derived = derivePendingUserInputs(threadActivities);
+    if (dismissedUserInputRequestIds.length === 0) {
+      return derived;
+    }
+    return derived.filter((entry) => !dismissedUserInputRequestIds.includes(entry.requestId));
+  }, [dismissedUserInputRequestIds, threadActivities]);
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
@@ -2586,15 +2599,28 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
+  const turnInterruptionNotice = useMemo(() => {
+    const latestTurn = activeThread?.latestTurn ?? null;
+    return deriveTurnInterruptionNotice(latestTurn, {
+      dismissedPendingQuestion:
+        latestTurn !== null && dismissedQuestionTurnIds.includes(latestTurn.turnId),
+    });
+  }, [activeThread?.latestTurn, dismissedQuestionTurnIds]);
   const timelineEntries = useMemo(
     () =>
       deriveTimelineEntries(
         timelineMessages,
         activeThread?.proposedPlans ?? [],
-        workLogEntries,
+        turnInterruptionNotice ? [...workLogEntries, turnInterruptionNotice] : workLogEntries,
         turnPlans,
       ),
-    [activeThread?.proposedPlans, timelineMessages, turnPlans, workLogEntries],
+    [
+      activeThread?.proposedPlans,
+      timelineMessages,
+      turnInterruptionNotice,
+      turnPlans,
+      workLogEntries,
+    ],
   );
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
@@ -5484,6 +5510,23 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
+  const onDismissActivePendingUserInput = () => {
+    if (!activePendingUserInput) return;
+    const { requestId } = activePendingUserInput;
+    setDismissedUserInputRequestIds((existing) =>
+      existing.includes(requestId) ? existing : [...existing, requestId],
+    );
+    const interruptedTurnId = activeThread?.latestTurn?.turnId ?? null;
+    if (interruptedTurnId !== null) {
+      setDismissedQuestionTurnIds((existing) =>
+        existing.includes(interruptedTurnId) ? existing : [...existing, interruptedTurnId],
+      );
+    }
+    // The provider is blocked on this tool call. Hiding the panel without stopping the
+    // turn would strand it waiting for an answer that can no longer be given.
+    void onInterrupt();
+  };
+
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
       if (!activeThreadId) return;
@@ -6564,6 +6607,7 @@ function ChatViewContent(props: ChatViewProps) {
                               onSelectActivePendingUserInputOption
                             }
                             onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                            onDismissActivePendingUserInput={onDismissActivePendingUserInput}
                             onPreviousActivePendingUserInputQuestion={
                               onPreviousActivePendingUserInputQuestion
                             }

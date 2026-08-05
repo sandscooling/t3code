@@ -15,6 +15,7 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
   deriveTimelineEntries,
+  deriveTurnInterruptionNotice,
   deriveWorkLogEntries,
   findLatestProposedPlan,
   hasActionableProposedPlan,
@@ -2049,6 +2050,71 @@ describe("isLatestTurnSettled", () => {
         null,
       ),
     ).toBe(false);
+  });
+});
+
+describe("deriveTurnInterruptionNotice", () => {
+  const interruptedTurn = {
+    turnId: TurnId.make("turn-1"),
+    state: "interrupted",
+    requestedAt: "2026-02-27T21:10:00.000Z",
+    startedAt: "2026-02-27T21:10:01.000Z",
+    completedAt: "2026-02-27T21:10:06.000Z",
+    assistantMessageId: null,
+  } as const;
+
+  it("returns no row while a turn is still running", () => {
+    expect(
+      deriveTurnInterruptionNotice(
+        { ...interruptedTurn, state: "running", completedAt: null },
+        { dismissedPendingQuestion: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("returns no row for a turn that completed on its own", () => {
+    expect(
+      deriveTurnInterruptionNotice(
+        { ...interruptedTurn, state: "completed" },
+        { dismissedPendingQuestion: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("marks an interrupted turn as stopped at the moment it ended", () => {
+    const notice = deriveTurnInterruptionNotice(interruptedTurn, {
+      dismissedPendingQuestion: false,
+    });
+
+    expect(notice?.id).toBe("turn-interrupted:turn-1");
+    expect(notice?.createdAt).toBe("2026-02-27T21:10:06.000Z");
+    expect(notice?.turnId).toBe(TurnId.make("turn-1"));
+    expect(notice?.tone).toBe("info");
+    expect(notice?.label).toContain("Stopped");
+  });
+
+  it("says the question was dismissed when that is what stopped the turn", () => {
+    const notice = deriveTurnInterruptionNotice(interruptedTurn, {
+      dismissedPendingQuestion: true,
+    });
+
+    expect(notice?.label).toContain("Question dismissed");
+    expect(notice?.label).toContain("ready for your next message");
+  });
+
+  it("falls back to earlier timestamps when the turn never recorded an end", () => {
+    expect(
+      deriveTurnInterruptionNotice(
+        { ...interruptedTurn, completedAt: null },
+        { dismissedPendingQuestion: false },
+      )?.createdAt,
+    ).toBe("2026-02-27T21:10:01.000Z");
+    expect(
+      deriveTurnInterruptionNotice(
+        { ...interruptedTurn, completedAt: null, startedAt: null },
+        { dismissedPendingQuestion: false },
+      )?.createdAt,
+    ).toBe("2026-02-27T21:10:00.000Z");
   });
 });
 

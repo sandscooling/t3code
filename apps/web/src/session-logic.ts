@@ -1904,6 +1904,34 @@ export function deriveTimelineEntries(
   );
 }
 
+/**
+ * Timeline row marking a turn the user stopped.
+ *
+ * Interrupting is not an activity, so nothing in the transcript records it — the
+ * conversation just stops mid-thought and leaves you guessing whether the agent
+ * is still working. Synthesizing the row from the turn's own terminal state keeps
+ * it visible without inventing server events, and it survives a reload because it
+ * is derived from persisted turn state rather than from a local flag.
+ */
+export function deriveTurnInterruptionNotice(
+  latestTurn: OrchestrationLatestTurn | null,
+  input: { dismissedPendingQuestion: boolean },
+): WorkLogEntry | null {
+  if (!latestTurn || latestTurn.state !== "interrupted") {
+    return null;
+  }
+
+  return {
+    id: `turn-interrupted:${latestTurn.turnId}`,
+    createdAt: latestTurn.completedAt ?? latestTurn.startedAt ?? latestTurn.requestedAt,
+    turnId: latestTurn.turnId,
+    tone: "info",
+    label: input.dismissedPendingQuestion
+      ? "Question dismissed — stopped, ready for your next message"
+      : "Stopped — ready for your next message",
+  };
+}
+
 export function inferCheckpointTurnCountByTurnId(
   summaries: ReadonlyArray<TurnDiffSummary>,
 ): Record<TurnId, number> {

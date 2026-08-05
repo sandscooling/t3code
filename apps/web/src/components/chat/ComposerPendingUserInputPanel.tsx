@@ -5,8 +5,9 @@ import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 
 interface PendingUserInputPanelProps {
@@ -16,6 +17,7 @@ interface PendingUserInputPanelProps {
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
   onAdvance: () => void;
+  onDismiss: () => void;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -25,6 +27,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   questionIndex,
   onToggleOption,
   onAdvance,
+  onDismiss,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -39,6 +42,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
+      onDismiss={onDismiss}
     />
   );
 });
@@ -50,6 +54,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex,
   onToggleOption,
   onAdvance,
+  onDismiss,
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
@@ -57,11 +62,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
   onAdvance: () => void;
+  onDismiss: () => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
+  const onDismissRef = useRef(onDismiss);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
     questionId: string;
     optionLabel: string;
@@ -78,6 +85,27 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
   }, [onAdvance]);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  // Escape closes the prompt outright, matching the CLI. Deliberately still active
+  // while collapsed, and while typing a custom answer: reaching for Escape mid-answer
+  // means "get me out of here", not "keep this question". `defaultPrevented` leaves
+  // Escape to whatever already handled it (an open menu, a dialog).
+  useEffect(() => {
+    if (isResponding) return;
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      onDismissRef.current();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isResponding]);
 
   useEffect(() => {
     if (!activeQuestion || activeQuestion.multiSelect || !optimisticSingleSelect) {
@@ -213,6 +241,23 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             )}
           />
         </CollapsibleTrigger>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={onDismiss}
+                disabled={isResponding}
+                aria-label="Dismiss question"
+                data-pending-user-input-dismiss="true"
+                className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/55 outline-none transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-1 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 enabled:cursor-pointer"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            }
+          />
+          <TooltipPopup side="top">Dismiss question (Esc)</TooltipPopup>
+        </Tooltip>
       </div>
       {/* The panel carries the horizontal padding itself: it clips its content
           while the height animates, so the option buttons have to sit inside
