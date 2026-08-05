@@ -70,6 +70,9 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
 type ProjectorName =
   (typeof ORCHESTRATION_PROJECTOR_NAMES)[keyof typeof ORCHESTRATION_PROJECTOR_NAMES];
 
+/** Events replayed per `readFromSequence` call while bootstrapping a projector. */
+const BOOTSTRAP_PAGE_SIZE = 1_000;
+
 /**
  * Turn state to settle still-running turns with when their session leaves the
  * "running" status, or null while the session is (re)starting or running and
@@ -1678,21 +1681,44 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       );
     });
 
-    const bootstrapProjector = (projector: ProjectorDefinition) =>
-      projectionStateRepository
-        .getByProjector({
-          projector: projector.name,
-        })
-        .pipe(
-          Effect.flatMap((stateRow) =>
-            Stream.runForEach(
-              eventStore.readFromSequence(
-                Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
+    /**
+     * Replay a projector up to the head of the event store.
+     *
+     * `readFromSequence` yields at most one page, so a projector that has
+     * fallen further behind than the page size — after a bulk import, or a
+     * first run against a pre-existing store — has to page until the stream
+     * runs dry. Draining a single page instead reports success while leaving
+     * the projection short, and the first live event projected afterwards
+     * advances the cursor past the gap, stranding those events permanently.
+     */
+    const bootstrapProjector = Effect.fn("bootstrapProjector")(function* (
+      projector: ProjectorDefinition,
+    ) {
+      const stateRow = yield* projectionStateRepository.getByProjector({
+        projector: projector.name,
+      });
+      let cursor = Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0;
+
+      for (;;) {
+        const page = { applied: 0, lastSequence: cursor };
+        yield* Stream.runForEach(
+          eventStore.readFromSequence(cursor, BOOTSTRAP_PAGE_SIZE),
+          (event) =>
+            runProjectorForEvent(projector, event).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  page.applied += 1;
+                  page.lastSequence = event.sequence;
+                }),
               ),
-              (event) => runProjectorForEvent(projector, event),
             ),
-          ),
         );
+        if (page.applied === 0) {
+          return;
+        }
+        cursor = page.lastSequence;
+      }
+    });
 
     const projectEvent: OrchestrationProjectionPipelineShape["projectEvent"] = (event) =>
       Effect.forEach(projectors, (projector) => runProjectorForEvent(projector, event), {
