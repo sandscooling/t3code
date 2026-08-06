@@ -60,6 +60,7 @@ describe("isPreviewRefreshShortcut", () => {
 
 const {
   browserWindowConstructor,
+  createFromBuffer,
   createFromPath,
   fromId,
   getFocusedWebContents,
@@ -70,6 +71,11 @@ const {
   writeImage,
 } = vi.hoisted(() => ({
   browserWindowConstructor: vi.fn(),
+  createFromBuffer: vi.fn((buffer: Buffer) => ({
+    isEmpty: () => false,
+    getSize: () => ({ width: 800, height: 600 }),
+    toPNG: () => buffer,
+  })),
   createFromPath: vi.fn((): { readonly isEmpty: () => boolean } => ({ isEmpty: () => false })),
   fromId: vi.fn((_id?: number) => null),
   getFocusedWebContents: vi.fn(() => null),
@@ -86,6 +92,7 @@ vi.mock("electron", () => ({
     writeImage,
   },
   nativeImage: {
+    createFromBuffer,
     createFromPath,
   },
   shell: {
@@ -2003,6 +2010,89 @@ describe("PreviewManager", () => {
           webContents: { setBackgroundThrottling: replacementWindowThrottling },
         } as never);
         expect(replacementWindowThrottling).not.toHaveBeenCalled();
+      }),
+    ),
+  );
+
+  effectIt.effect("falls back to debugger capture when the tab has no compositor frame", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const screenshot = Buffer.from("debugger-png").toString("base64");
+        const sendCommand = vi.fn(async (method: string) => {
+          if (method === "Runtime.evaluate") {
+            return {
+              result: {
+                value: {
+                  url: "https://example.com",
+                  title: "Example",
+                  loading: false,
+                  visibleText: "Example",
+                  interactiveElements: [],
+                },
+              },
+            };
+          }
+          if (method === "Accessibility.getFullAXTree") return { nodes: [] };
+          if (method === "Page.captureScreenshot") return { data: screenshot };
+          return undefined;
+        });
+        // An unpainted tab has no compositor surface to copy, so Electron
+        // rejects rather than returning a frame.
+        const capturePage = vi.fn(() => Promise.reject(new Error("UnknownVizError")));
+        fromId.mockReturnValue({
+          id: 42,
+          isDestroyed: () => false,
+          getType: () => "webview",
+          getURL: () => "https://example.com",
+          getTitle: () => "Example",
+          isLoading: () => false,
+          isDevToolsOpened: () => false,
+          getZoomFactor: () => 1,
+          setZoomFactor: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          ipc: { on: vi.fn(), off: vi.fn() },
+          send: webviewSend,
+          navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+          setWindowOpenHandler: vi.fn(),
+          debugger: {
+            isAttached: () => false,
+            attach: vi.fn(),
+            sendCommand,
+            on: vi.fn(),
+            off: vi.fn(),
+          },
+          capturePage,
+        } as never);
+
+        yield* manager.createTab("tab_1");
+        yield* manager.registerWebview("tab_1", 42);
+
+        const snapshot = yield* manager.automationSnapshot("tab_1");
+
+        expect(capturePage).toHaveBeenCalledOnce();
+        expect(sendCommand).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
+        expect(snapshot.screenshot).toEqual({
+          mimeType: "image/png",
+          data: screenshot,
+          width: 800,
+          height: 600,
+        });
+
+        // Electron can also resolve an empty image instead of rejecting, which
+        // would otherwise hand back a blank screenshot as though it succeeded.
+        capturePage.mockResolvedValueOnce({
+          isEmpty: () => true,
+          getSize: () => ({ width: 0, height: 0 }),
+        } as never);
+        const recovered = yield* manager.automationSnapshot("tab_1");
+
+        expect(recovered.screenshot).toEqual({
+          mimeType: "image/png",
+          data: screenshot,
+          width: 800,
+          height: 600,
+        });
       }),
     ),
   );

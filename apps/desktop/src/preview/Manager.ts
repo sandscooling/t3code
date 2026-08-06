@@ -3063,6 +3063,45 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         };
   });
 
+  /**
+   * Grabs the snapshot screenshot, preferring Electron's compositor capture and
+   * falling back to CDP when it cannot deliver a frame.
+   *
+   * `capturePage` copies an existing compositor surface, so it fails with
+   * `UnknownVizError` (or hands back an empty image) whenever the tab is not
+   * being painted - a background thread's offscreen preview being the common
+   * case. `Page.captureScreenshot` renders its own frame and needs no live viz
+   * surface, which keeps snapshots working for tabs the human cannot see.
+   */
+  const captureSnapshotImage = (tabId: string, wc: Electron.WebContents, send: SendCommand) => {
+    const errorContext = {
+      operation: "automationSnapshot.capturePage",
+      tabId,
+      webContentsId: wc.id,
+    } as const;
+    const viaDebugger = send("Page.captureScreenshot", { format: "png" }).pipe(
+      Effect.flatMap((rawResponse) => {
+        const data = (rawResponse as { readonly data?: unknown }).data;
+        if (typeof data !== "string" || data.length === 0) {
+          return Effect.fail(
+            new PreviewOperationError({
+              ...errorContext,
+              operation: "automationSnapshot.captureScreenshot",
+              cause: new Error("Page.captureScreenshot returned no image data"),
+            }),
+          );
+        }
+        return Effect.succeed(nativeImage.createFromBuffer(Buffer.from(data, "base64")));
+      }),
+    );
+    // Both "rejected" and "resolved but empty" collapse into one absent frame so
+    // the debugger path runs at most once, whichever way the capture came back.
+    return attemptPromise(errorContext, () => wc.capturePage()).pipe(
+      Effect.catchTag("PreviewOperationError", () => Effect.succeed(undefined)),
+      Effect.flatMap((image) => (image && !image.isEmpty() ? Effect.succeed(image) : viaDebugger)),
+    );
+  };
+
   const captureAutomationSnapshot = Effect.fn("PreviewManager.captureAutomationSnapshot")(
     function* (tabId: string, wc: Electron.WebContents, send: SendCommand) {
       yield* Effect.all([send("Runtime.enable"), send("Accessibility.enable")], {
@@ -3133,14 +3172,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
       const [accessibility, sourceImage, diagnostics, timelines] = yield* Effect.all([
         send("Accessibility.getFullAXTree"),
-        attemptPromise(
-          {
-            operation: "automationSnapshot.capturePage",
-            tabId,
-            webContentsId: wc.id,
-          },
-          () => wc.capturePage(),
-        ),
+        captureSnapshotImage(tabId, wc, send),
         Ref.get(diagnosticsRef),
         Ref.get(actionTimelineRef),
       ]);

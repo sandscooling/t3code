@@ -76,6 +76,7 @@ import {
   resolvePreviewAutomationOpenTab,
   resolvePreviewAutomationTarget,
 } from "./previewAutomationTarget";
+import { previewOverlayBudgetMs } from "./previewOverlayTimeout";
 import { isPreviewViewportReady } from "./previewViewportReadiness";
 import { shouldRollbackPreviewViewport } from "./previewViewportRollback";
 
@@ -97,7 +98,8 @@ const waitForDesktopOverlay = async (
   operation: PreviewAutomationRequest["operation"],
   timeoutMs: number,
 ): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
+  const budgetMs = previewOverlayBudgetMs(timeoutMs);
+  const deadline = Date.now() + budgetMs;
   while (Date.now() <= deadline) {
     const state = assertPreviewRuntimeCurrent(threadRef, tabId, runtimeTabId, {
       operation,
@@ -113,7 +115,7 @@ const waitForDesktopOverlay = async (
     requestId,
     environmentId: threadRef.environmentId,
     threadId: threadRef.threadId,
-    timeoutMs,
+    timeoutMs: budgetMs,
   });
 };
 

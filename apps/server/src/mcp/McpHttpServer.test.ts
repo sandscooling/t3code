@@ -85,14 +85,24 @@ it.effect("returns bounded structural preview snapshot failures", () =>
         );
 
       expect(snapshot.isError).toBe(true);
-      expect(snapshot.content).toEqual([{ type: "text", text: "Preview snapshot failed." }]);
       expect(snapshot.structuredContent).toEqual({
         error: {
           _tag: "PreviewAutomationExecutionError",
           operation: "snapshot",
           failureCount: 1,
+          message: "Preview automation snapshot failed on client mcp-failure-client.",
+          remoteTag: "PreviewAutomationExecutionError",
+          remoteDetailKind: "object",
+          timeoutMs: 15_000,
         },
       });
+
+      // The locally built summary reaches the agent; the renderer's own message
+      // and detail payload must not, since they carry browsed page content. The
+      // exhaustive structuredContent match above is what keeps them out.
+      expect(snapshot.content).toEqual([
+        { type: "text", text: "Preview automation snapshot failed on client mcp-failure-client." },
+      ]);
     }),
   ).pipe(Effect.provide(TestLayer)),
 );
