@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
   type SDKRateLimitInfo,
   type SDKResultMessage,
   type SettingSource,
@@ -97,7 +98,12 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { isoFromEpoch, makeRateLimitWindow, normalizeUsedPercent } from "../rateLimits.ts";
+import {
+  claudePlanRateLimitWindows,
+  isoFromEpoch,
+  makeRateLimitWindow,
+  normalizeUsedPercent,
+} from "../rateLimits.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -350,6 +356,14 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly getContextUsage?: () => Promise<SDKControlGetContextUsageResponse>;
+  /**
+   * SDK `Query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET` —
+   * the structured `/usage` data. Named as the SDK names it so the rename the
+   * SDK promises on stabilization surfaces here as a typecheck failure rather
+   * than a silently absent method. Optional: absent on test doubles, and on
+   * any SDK version that has since renamed it.
+   */
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
   readonly close: () => void;
 }
 
@@ -2176,6 +2190,62 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     return normalizeClaudeContextUsageApiSnapshot(usage, totalProcessedTokens);
   });
 
+  /**
+   * Plan usage windows via the `/usage` control request.
+   *
+   * The push `rate_limit_event` names the window and its reset instant but has
+   * never been observed carrying `utilization`, so a percentage can only come
+   * from this pull. The whole call sits behind one wrapper because the SDK
+   * documents the method as unstable and promises to rename it: when that
+   * lands, this function is the only thing that needs updating, and until then
+   * a missing method degrades to no windows rather than a failed turn.
+   */
+  const queryPlanRateLimits = Effect.fn("queryPlanRateLimits")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    if (!context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET) {
+      return [];
+    }
+
+    const usage = yield* Effect.promise(async () => {
+      try {
+        return await context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?.();
+      } catch {
+        return undefined;
+      }
+    });
+    // `rate_limits_available` is false for API key, Bedrock, and Vertex
+    // sessions, where `rate_limits` is null and there is nothing to report.
+    if (!usage?.rate_limits_available) {
+      return [];
+    }
+    return claudePlanRateLimitWindows(usage.rate_limits);
+  });
+
+  const emitPlanRateLimits = Effect.fn("emitPlanRateLimits")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    const windows = yield* queryPlanRateLimits(context);
+    // Ingestion drops an empty-window event anyway, and persisting one would
+    // shadow the last row that carried real windows during the client's
+    // backward walk.
+    if (windows.length === 0) {
+      return;
+    }
+
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "account.rate-limits.updated",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+      payload: { windows },
+      providerRefs: nativeProviderRefs(context),
+    });
+  });
+
   const emitProposedPlanCompleted = Effect.fn("emitProposedPlanCompleted")(function* (
     context: ClaudeSessionContext,
     input: {
@@ -2280,6 +2350,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       context,
       accumulatedTotalProcessedTokens ?? context.lastKnownTotalProcessedTokens,
     );
+    // Turn end is the natural cadence: plan utilization only moves when a turn
+    // consumes quota, and both control requests then travel together.
+    yield* emitPlanRateLimits(context);
     const resultUsageRecord =
       result?.usage && typeof result.usage === "object" && !Array.isArray(result.usage)
         ? (result.usage as Record<string, unknown>)

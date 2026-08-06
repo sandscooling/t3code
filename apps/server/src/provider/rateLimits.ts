@@ -7,7 +7,11 @@ import * as Option from "effect/Option";
  * `ProviderRateLimitWindow`:
  *
  * - Claude (`rate_limit_event`) sends one window per event, tagged with
- *   `rateLimitType` and a `utilization` percentage.
+ *   `rateLimitType`. It names the window and when it resets but omits
+ *   `utilization` in practice, so it cannot produce a usable window on its own.
+ * - Claude (`/usage` control request) reports every plan window at once, each
+ *   with a real utilization percentage. This is the only source of a
+ *   percentage for Claude.
  * - Codex (`account/rateLimits/updated`) sends a `primary`/`secondary` pair
  *   identified only by `windowDurationMins`.
  *
@@ -85,4 +89,57 @@ export function makeRateLimitWindow(input: {
     ...(windowDurationMins !== undefined ? { windowDurationMins } : {}),
     ...(input.status !== undefined ? { status: input.status } : {}),
   };
+}
+
+/**
+ * Plan windows as the `/usage` control request names them, mapped onto the
+ * canonical kinds. `seven_day_oauth_apps` is deliberately absent: it meters
+ * third-party OAuth apps rather than this account's own plan usage, and has no
+ * canonical kind to land on.
+ */
+const CLAUDE_PLAN_WINDOW_KINDS: ReadonlyArray<
+  readonly [key: string, kind: ProviderRateLimitWindowKind, windowDurationMins: number]
+> = [
+  ["five_hour", "five_hour", 5 * MINUTES_PER_HOUR],
+  ["seven_day", "weekly", 7 * MINUTES_PER_DAY],
+  ["seven_day_opus", "weekly_opus", 7 * MINUTES_PER_DAY],
+  ["seven_day_sonnet", "weekly_sonnet", 7 * MINUTES_PER_DAY],
+];
+
+/**
+ * Normalizes the `rate_limits` block of the SDK's `/usage` response. Returns
+ * an empty array when plan limits do not apply (API key, Bedrock, Vertex), so
+ * callers can treat "no windows" uniformly rather than branching on auth mode.
+ */
+export function claudePlanRateLimitWindows(rateLimits: unknown): Array<ProviderRateLimitWindow> {
+  const record = asRecord(rateLimits);
+  if (!record) {
+    return [];
+  }
+
+  const windows: Array<ProviderRateLimitWindow> = [];
+  for (const [key, kind, windowDurationMins] of CLAUDE_PLAN_WINDOW_KINDS) {
+    const entry = asRecord(record[key]);
+    if (!entry) {
+      continue;
+    }
+    // `utilization` is already a 0-100 percentage here, unlike the epoch-second
+    // `resetsAt` of the push event: this payload is ISO 8601 throughout.
+    const window = makeRateLimitWindow({
+      kind,
+      usedPercent: normalizeUsedPercent(entry.utilization as number | null | undefined),
+      resetsAt: typeof entry.resets_at === "string" ? entry.resets_at : undefined,
+      windowDurationMins,
+    });
+    if (window) {
+      windows.push(window);
+    }
+  }
+  return windows;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

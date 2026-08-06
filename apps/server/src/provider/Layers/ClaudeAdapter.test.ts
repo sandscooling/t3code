@@ -8,6 +8,7 @@ import type {
   Options as ClaudeQueryOptions,
   PermissionMode,
   PermissionResult,
+  SDKControlGetUsageResponse,
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -60,6 +61,12 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public closeCalls = 0;
+  /**
+   * `/usage` control-request response. Left unset, the adapter sees a response
+   * with no plan limits — the API-key/Bedrock/Vertex case — and emits nothing.
+   */
+  public usageResponse: SDKControlGetUsageResponse | undefined;
+  public usageCalls = 0;
 
   emit(message: SDKMessage): void {
     if (this.done) {
@@ -114,6 +121,12 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   readonly setMaxThinkingTokens = async (maxThinkingTokens: number | null): Promise<void> => {
     this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
   };
+
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET =
+    async (): Promise<SDKControlGetUsageResponse> => {
+      this.usageCalls += 1;
+      return this.usageResponse as SDKControlGetUsageResponse;
+    };
 
   readonly close = (): void => {
     this.closeCalls += 1;
@@ -1356,6 +1369,128 @@ describe("ClaudeAdapterLive", () => {
           ],
         );
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits plan usage windows from the /usage control request at turn end", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      // The push `rate_limit_event` names the window but carries no
+      // utilization; this pull is the only source of a percentage.
+      harness.query.usageResponse = {
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 14, resets_at: "2026-08-06T16:30:00.000Z" },
+          seven_day: { utilization: 42, resets_at: "2026-08-10T00:00:00.000Z" },
+        },
+      } as unknown as SDKControlGetUsageResponse;
+
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-plan-usage",
+        uuid: "result-plan-usage",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const rateLimits = runtimeEvents.find(
+        (event) => event.type === "account.rate-limits.updated",
+      );
+      assert.equal(rateLimits?.type, "account.rate-limits.updated");
+      if (rateLimits?.type === "account.rate-limits.updated") {
+        assert.deepEqual(
+          [...rateLimits.payload.windows],
+          [
+            {
+              kind: "five_hour",
+              usedPercent: 14,
+              resetsAt: "2026-08-06T16:30:00.000Z",
+              windowDurationMins: 300,
+            },
+            {
+              kind: "weekly",
+              usedPercent: 42,
+              resetsAt: "2026-08-10T00:00:00.000Z",
+              windowDurationMins: 10_080,
+            },
+          ],
+        );
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits no usage windows when the session has no plan limits", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      // API key, Bedrock, and Vertex sessions report no plan limits. The turn
+      // must still complete normally rather than erroring on the empty read.
+      harness.query.usageResponse = {
+        rate_limits_available: false,
+        rate_limits: null,
+      } as unknown as SDKControlGetUsageResponse;
+
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-no-plan",
+        uuid: "result-no-plan",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "account.rate-limits.updated"),
+        false,
+      );
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "turn.completed"),
+        true,
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
