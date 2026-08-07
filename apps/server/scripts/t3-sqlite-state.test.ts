@@ -8,6 +8,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../src/persistence/NodeSqliteClient.ts";
 import { runSqliteState } from "./t3-sqlite-state.ts";
 
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 const createFixtureDatabase = Effect.fn("createSqliteStateFixtureDatabase")(function* (
   baseDir: string,
 ) {
@@ -87,7 +88,13 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
       });
       assert.equal(mutation.operation, "exec");
       if (mutation.operation === "exec") {
-        assert.equal((yield* fs.stat(mutation.backup)).mode & 0o777, 0o600);
+        // The backup is written 0o600 so a copy of the database is not left
+        // world readable. Windows has no POSIX mode bits for chmod to set, so
+        // the mode always reads back 0o666 there and the guarantee is carried
+        // by the inherited directory ACL instead.
+        if ((yield* HostProcessPlatform) !== "win32") {
+          assert.equal((yield* fs.stat(mutation.backup)).mode & 0o777, 0o600);
+        }
       }
 
       const error = yield* runSqliteState(

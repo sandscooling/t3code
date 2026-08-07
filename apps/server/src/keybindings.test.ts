@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import { KeybindingsConfigError } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
 const encodeKeybindingsConfigJson = Schema.encodeEffect(KeybindingsConfigJson);
@@ -509,6 +510,12 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
 
   it.effect("fails when config directory is not writable", () =>
     Effect.gen(function* () {
+      // Makes the directory unwritable with chmod 0o500. Windows has no POSIX
+      // mode bits: chmod there only toggles the read-only attribute, and not on
+      // directories at all, so the write under test still succeeds and the
+      // failure this asserts cannot be provoked.
+      if ((yield* HostProcessPlatform) === "win32") return;
+
       const fs = yield* FileSystem.FileSystem;
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
       const { dirname } = yield* Path.Path;

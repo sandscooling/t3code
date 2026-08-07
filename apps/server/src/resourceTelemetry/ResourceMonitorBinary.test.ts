@@ -11,6 +11,9 @@ import * as FileSystem from "effect/FileSystem";
 import { ServerConfig } from "../config.ts";
 import * as ResourceMonitorBinary from "./ResourceMonitorBinary.ts";
 
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Needs the real host, not the platform these tests inject.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
+
 describe("ResourceMonitorBinary", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -44,6 +47,13 @@ describe("ResourceMonitorBinary", () => {
 
   it.effect("resolves an executable override", () =>
     Effect.gen(function* () {
+      // Pins a POSIX platform so the executable-bit check runs, but the file is
+      // created on the real filesystem. NTFS has no execute bit for chmod to
+      // set, so the check correctly rejects the fixture. Production already
+      // skips this check when the host really is win32, so nothing is untested
+      // there; the case simply cannot be staged on this filesystem.
+      if (HOST_PLATFORM === "win32") return;
+
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-resource-monitor-binary-",
@@ -68,6 +78,13 @@ describe("ResourceMonitorBinary", () => {
 
   it.effect("resolves an executable override on an unsupported platform", () =>
     Effect.gen(function* () {
+      // Pins a POSIX platform so the executable-bit check runs, but the file is
+      // created on the real filesystem. NTFS has no execute bit for chmod to
+      // set, so the check correctly rejects the fixture. Production already
+      // skips this check when the host really is win32, so nothing is untested
+      // there; the case simply cannot be staged on this filesystem.
+      if (HOST_PLATFORM === "win32") return;
+
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-resource-monitor-binary-",
