@@ -1,4 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
@@ -20,6 +23,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
 
@@ -58,9 +62,19 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
     const encoded = yield* encodeDesktopBootstrap(payload);
     yield* fs.writeFileString(filePath, `${encoded}\n`);
+    const platform = yield* HostProcessPlatform;
     return yield* Effect.acquireRelease(
       Effect.sync(() => NodeFS.openSync(filePath, "r")),
-      (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+      (fd) =>
+        Effect.sync(() => {
+          // Windows has no `/proc/self/fd` or `/dev/fd` for `resolveFdPath` to
+          // duplicate through, so `readBootstrapEnvelope` streams this
+          // descriptor directly with `autoClose` and owns it. Closing here
+          // would race that close and surface EBADF as an uncaught exception.
+          // Same reasoning as the helper in bootstrap.test.ts.
+          if (platform === "win32") return;
+          NodeFS.closeSync(fd);
+        }),
     );
   });
 
@@ -282,7 +296,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("uses bootstrap envelope values as fallbacks when flags and env are absent", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = "/tmp/t3-bootstrap-home";
+      // resolveBaseDir resolves whatever the envelope carries, which on Windows
+      // turns a rooted POSIX path into a drive-qualified one. Resolving here
+      // keeps the fixture and the derived expectations on the same spelling;
+      // it is a no-op on platforms where the literal is already absolute.
+      const baseDir = NodePath.resolve("/tmp/t3-bootstrap-home");
       const fd = yield* openBootstrapFd(
         makeDesktopBootstrap({
           port: 4888,

@@ -72,7 +72,15 @@ function buildScript() {
 }
 
 const scriptPath = NodePath.join(import.meta.dirname, "../testFixtures/.collab-script.json");
-const peerPath = NodePath.join(import.meta.dirname, "../testFixtures/codexCollabMockPeer.sh");
+// The `.sh` wrapper cannot be executed on Windows, which fails the spawn with
+// EFTYPE before the peer runs. The `.cmd` sibling does the same job there, and
+// `resolveSpawnCommand` already routes `.cmd` through the shell.
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Module scope, before any Effect runtime.
+const peerExtension = process.platform === "win32" ? "cmd" : "sh";
+const peerPath = NodePath.join(
+  import.meta.dirname,
+  `../testFixtures/codexCollabMockPeer.${peerExtension}`,
+);
 
 describe("CodexSessionRuntime collab integration", () => {
   it.effect("replays the captured fan-out into synthetic agent events without child leaks", () =>
