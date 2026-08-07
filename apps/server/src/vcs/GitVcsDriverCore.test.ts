@@ -1410,6 +1410,38 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("remote operations", () => {
+    it.effect("ensureRemote reuses a remote whose url is a local path with spaces", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        // `git remote -v` separates name, url and direction with whitespace, so
+        // a url that itself contains a space is only recoverable by anchoring on
+        // the trailing "(fetch)". Parsing the url as a run of non-whitespace
+        // dropped such remotes without a trace, and callers then behaved as
+        // though the remote was absent: this call invented a second remote
+        // instead of reusing origin. Local paths with spaces are ordinary, from
+        // "C:\Users\First Last" to "~/My Projects".
+        const remoteParent = yield* makeTmpDir("git-vcs-driver-spaced remote-");
+        const remotePath = pathService.join(remoteParent, "bare repo.git");
+        yield* fileSystem.makeDirectory(remotePath, { recursive: true });
+        yield* git(remotePath, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remotePath]);
+
+        const reused = yield* driver.ensureRemote({
+          cwd,
+          preferredName: "upstream",
+          url: remotePath,
+        });
+
+        assert.equal(reused, "origin");
+        assert.equal(yield* git(cwd, ["remote"]), "origin");
+      }),
+    );
+
     it.effect("ensureRemote reuses an existing remote across ssh/https transport variants", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

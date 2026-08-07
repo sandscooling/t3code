@@ -390,7 +390,11 @@ function parseGitRemoteVerboseOutput(
       continue;
     }
 
-    const match = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/.exec(trimmed);
+    // The URL is matched lazily rather than as a run of non-whitespace: a
+    // remote pointing at a local path can contain spaces, and `\S+` silently
+    // dropped those remotes entirely. A remote name cannot contain whitespace,
+    // so anchoring on the name and the trailing direction is unambiguous.
+    const match = /^(\S+)\s+(.+?)\s+\((fetch|push)\)$/.exec(trimmed);
     if (!match) {
       continue;
     }
