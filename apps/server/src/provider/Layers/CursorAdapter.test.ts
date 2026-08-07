@@ -31,6 +31,9 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { makeCursorAdapter } from "./CursorAdapter.ts";
+
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CursorAdapter`.
@@ -51,6 +54,7 @@ async function makeMockAgentWrapper(
   return writeFakeExecutable({
     directory: dir,
     name: "fake-agent",
+platform: HOST_PLATFORM,
     command: mockAgentCommand,
     args: mockAgentArgs,
     env: extraEnv,
@@ -67,6 +71,7 @@ async function makeProbeWrapper(
   return writeFakeExecutable({
     directory: dir,
     name: "fake-agent",
+platform: HOST_PLATFORM,
     command: mockAgentCommand,
     args: mockAgentArgs,
     argvLogPath,

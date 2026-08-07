@@ -20,6 +20,8 @@ export async function writeFakeExecutable(options: {
   readonly directory: string;
   /** Base name without extension; the platform suffix is appended. */
   readonly name: string;
+  /** Host platform, injected so callers stay explicit about what they target. */
+  readonly platform: NodeJS.Platform;
   /** Interpreter to exec, normally `process.execPath`. */
   readonly command: string;
   /** Arguments placed before the caller's own argv. */
@@ -31,10 +33,11 @@ export async function writeFakeExecutable(options: {
   /** Stalls before exec, to exercise startup timeouts. */
   readonly initialDelaySeconds?: number | undefined;
 }): Promise<string> {
-  const { directory, name, command, args, env, argvLogPath, initialDelaySeconds } = options;
+  const { directory, name, platform, command, args, env, argvLogPath, initialDelaySeconds } =
+    options;
   await NodeFSP.mkdir(directory, { recursive: true });
 
-  if (process.platform !== "win32") {
+  if (platform !== "win32") {
     const wrapperPath = NodePath.join(directory, `${name}.sh`);
     const lines = ["#!/bin/sh"];
     if (argvLogPath) {
@@ -103,15 +106,17 @@ export async function writeFakeScript(options: {
   readonly directory: string;
   /** Base name. POSIX keeps it bare so `PATH` lookup by command name works. */
   readonly name: string;
+  /** Host platform, injected so callers stay explicit about what they target. */
+  readonly platform: NodeJS.Platform;
   /** Shell body, including the `#!/bin/sh` line. */
   readonly sh: string;
   /** Node source; reads arguments from `process.argv.slice(2)`. */
   readonly mjs: string;
 }): Promise<string> {
-  const { directory, name, sh, mjs } = options;
+  const { directory, name, platform, sh, mjs } = options;
   await NodeFSP.mkdir(directory, { recursive: true });
 
-  if (process.platform !== "win32") {
+  if (platform !== "win32") {
     const scriptPath = NodePath.join(directory, name);
     await NodeFSP.writeFile(scriptPath, sh, "utf8");
     await NodeFSP.chmod(scriptPath, 0o755);

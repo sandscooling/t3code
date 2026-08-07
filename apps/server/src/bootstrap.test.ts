@@ -38,9 +38,12 @@ const closeFdIfOpen = (fd: number) =>
     // EBADF as an uncaught exception, which fails the run even though the
     // assertions passed. Tests that never reach the stream leak one descriptor
     // for the life of the test process, which the OS reclaims on exit.
-    if (process.platform === "win32") return;
+    if (HOST_PLATFORM === "win32") return;
     NodeFS.closeSync(fd);
   });
+
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Runs in a scope finalizer outside any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 const openSyncInterceptor = vi.hoisted(() => ({
   failPath: null as string | null,

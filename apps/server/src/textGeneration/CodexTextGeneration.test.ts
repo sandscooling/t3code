@@ -12,8 +12,12 @@ import { expect } from "vite-plus/test";
 import { CodexSettings, ProviderInstanceId, TextGenerationError } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import { writeFakeScript } from "../testUtils/fakeExecutable.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeCodexTextGeneration } from "./CodexTextGeneration.ts";
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
+
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DEFAULT_TEST_MODEL_SELECTION = createModelSelection(
@@ -45,12 +49,9 @@ function makeFakeCodexBinary(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const binDir = path.join(dir, "bin");
-    const codexPath = path.join(binDir, "codex");
     yield* fs.makeDirectory(binDir, { recursive: true });
 
-    yield* fs.writeFileString(
-      codexPath,
-      [
+    const shBody = [
         "#!/bin/sh",
         'original_args="$*"',
         'output_path=""',
@@ -169,10 +170,71 @@ function makeFakeCodexBinary(
         "fi",
         `exit ${input.exitCode ?? 0}`,
         "",
-      ].join("\n"),
+      ].join("\n");
+
+    // Windows cannot execute the script above, so the same checks run as Node.
+    // The conditions are driven by `input` rather than by shell text, so the
+    // port is a transcription: identical order, identical exit codes.
+    // @effect-diagnostics-next-line preferSchemaOverJson:off - embeds fixture config in generated source.
+    const encodedInput = JSON.stringify(input);
+    const mjsBody = [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      `const input = ${encodedInput};`,
+      "const argv = process.argv.slice(2);",
+      'let outputPath = "";',
+      "let seenImage = false;",
+      "let seenServiceTier = null;",
+      "let seenReasoningEffort = null;",
+      "for (let i = 0; i < argv.length; i += 1) {",
+      '  if (argv[i] === "--image") {',
+      "    if (argv[i + 1]) seenImage = true;",
+      "    i += 1;",
+      "  } else if (argv[i] === \"--config\") {",
+      "    const value = argv[i + 1] ?? \"\";",
+      '    if (value.startsWith("service_tier=")) seenServiceTier = value;',
+      '    if (value.startsWith("model_reasoning_effort=")) seenReasoningEffort = value;',
+      "    i += 1;",
+      '  } else if (argv[i] === "--output-last-message") {',
+      '    outputPath = argv[i + 1] ?? "";',
+      "    i += 1;",
+      "  }",
+      "}",
+      "let stdinContent = \"\";",
+      'try { stdinContent = readFileSync(0, "utf8"); } catch {}',
+      "const joined = ` ${argv.join(\" \")} `;",
+      "const fail = (message, code) => { process.stderr.write(message + \"\\n\"); process.exit(code); };",
+      "if (input.requireArg !== undefined && !joined.includes(` ${input.requireArg} `))",
+      '  fail(`missing arg: ${input.requireArg}`, 8);',
+      "if (input.forbidArg !== undefined && joined.includes(` ${input.forbidArg} `))",
+      '  fail(`forbidden arg: ${input.forbidArg}`, 9);',
+      'if (input.requireImage && !seenImage) fail("missing --image input", 2);',
+      "if (input.requireServiceTier !== undefined &&",
+      '    seenServiceTier !== `service_tier="${input.requireServiceTier}"`)',
+      '  fail(`unexpected service tier config: ${seenServiceTier ?? ""}`, 5);',
+      "if (input.requireReasoningEffort !== undefined &&",
+      '    seenReasoningEffort !== `model_reasoning_effort="${input.requireReasoningEffort}"`)',
+      '  fail(`unexpected reasoning effort config: ${seenReasoningEffort ?? ""}`, 6);',
+      "if (input.forbidReasoningEffort && seenReasoningEffort)",
+      '  fail(`reasoning effort config should be omitted: ${seenReasoningEffort}`, 7);',
+      "if (input.stdinMustContain !== undefined && !stdinContent.includes(input.stdinMustContain))",
+      '  fail("stdin missing expected content", 3);',
+      "if (input.stdinMustNotContain !== undefined && stdinContent.includes(input.stdinMustNotContain))",
+      '  fail("stdin contained forbidden content", 4);',
+      'if (input.stderr !== undefined) process.stderr.write(input.stderr + "\\n");',
+      'if (outputPath) writeFileSync(outputPath, input.output + "\\n");',
+      "process.exit(input.exitCode ?? 0);",
+      "",
+    ].join("\n");
+
+    return yield* Effect.promise(() =>
+      writeFakeScript({
+        directory: binDir,
+        name: "codex",
+        platform: HOST_PLATFORM,
+        sh: shBody,
+        mjs: mjsBody,
+      }),
     );
-    yield* fs.chmod(codexPath, 0o755);
-    return codexPath;
   });
 }
 

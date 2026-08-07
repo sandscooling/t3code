@@ -29,6 +29,9 @@ import { writeFakeExecutable } from "../../testUtils/fakeExecutable.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { ServerConfig } from "../../config.ts";
 import { grokPromptSettlementBelongsToContext, makeGrokAdapter } from "./GrokAdapter.ts";
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
+
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -40,6 +43,7 @@ async function makeMockGrokWrapper(extraEnv?: Record<string, string>) {
   return writeFakeExecutable({
     directory: dir,
     name: "fake-grok",
+platform: HOST_PLATFORM,
     command: mockAgentCommand,
     args: [mockAgentPath],
     env: extraEnv,

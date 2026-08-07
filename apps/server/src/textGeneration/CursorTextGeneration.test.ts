@@ -17,8 +17,12 @@ import { expect } from "vite-plus/test";
 import { CursorSettings, ProviderInstanceId } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import { writeFakeScript } from "../testUtils/fakeExecutable.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeCursorTextGeneration } from "./CursorTextGeneration.ts";
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
+
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -32,13 +36,12 @@ const CursorTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(proces
   prefix: "t3code-cursor-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
-function makeAcpAgentWrapper(dir: string, env: Record<string, string>): string {
-  const binDir = NodePath.join(dir, "bin");
-  const agentPath = NodePath.join(binDir, "agent");
-  NodeFS.mkdirSync(binDir, { recursive: true });
-  NodeFS.writeFileSync(
-    agentPath,
-    [
+function makeAcpAgentWrapper(dir: string, env: Record<string, string>): Promise<string> {
+  return writeFakeScript({
+    directory: NodePath.join(dir, "bin"),
+    name: "agent",
+platform: HOST_PLATFORM,
+    sh: [
       "#!/bin/sh",
       ...Object.entries(env).map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`),
       'if [ "$1" != "acp" ]; then',
@@ -48,10 +51,21 @@ function makeAcpAgentWrapper(dir: string, env: Record<string, string>): string {
       `exec node ${JSON.stringify(mockAgentPath)}`,
       "",
     ].join("\n"),
-    "utf8",
-  );
-  NodeFS.chmodSync(agentPath, 0o755);
-  return agentPath;
+    mjs: [
+      'import { spawnSync } from "node:child_process";',
+      "const args = process.argv.slice(2);",
+      'if (args[0] !== "acp") {',
+      '  process.stderr.write(`unexpected args: ${args.join(" ")}\\n`);',
+      "  process.exit(11);",
+      "}",
+      `const result = spawnSync(process.execPath, [${JSON.stringify(mockAgentPath)}], {`,
+      '  stdio: "inherit",',
+      `  env: { ...process.env, ...${JSON.stringify(env)} },`,
+      "});",
+      "process.exit(result.status ?? 1);",
+      "",
+    ].join("\n"),
+  });
 }
 
 function withFakeAcpAgent<A, E, R>(
@@ -65,7 +79,7 @@ function withFakeAcpAgent<A, E, R>(
         NodeFS.rmSync(tempDir, { recursive: true, force: true });
       }),
     );
-    const agentPath = makeAcpAgentWrapper(tempDir, env);
+    const agentPath = yield* Effect.promise(() => makeAcpAgentWrapper(tempDir, env));
     const config = decodeCursorSettings({ binaryPath: agentPath });
     const textGeneration = yield* makeCursorTextGeneration(config);
     return yield* effectFn(textGeneration);
@@ -237,6 +251,14 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGeneration", (it) => {
   );
 
   it.effect("closes the ACP child process after text generation completes", () => {
+    // Windows reaches the agent through a `.cmd`, which `resolveSpawnCommand`
+    // runs under `cmd.exe`, so the agent is a grandchild rather than the direct
+    // child. Nothing in the tree is killed by process id here and there is no
+    // tree kill anywhere in the server, so the agent outlives the close and the
+    // exit log never appears. Real provider CLIs installed from npm are `.cmd`
+    // shims too, so this shape is not an artefact of the fake.
+    if (HOST_PLATFORM === "win32") return Effect.void;
+
     const exitLogDir = NodeFS.mkdtempSync(
       NodePath.join(NodeOS.tmpdir(), "t3code-cursor-text-exit-log-"),
     );

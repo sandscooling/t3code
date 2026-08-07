@@ -2,12 +2,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { GrokSettings } from "@t3tools/contracts";
 
 import { writeFakeScript } from "../../testUtils/fakeExecutable.ts";
 import { buildInitialGrokProviderSnapshot, checkGrokProviderStatus } from "./GrokProvider.ts";
+
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 
@@ -69,12 +71,12 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
       const snapshot = yield* Effect.scoped(
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-version-" });
           const grokPath = yield* Effect.promise(() =>
             writeFakeScript({
               directory: dir,
               name: "grok",
+platform: HOST_PLATFORM,
               sh: ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
               mjs: [
                 `process.stderr.write('${secretStderr}\\n');`,
@@ -103,12 +105,12 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
       const snapshot = yield* Effect.scoped(
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-success-" });
           const grokPath = yield* Effect.promise(() =>
             writeFakeScript({
               directory: dir,
               name: "grok",
+platform: HOST_PLATFORM,
               sh: ["#!/bin/sh", 'printf "grok-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
               mjs: ['process.stdout.write("grok-cli 0.0.99\\n");', "process.exit(0);", ""].join(
                 "\n",
