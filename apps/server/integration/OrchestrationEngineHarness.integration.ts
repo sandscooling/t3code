@@ -97,6 +97,10 @@ const initializeGitWorkspace = Effect.fn(function* (cwd: string) {
   runGit(cwd, ["init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.email", "test@example.com"]);
   runGit(cwd, ["config", "user.name", "Test User"]);
+  // Without this the repository inherits the developer's core.autocrlf. With it
+  // enabled, which is the Windows default, a checkout rewrites the LF written
+  // below as CRLF and the content assertions fail on line endings alone.
+  runGit(cwd, ["config", "core.autocrlf", "false"]);
   const fileSystem = yield* FileSystem.FileSystem;
   const { join } = yield* Path.Path;
   yield* fileSystem.writeFileString(join(cwd, "README.md"), "v1\n");

@@ -212,6 +212,11 @@ function createGitRepository() {
   runGit(cwd, ["init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.email", "test@example.com"]);
   runGit(cwd, ["config", "user.name", "Test User"]);
+  // Without this the repository inherits the developer's core.autocrlf. With it
+  // enabled, which is the Windows default, a checkout rewrites the LF this test
+  // wrote as CRLF and the content assertions fail on line endings alone. Pinning
+  // it makes the fixture independent of global git config on every platform.
+  runGit(cwd, ["config", "core.autocrlf", "false"]);
   NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v1\n", "utf8");
   runGit(cwd, ["add", "."]);
   runGit(cwd, ["commit", "-m", "Initial"]);

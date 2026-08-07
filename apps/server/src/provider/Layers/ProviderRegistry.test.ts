@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -335,6 +338,25 @@ function makeMutableServerSettingsService(
     } satisfies ServerSettingsModule.ServerSettingsService["Service"];
   });
 }
+
+/**
+ * Yields a real event-loop turn.
+ *
+ * The retry loops below wait for a provider status cache file that the registry
+ * writes asynchronously. `Effect.yieldNow` only drains Effect's own scheduler,
+ * so a pending filesystem callback never gets a turn and the loop can exhaust
+ * its attempts while the write is still outstanding. Waiting on the real clock
+ * gives the write somewhere to happen: fifty attempts become about a quarter of
+ * a second of wall time rather than none at all. Filesystems slower than the
+ * scheduler need this, Windows routinely.
+ */
+const yieldToEventLoop = Effect.promise(
+  () =>
+    new Promise<void>((resolve) => {
+      // @effect-diagnostics-next-line globalTimers:off - deliberately waits on the real clock, which Effect.sleep cannot do under TestClock.
+      setTimeout(resolve, 5);
+    }),
+);
 
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), TestHttpClientLive))(
   "ProviderRegistry",
@@ -996,7 +1018,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               attempt += 1
             ) {
               yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
+              yield* yieldToEventLoop;
               cachedProvider = yield* readProviderStatusCache(filePath);
             }
 
@@ -1121,7 +1143,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 attempt += 1
               ) {
                 yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* yieldToEventLoop;
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1134,7 +1156,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 attempt += 1
               ) {
                 yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* yieldToEventLoop;
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1282,7 +1304,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           const changes = yield* PubSub.unbounded<void>();
           const instancesRef = yield* Ref.make<ReadonlyArray<ProviderInstance>>([codexInstance]);
           const failNextList = yield* Ref.make(false);
-          const wait = () => Effect.yieldNow;
+          const wait = () => yieldToEventLoop;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
             {
@@ -1540,7 +1562,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               attempts += 1
             ) {
               yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
+              yield* yieldToEventLoop;
               initialProviders = yield* registry.getProviders;
             }
             const initialCodex = initialProviders.find(
@@ -1579,7 +1601,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   return providers;
                 }
                 yield* TestClock.adjust("50 millis");
-                yield* Effect.yieldNow;
+                yield* yieldToEventLoop;
               }
               return yield* registry.getProviders;
             });
@@ -2128,7 +2150,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           assert.strictEqual(status.status, "ready");
           assert.deepStrictEqual(
             recorded.commands.map((command) => command.env?.CLAUDE_CONFIG_DIR),
-            [claudeConfigDir],
+            // resolveClaudeHomePath resolves to an absolute path, which on
+            // Windows gains a drive letter.
+            [NodePath.resolve(claudeConfigDir)],
           );
         }).pipe(Effect.provide(recorded.layer));
       });
