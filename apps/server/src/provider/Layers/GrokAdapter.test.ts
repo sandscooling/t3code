@@ -25,6 +25,8 @@ import {
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
 
+import { writeFakeExecutable } from "../../testUtils/fakeExecutable.ts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { ServerConfig } from "../../config.ts";
 import { grokPromptSettlementBelongsToContext, makeGrokAdapter } from "./GrokAdapter.ts";
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
@@ -35,17 +37,13 @@ const mockAgentCommand = process.execPath;
 
 async function makeMockGrokWrapper(extraEnv?: Record<string, string>) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-acp-mock-"));
-  const wrapperPath = NodePath.join(dir, "fake-grok.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-${envExports}
-exec ${JSON.stringify(mockAgentCommand)} ${JSON.stringify(mockAgentPath)} "$@"
-`;
-  await NodeFSP.writeFile(wrapperPath, script, "utf8");
-  await NodeFSP.chmod(wrapperPath, 0o755);
-  return wrapperPath;
+  return writeFakeExecutable({
+    directory: dir,
+    name: "fake-grok",
+    command: mockAgentCommand,
+    args: [mockAgentPath],
+    env: extraEnv,
+  });
 }
 
 function waitForFileContent(
@@ -190,6 +188,13 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
 
   it.effect("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
+      // Asserts the agent observed SIGTERM, which Windows has no equivalent for:
+      // `process.kill` there calls TerminateProcess and delivers no JS signal.
+      // The fake also cannot `exec` into the agent the way the POSIX wrapper
+      // does, since batch has no exec, so a shell process always sits between
+      // the adapter and the agent and absorbs the termination.
+      if ((yield* HostProcessPlatform) === "win32") return;
+
       const threadId = ThreadId.make("grok-stop-session-close");
       const tempDir = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-adapter-exit-log-")),

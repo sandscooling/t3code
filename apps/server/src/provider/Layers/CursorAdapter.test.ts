@@ -25,6 +25,8 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 
+import { writeFakeExecutable } from "../../testUtils/fakeExecutable.ts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
@@ -46,18 +48,14 @@ async function makeMockAgentWrapper(
   options?: { initialDelaySeconds?: number },
 ) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-acp-mock-"));
-  const wrapperPath = NodePath.join(dir, "fake-agent.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-${envExports}
-${options?.initialDelaySeconds ? `sleep ${JSON.stringify(String(options.initialDelaySeconds))}` : ""}
-exec ${JSON.stringify(mockAgentCommand)} ${mockAgentArgs.map((arg) => JSON.stringify(arg)).join(" ")} "$@"
-`;
-  await NodeFSP.writeFile(wrapperPath, script, "utf8");
-  await NodeFSP.chmod(wrapperPath, 0o755);
-  return wrapperPath;
+  return writeFakeExecutable({
+    directory: dir,
+    name: "fake-agent",
+    command: mockAgentCommand,
+    args: mockAgentArgs,
+    env: extraEnv,
+    initialDelaySeconds: options?.initialDelaySeconds,
+  });
 }
 
 async function makeProbeWrapper(
@@ -66,20 +64,14 @@ async function makeProbeWrapper(
   extraEnv?: Record<string, string>,
 ) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-acp-probe-"));
-  const wrapperPath = NodePath.join(dir, "fake-agent.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-printf '%s\t' "$@" >> ${JSON.stringify(argvLogPath)}
-printf '\n' >> ${JSON.stringify(argvLogPath)}
-export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}
-${envExports}
-exec ${JSON.stringify(mockAgentCommand)} ${mockAgentArgs.map((arg) => JSON.stringify(arg)).join(" ")} "$@"
-`;
-  await NodeFSP.writeFile(wrapperPath, script, "utf8");
-  await NodeFSP.chmod(wrapperPath, 0o755);
-  return wrapperPath;
+  return writeFakeExecutable({
+    directory: dir,
+    name: "fake-agent",
+    command: mockAgentCommand,
+    args: mockAgentArgs,
+    argvLogPath,
+    env: { T3_ACP_REQUEST_LOG_PATH: requestLogPath, ...extraEnv },
+  });
 }
 
 async function readArgvLog(filePath: string) {
@@ -328,6 +320,12 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
   it.effect("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
+      // Asserts the agent observed SIGTERM. Windows delivers no JS signal from
+      // `process.kill` (it calls TerminateProcess), and the fake cannot `exec`
+      // into the agent the way the POSIX wrapper does because batch has no
+      // exec, so a shell process always absorbs the termination.
+      if ((yield* HostProcessPlatform) === "win32") return;
+
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
       const threadId = ThreadId.make("cursor-stop-session-close");
@@ -362,6 +360,9 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     "serializes concurrent startSession calls for the same thread and closes the replaced ACP session",
     () =>
       Effect.gen(function* () {
+        // Same SIGTERM limitation as the stop-session test above.
+        if ((yield* HostProcessPlatform) === "win32") return;
+
         const adapter = yield* CursorAdapter;
         const settings = yield* ServerSettingsService;
         const threadId = ThreadId.make("cursor-concurrent-start-session");

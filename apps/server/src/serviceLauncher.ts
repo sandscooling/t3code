@@ -79,12 +79,27 @@ async function syncFile(filePath: string): Promise<void> {
   }
 }
 
+/**
+ * Flushes a directory entry so a completed rename survives a crash. That is a
+ * POSIX guarantee with no Windows equivalent: `FlushFileBuffers` rejects
+ * directory handles, so Node surfaces `EPERM` and every state write through
+ * here fails. NTFS journals the metadata of a replacing rename anyway, so
+ * skipping the flush there loses nothing. Filesystems that cannot flush a
+ * directory report `EINVAL`/`ENOTSUP`; treat those the same rather than fail a
+ * write that already landed. Any other error is real and propagates.
+ */
 async function syncDirectory(directory: string): Promise<void> {
-  const handle = await NodeFSP.open(directory, "r");
+  let handle: NodeFSP.FileHandle | undefined;
   try {
+    handle = await NodeFSP.open(directory, "r");
     await handle.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code !== "EPERM" && code !== "EINVAL" && code !== "ENOTSUP" && code !== "EISDIR") {
+      throw error;
+    }
   } finally {
-    await handle.close();
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -188,12 +203,7 @@ export async function writeServiceState(filePath: string, state: ServiceState): 
     await handle.close();
     handle = undefined;
     await NodeFSP.rename(tempPath, filePath);
-    const directoryHandle = await NodeFSP.open(directory, "r");
-    try {
-      await directoryHandle.sync();
-    } finally {
-      await directoryHandle.close();
-    }
+    await syncDirectory(directory);
   } finally {
     await handle?.close().catch(() => undefined);
     await NodeFSP.rm(tempPath, { force: true }).catch(() => undefined);

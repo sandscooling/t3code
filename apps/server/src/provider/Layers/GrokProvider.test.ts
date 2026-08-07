@@ -6,6 +6,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { GrokSettings } from "@t3tools/contracts";
 
+import { writeFakeScript } from "../../testUtils/fakeExecutable.ts";
 import { buildInitialGrokProviderSnapshot, checkGrokProviderStatus } from "./GrokProvider.ts";
 
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
@@ -70,12 +71,18 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-version-" });
-          const grokPath = path.join(dir, "grok");
-          yield* fs.writeFileString(
-            grokPath,
-            ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
+          const grokPath = yield* Effect.promise(() =>
+            writeFakeScript({
+              directory: dir,
+              name: "grok",
+              sh: ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
+              mjs: [
+                `process.stderr.write('${secretStderr}\\n');`,
+                "process.exit(2);",
+                "",
+              ].join("\n"),
+            }),
           );
-          yield* fs.chmod(grokPath, 0o755);
 
           return yield* checkGrokProviderStatus(
             decodeGrokSettings({ enabled: true, binaryPath: grokPath }),
@@ -98,12 +105,16 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-success-" });
-          const grokPath = path.join(dir, "grok");
-          yield* fs.writeFileString(
-            grokPath,
-            ["#!/bin/sh", 'printf "grok-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
+          const grokPath = yield* Effect.promise(() =>
+            writeFakeScript({
+              directory: dir,
+              name: "grok",
+              sh: ["#!/bin/sh", 'printf "grok-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
+              mjs: ['process.stdout.write("grok-cli 0.0.99\\n");', "process.exit(0);", ""].join(
+                "\n",
+              ),
+            }),
           );
-          yield* fs.chmod(grokPath, 0o755);
 
           return yield* checkGrokProviderStatus(
             decodeGrokSettings({ enabled: true, binaryPath: grokPath }),
