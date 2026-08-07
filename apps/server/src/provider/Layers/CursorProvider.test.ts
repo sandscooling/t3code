@@ -10,6 +10,11 @@ import { describe, expect, it } from "vite-plus/test";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import type { CursorSettings } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { writeFakeExecutable, writeFakeScript } from "../../testUtils/fakeExecutable.ts";
+
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Plain async test with no Effect runtime in scope.
+const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 import {
   buildCursorProviderSnapshot,
@@ -67,47 +72,63 @@ const makeMockAgentWrapper = Effect.fn("makeMockAgentWrapper")(function* (
   extraEnv?: Record<string, string>,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const mockAgentPath = yield* resolveMockAgentPath();
   const dir = yield* fileSystem.makeTempDirectory({
     directory: NodeOS.tmpdir(),
     prefix: "cursor-provider-mock-",
   });
-  const wrapperPath = path.join(dir, "fake-agent.sh");
-  const mockAgentCommand = ["node", mockAgentPath].map((arg) => JSON.stringify(arg)).join(" ");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-${envExports}
-exec ${mockAgentCommand} "$@"
-`;
-  yield* fileSystem.writeFileString(wrapperPath, script);
-  yield* fileSystem.chmod(wrapperPath, 0o755);
-  return wrapperPath;
+  const platform = yield* HostProcessPlatform;
+  return yield* Effect.promise(() =>
+    writeFakeExecutable({
+      directory: dir,
+      name: "fake-agent",
+      platform,
+      command: "node",
+      args: [mockAgentPath],
+      env: extraEnv,
+    }),
+  );
 });
 
 const makeMockAgentWithAboutWrapper = Effect.fn("makeMockAgentWithAboutWrapper")(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const mockAgentPath = yield* resolveMockAgentPath();
   const dir = yield* fileSystem.makeTempDirectory({
     directory: NodeOS.tmpdir(),
     prefix: "cursor-provider-about-mock-",
   });
-  const wrapperPath = path.join(dir, "fake-agent.sh");
+  const platform = yield* HostProcessPlatform;
   const mockAgentCommand = ["node", mockAgentPath].map((arg) => JSON.stringify(arg)).join(" ");
-  const script = `#!/bin/sh
+  return yield* Effect.promise(() =>
+    writeFakeScript({
+      directory: dir,
+      name: "fake-agent",
+      platform,
+      sh: `#!/bin/sh
 if [ "$1" = "about" ]; then
   printf 'CLI Version         2026.04.09-f2b0fcd\\n'
   printf 'User Email          cursor@example.com\\n'
   exit 0
 fi
 exec ${mockAgentCommand} "$@"
-`;
-  yield* fileSystem.writeFileString(wrapperPath, script);
-  yield* fileSystem.chmod(wrapperPath, 0o755);
-  return wrapperPath;
+`,
+      mjs: [
+        'import { spawnSync } from "node:child_process";',
+        "const args = process.argv.slice(2);",
+        'if (args[0] === "about") {',
+        '  process.stdout.write("CLI Version         2026.04.09-f2b0fcd\\n");',
+        '  process.stdout.write("User Email          cursor@example.com\\n");',
+        "  process.exit(0);",
+        "}",
+        // @effect-diagnostics-next-line preferSchemaOverJson:off - embeds a path in generated source.
+        `const result = spawnSync(process.execPath, [${JSON.stringify(mockAgentPath)}, ...args], {`,
+        '  stdio: "inherit",',
+        "});",
+        "process.exit(result.status ?? 1);",
+        "",
+      ].join("\n"),
+    }),
+  );
 });
 
 const waitForFileContent = Effect.fn("waitForFileContent")(function* (
@@ -496,6 +517,12 @@ describe("discoverCursorModelsViaAcp", () => {
   });
 
   it("closes the ACP probe runtime after discovery completes", async () => {
+    // The agent is a grandchild on Windows: `resolveSpawnCommand` runs the
+    // `.cmd` under cmd.exe, and nothing in the server kills by process tree, so
+    // the agent outlives the close and never writes its exit log. See the same
+    // skip in CursorTextGeneration.
+    if (HOST_PLATFORM === "win32") return;
+
     const { exitLogPath, wrapperPath } = await runNode(
       makeExitLogFixture("cursor-provider-exit-log-"),
     );
