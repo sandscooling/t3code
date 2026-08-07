@@ -47,6 +47,14 @@ const makeResolverWithFileSystem = (fileSystem: FileSystem.FileSystem) =>
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
+/**
+ * `resolvePath` returns a native absolute path, so its separators are
+ * backslashes on Windows. The assertions below name a nested file, which only
+ * needs the two spellings to agree, not the platform to change.
+ */
+const withPosixSeparators = (value: string | null): string | null =>
+  value === null ? null : value.replaceAll("\\", "/");
+
 it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
   describe("resolvePath", () => {
     it.effect("prefers well-known favicon files", () =>
@@ -58,7 +66,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("favicon.svg");
+        expect(withPosixSeparators(resolved)).toContain("favicon.svg");
       }),
     );
 
@@ -73,7 +81,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("brand/mark.svg");
+        expect(withPosixSeparators(resolved)).toContain("brand/mark.svg");
       }),
     );
 
@@ -114,7 +122,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("favicon.svg");
+        expect(withPosixSeparators(resolved)).toContain("favicon.svg");
       }),
     );
 
@@ -128,7 +136,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("favicon.svg");
+        expect(withPosixSeparators(resolved)).toContain("favicon.svg");
       }),
     );
 
@@ -156,7 +164,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -383,7 +391,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
   });

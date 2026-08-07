@@ -19,6 +19,7 @@ import { ServerConfig } from "../config.ts";
 import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
 });
@@ -1349,6 +1350,11 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   describe("worktree operations", () => {
     it.effect("preserves newline characters in worktree paths when listing refs", () =>
       Effect.gen(function* () {
+        // Win32 forbids control characters, newline included, in a file name, so
+        // the worktree this exercises cannot be created there at all. The parsing
+        // it guards is still covered wherever such a path is possible.
+        if ((yield* HostProcessPlatform) === "win32") return;
+
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const worktreesRoot = yield* makeTmpDir("git-vcs-driver-worktrees-");
