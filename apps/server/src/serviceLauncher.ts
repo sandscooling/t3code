@@ -70,8 +70,15 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
+/**
+ * Flushes a file's contents to disk. Opened read/write rather than read-only
+ * because Windows backs `sync()` with `FlushFileBuffers`, which requires write
+ * access on the handle and fails with `EPERM` otherwise; POSIX allows fsync on
+ * any open descriptor, so `"r+"` is equivalent there. Every caller has just
+ * written the file, so it exists and is writable.
+ */
 async function syncFile(filePath: string): Promise<void> {
-  const handle = await NodeFSP.open(filePath, "r");
+  const handle = await NodeFSP.open(filePath, "r+");
   try {
     await handle.sync();
   } finally {

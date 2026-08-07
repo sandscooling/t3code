@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -20,6 +21,26 @@ import {
   readBootstrapEnvelope,
 } from "./bootstrap.ts";
 import { assertNone, assertSome } from "@effect/vitest/utils";
+
+/**
+ * Closes a bootstrap fd the test opened, tolerating that the envelope reader
+ * may already have closed it. `resolveFdPath` gives Linux and macOS a
+ * `/proc/self/fd` or `/dev/fd` path, so the stream duplicates the descriptor
+ * and auto-closes only its own copy. Windows has no such path, so the reader
+ * falls back to streaming the caller's descriptor directly with
+ * `autoClose: true` and consumes it, making this release a double close.
+ */
+const closeFdIfOpen = (fd: number) =>
+  Effect.sync(() => {
+    // Windows has no `/proc/self/fd` or `/dev/fd` for `resolveFdPath` to
+    // duplicate through, so the reader streams this descriptor directly with
+    // `autoClose` and owns it. Closing here would race that close and surface
+    // EBADF as an uncaught exception, which fails the run even though the
+    // assertions passed. Tests that never reach the stream leak one descriptor
+    // for the life of the test process, which the OS reclaims on exit.
+    if (process.platform === "win32") return;
+    NodeFS.closeSync(fd);
+  });
 
 const openSyncInterceptor = vi.hoisted(() => ({
   failPath: null as string | null,
@@ -71,7 +92,7 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
       const fd = yield* Effect.acquireRelease(
         Effect.sync(() => NodeFS.openSync(filePath, "r")),
-        (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+        closeFdIfOpen,
       );
 
       const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, { timeoutMs: 100 });
@@ -117,7 +138,7 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
       const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
       const fd = yield* Effect.acquireRelease(
         Effect.sync(() => NodeFS.openSync(filePath, "r")),
-        (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+        closeFdIfOpen,
       );
       const fdPath = `/proc/self/fd/${fd}`;
 
@@ -146,7 +167,7 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("returns none when the fd is unavailable", () =>
     Effect.gen(function* () {
-      const fd = NodeFS.openSync("/dev/null", "r");
+      const fd = NodeFS.openSync(NodeOS.devNull, "r");
       NodeFS.closeSync(fd);
 
       const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, { timeoutMs: 100 });
@@ -157,8 +178,8 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
   it.effect("preserves fd and cause when stat fails for a non-availability reason", () =>
     Effect.gen(function* () {
       const fd = yield* Effect.acquireRelease(
-        Effect.sync(() => NodeFS.openSync("/dev/null", "r")),
-        (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+        Effect.sync(() => NodeFS.openSync(NodeOS.devNull, "r")),
+        closeFdIfOpen,
       );
 
       fstatSyncInterceptor.failFd = fd;
@@ -185,7 +206,7 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
       const fd = yield* Effect.acquireRelease(
         Effect.sync(() => NodeFS.openSync(filePath, "r")),
-        (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+        closeFdIfOpen,
       );
       const error = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, {
         timeoutMs: 100,
@@ -203,6 +224,11 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("returns none when the bootstrap read times out before any value arrives", () =>
     Effect.gen(function* () {
+      // Builds the blocking reader out of a FIFO created by `mkfifo` and held
+      // open by `sh`. Windows has neither: its named pipes live in a separate
+      // namespace that `open` cannot create, and there is no POSIX shell.
+      if ((yield* HostProcessPlatform) === "win32") return;
+
       const fs = yield* FileSystem.FileSystem;
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-bootstrap-" });
       const fifoPath = NodePath.join(tempDir, "bootstrap.pipe");
@@ -223,7 +249,7 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
       const fd = yield* Effect.acquireRelease(
         Effect.sync(() => NodeFS.openSync(fifoPath, "r")),
-        (fd) => Effect.sync(() => NodeFS.closeSync(fd)),
+        closeFdIfOpen,
       );
 
       const fiber = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, {
