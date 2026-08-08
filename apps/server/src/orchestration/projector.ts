@@ -694,6 +694,19 @@ export function projectEvent(
         const turnStillRunning =
           thread.session?.status === "running" && thread.session.activeTurnId === payload.turnId;
 
+        // A checkpoint status says whether a git ref was captured, not how the
+        // turn ended, so it must not overwrite a state the session already
+        // settled. CheckpointReactor captures the real ref a couple of seconds
+        // after the turn ends, and mapping that "ready" to "completed" erased
+        // the record that the user had pressed Stop: the transcript's
+        // "Stopped, ready for your next message" notice appeared and then
+        // vanished mid-read. Only derive from the checkpoint when this turn has
+        // no settled state of its own to keep.
+        const settledStateForTurn =
+          thread.latestTurn?.turnId === payload.turnId && thread.latestTurn.state !== "running"
+            ? thread.latestTurn.state
+            : checkpointStatusToLatestTurnState(payload.status);
+
         return {
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -702,7 +715,7 @@ export function projectEvent(
               ? thread.latestTurn
               : {
                   turnId: payload.turnId,
-                  state: checkpointStatusToLatestTurnState(payload.status),
+                  state: settledStateForTurn,
                   requestedAt:
                     thread.latestTurn?.turnId === payload.turnId
                       ? thread.latestTurn.requestedAt
