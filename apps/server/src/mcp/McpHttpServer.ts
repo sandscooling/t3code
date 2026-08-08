@@ -18,6 +18,10 @@ import {
   PreviewStandardToolkitHandlersLive,
 } from "./toolkits/preview/handlers.ts";
 import {
+  pickPreviewSnapshotSections,
+  selectPreviewSnapshotSections,
+} from "./toolkits/preview/snapshotSections.ts";
+import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
@@ -211,13 +215,18 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                 readonly [key: string]: unknown;
               };
               const { screenshot, ...page } = snapshot;
+              const requested = selectPreviewSnapshotSections(payload);
               const metadata = {
-                ...page,
-                screenshot: {
-                  mimeType: screenshot.mimeType,
-                  width: screenshot.width,
-                  height: screenshot.height,
-                },
+                ...pickPreviewSnapshotSections(page, requested),
+                ...(requested.has("screenshot")
+                  ? {
+                      screenshot: {
+                        mimeType: screenshot.mimeType,
+                        width: screenshot.width,
+                        height: screenshot.height,
+                      },
+                    }
+                  : {}),
               };
               return Effect.succeed(
                 new McpSchema.CallToolResult({
@@ -225,11 +234,19 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                   structuredContent: metadata,
                   content: [
                     { type: "text", text: JSON.stringify(metadata) },
-                    {
-                      type: "image",
-                      data: new Uint8Array(Buffer.from(screenshot.data, "base64")),
-                      mimeType: screenshot.mimeType,
-                    },
+                    // Both copies of the payload shrink together, so filtering
+                    // is worth roughly twice what it looks like. The text block
+                    // stays regardless: the spec asks for it alongside
+                    // structuredContent for clients that ignore the latter.
+                    ...(requested.has("screenshot")
+                      ? [
+                          {
+                            type: "image" as const,
+                            data: new Uint8Array(Buffer.from(screenshot.data, "base64")),
+                            mimeType: screenshot.mimeType,
+                          },
+                        ]
+                      : []),
                   ],
                 }),
               );

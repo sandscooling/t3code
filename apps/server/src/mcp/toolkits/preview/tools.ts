@@ -13,6 +13,7 @@ import {
   PreviewAutomationSetColorSchemeInput,
   PreviewAutomationSetColorSchemeResult,
   PreviewAutomationSnapshot,
+  PreviewAutomationSnapshotInput,
   PreviewAutomationStatus,
   PreviewAutomationTabTargetInput,
   PreviewAutomationTypeInput,
@@ -108,8 +109,8 @@ export const PreviewSetAppearanceTool = safeBrowserTool(
 export const PreviewSnapshotTool = readonlyBrowserTool(
   Tool.make("preview_snapshot", {
     description:
-      "Inspect a page before interacting. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab. Returns page state, semantic elements, diagnostics, action history, and a PNG screenshot.",
-    parameters: PreviewAutomationTabTargetInput,
+      'Inspect a page before interacting. Pass tabId to inspect a specific tab; omit it to use this agent session\'s current tab. Returns page state, semantic elements, diagnostics, action history, and a PNG screenshot. A full snapshot is large: pass include to request only the sections you need, for example include: ["screenshot", "interactiveElements"] to see the page and what is clickable on it.',
+    parameters: PreviewAutomationSnapshotInput,
     success: PreviewAutomationSnapshot,
     failure: PreviewAutomationError,
     dependencies,

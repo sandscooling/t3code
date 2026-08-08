@@ -77,7 +77,12 @@ const handlers = {
     invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
   preview_set_appearance: (input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
-  preview_snapshot: (input) => invokeTargeted<PreviewAutomationSnapshot>("snapshot", input ?? {}),
+  // `include` is answered on this side, so it is stripped before the call
+  // reaches the desktop. That keeps the IPC payload identical to what every
+  // released host already accepts, which matters because hosts are versioned
+  // independently of the server.
+  preview_snapshot: ({ include: _include, ...target } = {}) =>
+    invokeTargeted<PreviewAutomationSnapshot>("snapshot", target),
   preview_click: (input) =>
     invokeTargeted<void>("click", input, input.timeoutMs).pipe(Effect.as({})),
   preview_type: (input) => invokeTargeted<void>("type", input, input.timeoutMs).pipe(Effect.as({})),

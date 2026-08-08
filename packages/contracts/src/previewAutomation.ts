@@ -63,6 +63,38 @@ const PreviewAutomationTabTargetFields = {
 export const PreviewAutomationTabTargetInput = Schema.Struct(PreviewAutomationTabTargetFields);
 export type PreviewAutomationTabTargetInput = typeof PreviewAutomationTabTargetInput.Type;
 
+/**
+ * Sections a snapshot can return. `url`, `title` and `loading` are always
+ * present: they identify the page and cost almost nothing.
+ */
+export const PREVIEW_AUTOMATION_SNAPSHOT_SECTIONS = [
+  "screenshot",
+  "accessibilityTree",
+  "interactiveElements",
+  "visibleText",
+  "diagnostics",
+  "actionTimeline",
+] as const;
+
+export const PreviewAutomationSnapshotSection = Schema.Literals(
+  PREVIEW_AUTOMATION_SNAPSHOT_SECTIONS,
+);
+export type PreviewAutomationSnapshotSection = typeof PreviewAutomationSnapshotSection.Type;
+
+export const PreviewAutomationSnapshotInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  include: Schema.optional(
+    Schema.Array(PreviewAutomationSnapshotSection).annotate({
+      description:
+        "Sections to return. Omit for all of them. A full snapshot is dominated by accessibilityTree and visibleText, so asking for only what you need is much cheaper.",
+    }),
+  ).annotate({
+    description:
+      "Sections to return. Omit for all of them. A full snapshot is dominated by accessibilityTree and visibleText, so asking for only what you need is much cheaper.",
+  }),
+});
+export type PreviewAutomationSnapshotInput = typeof PreviewAutomationSnapshotInput.Type;
+
 export const PreviewAutomationStatus = Schema.Struct({
   available: Schema.Boolean,
   visible: Schema.Boolean,
