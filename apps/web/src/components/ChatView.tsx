@@ -79,6 +79,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { selectPlanPillExpanded, useComposerPlanPillStore } from "../composerPlanPillStore";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -291,6 +292,7 @@ import {
   threadChangeRequestSnapshotsAtom,
 } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { ComposerPlanPill } from "./chat/ComposerPlanPill";
 import { ThreadSyncStatusPill } from "./chat/ThreadSyncStatusPill";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
@@ -2331,6 +2333,13 @@ function ChatViewContent(props: ChatViewProps) {
       null
     );
   }, [activeLatestTurn?.turnId, activePlan]);
+  // The composer pill, unlike the working row, deliberately reads activePlan
+  // as-is: its whole point is to still say something when you switch into a
+  // thread whose turn has already settled.
+  const planPillExpanded = useComposerPlanPillStore((store) =>
+    selectPlanPillExpanded(store.expandedByThreadKey, activeThreadRef),
+  );
+  const togglePlanPill = useComposerPlanPillStore((store) => store.togglePlanPill);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -6529,6 +6538,13 @@ function ChatViewContent(props: ChatViewProps) {
                   )}
                   {threadSyncPhase && !activeEnvironmentUnavailable ? (
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
+                  ) : null}
+                  {activePlan && activeThreadRef ? (
+                    <ComposerPlanPill
+                      plan={activePlan}
+                      expanded={planPillExpanded}
+                      onToggle={() => togglePlanPill(activeThreadRef)}
+                    />
                   ) : null}
                   <div
                     className="relative"

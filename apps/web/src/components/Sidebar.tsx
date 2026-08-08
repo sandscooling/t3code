@@ -44,6 +44,8 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  GlobeIcon,
+  ListChecksIcon,
   MessageSquareIcon,
   PinIcon,
   PlusIcon,
@@ -143,6 +145,7 @@ import {
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   ThreadWorktreeIndicator,
+  browserStatusIndicator,
   nextThreadChangeRequestSnapshot,
   prStatusIndicator,
   resolveDisplayedThreadPr,
@@ -153,7 +156,10 @@ import {
   threadChangeRequestSnapshotsAtom,
   type ThreadChangeRequestSnapshot,
   type TerminalStatusIndicator,
+  type BrowserStatusIndicator,
 } from "./ThreadStatusIndicators";
+import { useThreadBrowserAutomationActive } from "../browser/browserAutomationActivityStore";
+import { useThreadHasPreviewSession } from "../previewStateStore";
 import {
   resolveSnoozePresets,
   snoozeWakeDescription,
@@ -263,6 +269,7 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  browserStatus,
 }: {
   thread: SidebarThreadSummary;
   projectTitle: string | null;
@@ -279,6 +286,7 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  browserStatus: BrowserStatusIndicator | null;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
   return (
@@ -294,6 +302,22 @@ function SidebarThreadTooltip({
           {thread.title}
         </div>
         <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
+          {/* Plan progress leads: on a working thread it is the one line that
+              says what is actually happening. Gated on "working" to match the
+              row, because the server clears planProgress on settle and a stale
+              shell snapshot must not leave a finished step showing. */}
+          {resolveSidebarThreadStatus(thread) === "working" && thread.planProgress ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <ListChecksIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+              <div className="min-w-0 truncate text-foreground/75">
+                {thread.planProgress.step}
+                <span className="text-icon-muted tabular-nums">
+                  {" "}
+                  {thread.planProgress.completedSteps}/{thread.planProgress.totalSteps}
+                </span>
+              </div>
+            </div>
+          ) : null}
           {projectTitle ? (
             <div className="flex min-w-0 items-center gap-2">
               <ProjectFavicon
@@ -355,6 +379,12 @@ function SidebarThreadTooltip({
               <div className="min-w-0 truncate text-foreground/75">
                 {terminalProcessLabel(terminalProcessCount)}
               </div>
+            </div>
+          ) : null}
+          {browserStatus ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <GlobeIcon aria-hidden className={cn("size-3 shrink-0", browserStatus.colorClass)} />
+              <div className="min-w-0 truncate text-foreground/75">{browserStatus.label}</div>
             </div>
           ) : null}
           {thread.session?.lastError ? (
@@ -784,6 +814,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   });
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const terminalProcessCount = runningTerminalIds.length;
+  const hasPreviewSession = useThreadHasPreviewSession(threadRef);
+  const isAutomatingBrowser = useThreadBrowserAutomationActive(threadKey);
+  const browserStatus = browserStatusIndicator({
+    hasPreviewSession,
+    isAutomating: isAutomatingBrowser,
+  });
 
   const gitCwd = thread.worktreePath ?? props.projectCwd;
   const gitStatus = useEnvironmentQuery(
@@ -951,6 +987,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
+      browserStatus={browserStatus}
     />
   );
 
@@ -1188,6 +1225,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <TerminalIcon className={cn("size-3.5", terminalStatus.pulse && "animate-status-pulse")} />
     </span>
   ) : null;
+  const browserStatusIcon = browserStatus ? (
+    <span
+      role="img"
+      aria-label={browserStatus.label}
+      data-testid={`sidebar-browser-status-${thread.id}`}
+      className={cn("inline-flex shrink-0 items-center justify-center", browserStatus.colorClass)}
+    >
+      <GlobeIcon className={cn("size-3.5", browserStatus.pulse && "animate-status-pulse")} />
+    </span>
+  ) : null;
 
   if (variant === "slim") {
     return (
@@ -1230,6 +1277,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
             {title}
             {terminalStatusIcon}
+            {browserStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
                 Regenerating title
@@ -1537,6 +1585,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <span className="flex-1" />
               )}
               {terminalStatusIcon}
+              {browserStatusIcon}
               {prBadge}
               {diff ? (
                 <span className="shrink-0 font-mono">
@@ -1637,6 +1686,14 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
     threadId: thread.id,
   });
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
+  const searchThreadRef = useMemo(
+    () => scopeThreadRef(thread.environmentId, thread.id),
+    [thread.environmentId, thread.id],
+  );
+  const browserStatus = browserStatusIndicator({
+    hasPreviewSession: useThreadHasPreviewSession(searchThreadRef),
+    isAutomating: useThreadBrowserAutomationActive(scopedThreadKey(searchThreadRef)),
+  });
   return (
     <li role="presentation" className="list-none">
       <Tooltip>
@@ -1690,6 +1747,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           branchMismatch={branchMismatch}
           terminalStatus={terminalStatus}
           terminalProcessCount={runningTerminalIds.length}
+          browserStatus={browserStatus}
         />
       </Tooltip>
     </li>
