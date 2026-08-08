@@ -498,6 +498,22 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
+/**
+ * Whether a thread still has work in it, as opposed to being finished or idle.
+ *
+ * `resolveSidebarThreadStatus` collapses several live conditions into one
+ * status and ranks them: a thread whose session is running reports "approval"
+ * or "input" the moment it needs something from you. Anything that wants to
+ * mean "still going" has to ask for the whole set, because testing for
+ * "working" alone silently excludes a thread that is merely waiting on a
+ * question.
+ */
+export function isSidebarThreadInFlight(status: SidebarThreadStatus): boolean {
+  return (
+    status === "working" || status === "monitoring" || status === "approval" || status === "input"
+  );
+}
+
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
     poison the whole ordering, so it sinks to the epoch instead. */
 export function parseTimestampMs(isoDate: string): number {

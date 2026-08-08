@@ -131,6 +131,7 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planPinnedReorder,
+  isSidebarThreadInFlight,
   resolveAdjacentThreadId,
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
@@ -302,11 +303,15 @@ function SidebarThreadTooltip({
           {thread.title}
         </div>
         <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
-          {/* Plan progress leads: on a working thread it is the one line that
-              says what is actually happening. Gated on "working" to match the
-              row, because the server clears planProgress on settle and a stale
-              shell snapshot must not leave a finished step showing. */}
-          {resolveSidebarThreadStatus(thread) === "working" && thread.planProgress ? (
+          {/* Plan progress leads: it is the one line that says what is actually
+              happening. Gated on the thread being in flight at all rather than
+              on "working" specifically, because resolveSidebarThreadStatus
+              ranks pending approvals and user input above a running session, so
+              a thread paused mid-plan reports "approval" and used to lose its
+              step exactly when you most want to know which one it is on. The
+              gate is only a guard against a stale shell snapshot; the server
+              clears planProgress on settle. */}
+          {isSidebarThreadInFlight(resolveSidebarThreadStatus(thread)) && thread.planProgress ? (
             <div className="flex min-w-0 items-center gap-2">
               <ListChecksIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
               <div className="min-w-0 truncate text-foreground/75">
@@ -865,8 +870,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // findable. In-flight rows recede the same as read-ready ones (inbox-zero:
   // working threads aren't your problem yet) — only the colored status label
   // stands out.
-  const isInFlight =
-    status === "working" || status === "monitoring" || status === "approval" || status === "input";
+  const isInFlight = isSidebarThreadInFlight(status);
   const shouldRecede =
     (status === "ready" || isInFlight) && !isUnread && !isWoke && !props.isActive && !isSelected;
   // Status hues follow the system-wide convention set by sidebar v1 and the

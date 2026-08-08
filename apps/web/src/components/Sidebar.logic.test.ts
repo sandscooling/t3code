@@ -6,6 +6,7 @@ import {
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
+  isSidebarThreadInFlight,
   resolveAdjacentThreadId,
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
@@ -732,6 +733,24 @@ describe("resolveSidebarThreadStatus", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarThreadStatus({ ...idle, session: null })).toBe("ready");
+  });
+
+  it("counts a thread paused on approval or input as still in flight", () => {
+    // The plan step reads off this: a thread that stops to ask a question is
+    // still mid-plan, and testing for "working" alone hid the step at exactly
+    // the moment the answer to "which step is it on" matters most.
+    for (const status of ["working", "monitoring", "approval", "input"] as const) {
+      expect(isSidebarThreadInFlight(status)).toBe(true);
+    }
+    for (const status of ["ready", "failed"] as const) {
+      expect(isSidebarThreadInFlight(status)).toBe(false);
+    }
+  });
+
+  it("agrees with resolveSidebarThreadStatus for a session paused on approval", () => {
+    const status = resolveSidebarThreadStatus({ ...idle, hasPendingApprovals: true, session });
+    expect(status).toBe("approval");
+    expect(isSidebarThreadInFlight(status)).toBe(true);
   });
 });
 
