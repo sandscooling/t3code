@@ -117,6 +117,16 @@ const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
 const PICTURE_IN_PICTURE_MIN_HEIGHT = 160;
 const PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON = 0.002;
 const DIAGNOSTIC_BUFFER_LIMIT = 200;
+/**
+ * Per-entry cap for captured console and log text. The buffer bounds how many
+ * entries survive but said nothing about their size, so one page logging a
+ * serialized response could outweigh everything else in the snapshot.
+ */
+const MAX_DIAGNOSTIC_TEXT_LENGTH = 2_000;
+const truncateDiagnosticText = (text: string): string =>
+  text.length <= MAX_DIAGNOSTIC_TEXT_LENGTH
+    ? text
+    : `${text.slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH)}…`;
 const MAX_ARTIFACT_SITE_SLUG_LENGTH = 80;
 const AGENT_CURSOR_MOVE_MS = 160;
 const AGENT_CURSOR_CLICK_LEAD_MS = 40;
@@ -850,6 +860,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       const requestId = typeof params["requestId"] === "string" ? params["requestId"] : null;
       const next = (() => {
         if (method === "Runtime.consoleAPICalled") {
+          const level = typeof params["type"] === "string" ? params["type"] : "log";
+          // console.debug is developer tracing for whoever wrote the page, not
+          // a signal about its health, and libraries emit it by the hundred.
+          // Errors, warnings and ordinary logs still come through, since app
+          // output can matter.
+          if (level === "debug") {
+            return current;
+          }
           const args = Array.isArray(params["args"]) ? params["args"] : [];
           const text = args
             .map((arg) => {
@@ -861,8 +879,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           return {
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
-              level: typeof params["type"] === "string" ? params["type"] : "log",
-              text,
+              level,
+              text: truncateDiagnosticText(text),
               timestamp,
               source: "console",
             }),
@@ -877,7 +895,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
               level: "error",
-              text: String(details["text"] ?? "Uncaught exception"),
+              text: truncateDiagnosticText(String(details["text"] ?? "Uncaught exception")),
               timestamp,
               source: "exception",
             }),
@@ -892,7 +910,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
               level: typeof entry["level"] === "string" ? entry["level"] : "info",
-              text: String(entry["text"] ?? ""),
+              text: truncateDiagnosticText(String(entry["text"] ?? "")),
               timestamp,
               source: typeof entry["source"] === "string" ? entry["source"] : "log",
             }),

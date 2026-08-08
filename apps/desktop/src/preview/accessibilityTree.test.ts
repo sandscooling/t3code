@@ -76,12 +76,27 @@ describe("compactAccessibilityTree", () => {
         axNode({ role: "button", name: "Visible", ignored: false }),
         axNode({ role: "button", name: "Hidden", ignored: true }),
         axNode({ role: "generic" }),
-        axNode({ role: "InlineTextBox" }),
         axNode({}),
       ],
     });
 
     assert.deepStrictEqual(compacted.nodes, [{ role: "button", name: "Visible" }]);
+  });
+
+  it("drops text-only roles even when they carry a name", () => {
+    // visibleText is document.body.innerText, so these names are already in
+    // the payload verbatim. Keeping them made the tree a second copy of the
+    // prose and pushed real controls past the node cap.
+    const compacted = compactAccessibilityTree({
+      nodes: [
+        axNode({ role: "StaticText", name: "$628.65" }),
+        axNode({ role: "InlineTextBox", name: "Retail Pricing" }),
+        axNode({ role: "link", name: "Browse Catalog" }),
+      ],
+    });
+
+    assert.deepStrictEqual(compacted.nodes, [{ role: "link", name: "Browse Catalog" }]);
+    assert.strictEqual(compacted.totalNodes, 1);
   });
 
   it("keeps a layout role when it carries an accessible name", () => {

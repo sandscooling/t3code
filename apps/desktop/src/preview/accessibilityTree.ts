@@ -1,12 +1,19 @@
 const MAX_ACCESSIBILITY_NODES = 300;
 
-/** Accessibility roles that carry no meaning for a reader of the snapshot. */
-const IGNORED_ACCESSIBILITY_ROLES = new Set([
-  "none",
-  "generic",
-  "InlineTextBox",
-  "GenericContainer",
-]);
+/**
+ * Roles that only ever restate page text, dropped even when they carry a name.
+ *
+ * `visibleText` is `document.body.innerText`, so every StaticText and
+ * InlineTextBox name is already in the payload verbatim. Keeping them made the
+ * tree mostly a second, worse copy of the prose: on a catalogue page they were
+ * the bulk of 597 nodes, which then pushed genuinely addressable controls past
+ * the node cap. What the tree is for is roles, names and states of things you
+ * can act on.
+ */
+const TEXT_DUPLICATE_ACCESSIBILITY_ROLES = new Set(["StaticText", "InlineTextBox"]);
+
+/** Layout roles that carry no meaning of their own, dropped when unnamed. */
+const IGNORED_ACCESSIBILITY_ROLES = new Set(["none", "generic", "GenericContainer"]);
 /** Node states worth keeping; the rest of the CDP property bag is noise here. */
 const KEPT_ACCESSIBILITY_STATES = new Set([
   "checked",
@@ -62,6 +69,7 @@ export function compactAccessibilityTree(tree: unknown): {
     const role = axValue(node, "role");
     const name = axValue(node, "name");
     if (role === null && name === null) continue;
+    if (role !== null && TEXT_DUPLICATE_ACCESSIBILITY_ROLES.has(role)) continue;
     if (role !== null && IGNORED_ACCESSIBILITY_ROLES.has(role) && name === null) continue;
 
     const entry: Record<string, unknown> = {};
