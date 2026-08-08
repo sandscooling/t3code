@@ -499,6 +499,24 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
 }
 
 /**
+ * Plan completion as a whole percentage, for the hover meter.
+ *
+ * Clamped rather than trusted: `planProgress` is an in-memory server snapshot
+ * that can arrive mid-update, and a bar wider than its track is a worse way to
+ * find that out than a bar pinned at 100.
+ */
+export function planProgressPercent(progress: {
+  readonly completedSteps: number;
+  readonly totalSteps: number;
+}): number {
+  if (progress.totalSteps <= 0) {
+    return 0;
+  }
+  const ratio = progress.completedSteps / progress.totalSteps;
+  return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+}
+
+/**
  * Whether a thread still has work in it, as opposed to being finished or idle.
  *
  * `resolveSidebarThreadStatus` collapses several live conditions into one

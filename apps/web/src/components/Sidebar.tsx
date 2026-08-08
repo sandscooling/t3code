@@ -132,6 +132,7 @@ import {
   orderItemsByPreferredIds,
   planPinnedReorder,
   isSidebarThreadInFlight,
+  planProgressPercent,
   resolveAdjacentThreadId,
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
@@ -314,13 +315,22 @@ function SidebarThreadTooltip({
           {isSidebarThreadInFlight(resolveSidebarThreadStatus(thread)) && thread.planProgress ? (
             <div className="flex min-w-0 items-center gap-2">
               <ListChecksIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
-              <div className="min-w-0 truncate text-foreground/75">
-                {thread.planProgress.step}
-                <span className="text-icon-muted tabular-nums">
-                  {" "}
-                  {thread.planProgress.completedSteps}/{thread.planProgress.totalSteps}
-                </span>
+              <div
+                className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={planProgressPercent(thread.planProgress)}
+                aria-label={`Plan progress: ${thread.planProgress.completedSteps} of ${thread.planProgress.totalSteps} steps complete`}
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                  style={{ width: `${planProgressPercent(thread.planProgress)}%` }}
+                />
               </div>
+              <span className="shrink-0 text-foreground/75 tabular-nums">
+                {planProgressPercent(thread.planProgress)}%
+              </span>
             </div>
           ) : null}
           {projectTitle ? (
