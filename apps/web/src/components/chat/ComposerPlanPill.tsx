@@ -42,13 +42,11 @@ export function ComposerPlanPill({
   const Chevron = expanded ? ChevronDownIcon : ChevronUpIcon;
 
   return (
-    <div className={cn("mx-auto mb-2 w-full max-w-3xl", expanded ? null : "flex justify-center")}>
-      <div
-        className={cn(
-          "min-w-0 overflow-hidden border border-border/60 bg-card/95 shadow-sm",
-          expanded ? "w-full rounded-[18px]" : "w-fit max-w-full rounded-full",
-        )}
-      >
+    <div className="mx-auto mb-2 w-full max-w-3xl">
+      {/* Always composer-width, collapsed or not: a w-fit collapsed pill made
+          the bar jump sideways on every toggle. The 18px radius clamps to a
+          full pill at collapsed height, so the shape still reads as one. */}
+      <div className="w-full min-w-0 overflow-hidden rounded-[18px] border border-border/60 bg-card/95 shadow-sm">
         <button
           type="button"
           aria-expanded={expanded}
