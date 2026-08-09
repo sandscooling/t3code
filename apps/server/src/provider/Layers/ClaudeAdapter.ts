@@ -82,6 +82,8 @@ import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import {
+  CLAUDE_OUTPUT_STYLE_OPTION_ID,
+  DEFAULT_CLAUDE_OUTPUT_STYLE,
   getClaudeModelCapabilities,
   isClaudeUltracodeEffort,
   normalizeClaudeCliEffort,
@@ -4273,10 +4275,23 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "full-access": "bypassPermissions",
       };
       const permissionMode = runtimeModeToPermission[input.runtimeMode];
+      // Forwarded as a session-scoped `--settings` flag on this thread's own
+      // subprocess, so a per-thread style never leaks into another thread or
+      // into the user's settings.json the way the CLI's /output-style does.
+      // "default" is the CLI zero state and is sent as absence, not a value.
+      const rawOutputStyle = getModelSelectionStringOptionValue(
+        modelSelection,
+        CLAUDE_OUTPUT_STYLE_OPTION_ID,
+      );
+      const outputStyle =
+        rawOutputStyle && rawOutputStyle.toLowerCase() !== DEFAULT_CLAUDE_OUTPUT_STYLE
+          ? rawOutputStyle
+          : undefined;
       const settings = {
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),
         ...(ultracode ? { ultracode: true } : {}),
+        ...(outputStyle ? { outputStyle } : {}),
       };
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
       // The attachments dir grant lets the agent Read/copy pasted images at

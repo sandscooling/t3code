@@ -2353,6 +2353,11 @@ export function GeneralSettingsPanel() {
                 model={textGenModel}
                 prompt=""
                 onPromptChange={() => {}}
+                // Titles, commit messages, and branch names are generated
+                // against a JSON schema, which an output style cannot usefully
+                // change and could fight. Offering it here would be a control
+                // that silently does nothing.
+                excludeDescriptorIds={["outputStyle"]}
                 modelOptions={textGenModelOptions}
                 allowPromptInjectedEffort={false}
                 planModeEnabled={settings.planModeEnabled}

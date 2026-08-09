@@ -6,8 +6,12 @@ import type {
 import {
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
+  getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
+
+const OUTPUT_STYLE_DESCRIPTOR_ID = "outputStyle";
+const DEFAULT_OUTPUT_STYLE_VALUE = "default";
 
 export function resolveProviderOptionDescriptors(input: {
   readonly capabilities: ModelCapabilities | null | undefined;
@@ -33,6 +37,17 @@ export function providerOptionValueLabels(
   return descriptors.flatMap((descriptor) => {
     if (descriptor.type === "boolean") {
       return descriptor.currentValue ? [descriptor.label] : [];
+    }
+    if (descriptor.id === OUTPUT_STYLE_DESCRIPTOR_ID) {
+      // Summarized like an enabled boolean rather than a select: an unset
+      // output style is the near-universal case and would just crowd the pill.
+      const styleValue = getProviderOptionCurrentValue(descriptor);
+      if (
+        typeof styleValue !== "string" ||
+        styleValue.toLowerCase() === DEFAULT_OUTPUT_STYLE_VALUE
+      ) {
+        return [];
+      }
     }
     const label = getProviderOptionCurrentLabel(descriptor);
     return label ? [label] : [];

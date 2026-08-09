@@ -102,6 +102,39 @@ This is different from the recommended Codex setup. Claude Code keeps account an
 multiple files under its config directory, so T3 Code keeps separate config directories isolated
 instead of trying to share part of the state.
 
+## I Want To Change How Claude Writes Its Replies
+
+Pick an output style. It changes how Claude writes back to you without changing which model runs
+or what it is allowed to do.
+
+The style picker sits with the other Claude traits, next to reasoning effort and context window:
+open the model controls under the composer, or Thread settings on mobile. It appears once you have
+at least one style beyond the built-ins.
+
+Claude ships several built-in styles, and any style you have written yourself is listed alongside
+them by the name in its file. To add your own, create a Markdown file with a `name` and
+`description` in the `output-styles` folder inside your Claude config directory:
+
+```text
+~/.claude/output-styles/team-voice.md
+```
+
+T3 Code reads the list from Claude Code itself, so a new style shows up the next time the provider
+is checked. If you just added one and do not see it, refresh providers in Settings.
+
+### Each Thread Keeps Its Own Style
+
+A style belongs to the thread you set it on. Two threads can run two different styles at the same
+time, and changing one never disturbs the other. This is different from running `/output-style`
+in Claude Code directly, which writes the choice to a settings file shared by everything using
+that directory.
+
+New threads start with the style you picked most recently, the same way reasoning effort and
+context window carry over. Set a thread back to `Default` to let Claude write the way it normally
+would.
+
+A style you change mid-thread applies from the next message you send.
+
 ## I Want To Use OpenRouter
 
 Use this when you want Claude Code to talk to OpenRouter directly, without running a local router.

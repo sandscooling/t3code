@@ -387,6 +387,54 @@ function formatClaudeOpus47UpgradeMessage(version: string | null): string {
   return `Claude Code ${versionLabel} is too old for Claude Opus 4.7. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_7_VERSION} or newer to access it.`;
 }
 
+/**
+ * The CLI's zero-state output style. Selecting it means "do not pass
+ * `settings.outputStyle` at all", which is why the adapter treats it as the
+ * absence of a choice rather than a value to forward.
+ */
+export const DEFAULT_CLAUDE_OUTPUT_STYLE = "default";
+export const CLAUDE_OUTPUT_STYLE_OPTION_ID = "outputStyle";
+
+/**
+ * Append an output-style trait to every model in the snapshot.
+ *
+ * Output styles are a CLI-wide setting rather than a per-model one, so the
+ * same descriptor rides on each model; clients read traits off the selected
+ * model's capabilities and have no other channel for it. Mirrors how
+ * OpenCode publishes its discovered `agent` list.
+ */
+function withClaudeOutputStyleDescriptor(
+  models: ReadonlyArray<ServerProviderModel>,
+  outputStyles: ReadonlyArray<string>,
+): ReadonlyArray<ServerProviderModel> {
+  // A lone "default" is the CLI reporting no styles are installed. Publishing
+  // a one-choice picker would add a control that can never change anything.
+  if (outputStyles.length < 2) {
+    return models;
+  }
+
+  const descriptor = buildSelectOptionDescriptor({
+    id: CLAUDE_OUTPUT_STYLE_OPTION_ID,
+    label: "Output Style",
+    options: outputStyles.map((style) =>
+      style.toLowerCase() === DEFAULT_CLAUDE_OUTPUT_STYLE
+        ? { value: style, label: toTitleCaseWords(style), isDefault: true }
+        : // User-authored names are shown verbatim; they are display strings
+          // the author chose, not slugs for us to reformat.
+          { value: style, label: style },
+    ),
+  });
+
+  return models.map((model) => ({
+    ...model,
+    capabilities: createModelCapabilities({
+      // Appended, never prepended: clients read the first select descriptor as
+      // the model's primary trait (reasoning effort).
+      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), descriptor],
+    }),
+  }));
+}
+
 export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
   const slug = model?.trim();
   return (
@@ -642,7 +690,40 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  /**
+   * Output styles the CLI resolves for itself, in the order it reports them:
+   * built-ins first, then user-level `output-styles` entries. Reported by
+   * name (a style file's frontmatter `name`, not its filename), which is the
+   * exact token `settings.outputStyle` expects back.
+   */
+  readonly outputStyles: ReadonlyArray<string>;
 };
+
+/**
+ * Normalize the output style names reported by the SDK init handshake.
+ *
+ * The CLI resolves these itself from its built-ins plus the user-level
+ * `output-styles` directory, so T3 Code never scans the filesystem for them.
+ * Names are kept verbatim (they are the token `settings.outputStyle` matches
+ * on) and deduped case-insensitively, since two scopes can define the same
+ * name and the CLI resolves such a collision to a single style.
+ */
+function parseClaudeOutputStyles(styles: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
+  const stylesByKey = new Map<string, string>();
+
+  for (const style of styles ?? []) {
+    const name = nonEmptyProbeString(style);
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (!stylesByKey.has(key)) {
+      stylesByKey.set(key, name);
+    }
+  }
+
+  return [...stylesByKey.values()];
+}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -771,6 +852,7 @@ const probeClaudeCapabilities = (
         tokenSource: account?.tokenSource,
         apiProvider: account?.apiProvider,
         slashCommands: parseClaudeInitializationCommands(init.commands),
+        outputStyles: parseClaudeOutputStyles(init.available_output_styles),
       } satisfies ClaudeCapabilitiesProbe;
     });
   }).pipe(
@@ -929,13 +1011,19 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = capabilities?.slashCommands ?? [];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
+  // No-op when the probe failed or reported nothing, so the degraded snapshot
+  // below can publish the same list without a second branch.
+  const modelsWithOutputStyles = withClaudeOutputStyleDescriptor(
+    models,
+    capabilities?.outputStyles ?? [],
+  );
 
   if (!capabilities) {
     return buildServerProvider({
       presentation: CLAUDE_PRESENTATION,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: modelsWithOutputStyles,
       slashCommands: dedupedSlashCommands,
       skills,
       probe: {
@@ -957,7 +1045,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     presentation: CLAUDE_PRESENTATION,
     enabled: claudeSettings.enabled,
     checkedAt,
-    models,
+    models: modelsWithOutputStyles,
     slashCommands: dedupedSlashCommands,
     skills,
     probe: {
