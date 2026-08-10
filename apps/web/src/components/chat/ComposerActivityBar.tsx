@@ -7,7 +7,7 @@ import { formatSubagentTokenCount } from "@t3tools/client-runtime/state/subagent
 import type { KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { BotIcon, ChevronDownIcon, ChevronUpIcon, ListTodoIcon, TerminalIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../../session-logic";
@@ -184,6 +184,47 @@ export function ComposerActivityBar({
   };
   const tabs = availableActivityTabs(sources);
   const activeTab = resolveActivityTab(sources, storedTab);
+
+  // Tabs hold the height of the tallest one opened while the panel stays
+  // open. A seven-step plan fills the panel and a three-agent roster does
+  // not, so without a floor every switch resized the strip and shoved the
+  // composer around under the pointer.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [heightFloor, setHeightFloor] = useState(0);
+  // Which sources are on offer. A change means the panel is showing a
+  // different thread's work, so a floor carried over from the last one would
+  // strand an oversized empty box under it.
+  const tabsKey = tabs.join(",");
+  const previousTabsKey = useRef(tabsKey);
+  useLayoutEffect(() => {
+    previousTabsKey.current = tabsKey;
+  });
+  const tabsChanged = previousTabsKey.current !== tabsKey;
+  useLayoutEffect(() => {
+    if (!expanded) {
+      setHeightFloor(0);
+      return;
+    }
+    const element = contentRef.current;
+    if (!element) return;
+    // The inner list is measured, not the scroll container: the container
+    // carries the floor, so measuring it would feed its own minHeight back in
+    // and ratchet. offsetHeight here is the content's natural height whatever
+    // the container is currently doing.
+    //
+    // Capped at the same 40vh the container's max-height uses, because a
+    // min-height larger than a max-height wins in CSS and would let a long
+    // plan push the panel past its own limit.
+    const cap = window.innerHeight * 0.4;
+    const natural = Math.min(element.offsetHeight, cap);
+    // A fresh source set restarts the floor at this tab's own height rather
+    // than keeping the last thread's. Measuring the inner list means `natural`
+    // is right either way, so this only chooses the baseline.
+    setHeightFloor((current) =>
+      tabsChanged || current === 0 ? natural : Math.max(current, natural),
+    );
+  }, [activeTab, expanded, tabsChanged, tabsKey]);
+
   if (!activeTab) {
     return null;
   }
@@ -263,12 +304,19 @@ export function ComposerActivityBar({
                 })}
               </div>
             ) : null}
-            <div className="max-h-[40vh] space-y-px overflow-y-auto px-3 py-2">
-              {activeTab === "tasks" && plan ? <TasksList plan={plan} /> : null}
-              {activeTab === "agents" ? (
-                <AgentsList model={agents} onOpenAgents={onOpenAgents} />
-              ) : null}
-              {activeTab === "shells" ? <ShellsList rows={rows} onOpenShell={onOpenShell} /> : null}
+            <div
+              className="max-h-[40vh] overflow-y-auto"
+              style={heightFloor > 0 ? { minHeight: heightFloor } : undefined}
+            >
+              <div ref={contentRef} className="space-y-px px-3 py-2">
+                {activeTab === "tasks" && plan ? <TasksList plan={plan} /> : null}
+                {activeTab === "agents" ? (
+                  <AgentsList model={agents} onOpenAgents={onOpenAgents} />
+                ) : null}
+                {activeTab === "shells" ? (
+                  <ShellsList rows={rows} onOpenShell={onOpenShell} />
+                ) : null}
+              </div>
             </div>
           </div>
         ) : null}
