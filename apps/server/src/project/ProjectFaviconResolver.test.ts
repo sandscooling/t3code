@@ -95,7 +95,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd, "brand/custom.svg");
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("brand/custom.svg");
+        expect(withPosixSeparators(resolved)).toContain("brand/custom.svg");
       }),
     );
 
@@ -108,7 +108,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd, "brand/missing.svg");
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("favicon.svg");
+        expect(withPosixSeparators(resolved)).toContain("favicon.svg");
       }),
     );
 
@@ -189,7 +189,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -207,7 +207,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -225,7 +225,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -243,7 +243,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(withPosixSeparators(resolved)).toContain("public/brand/logo.svg");
       }),
     );
 
