@@ -304,7 +304,13 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       if (relativePath && !isWorkspaceImagePreviewPath(relativePath)) {
         return yield* new AssetPreviewTypeValidationError({ resource: input.resource });
       }
-      sourcePath = relativePath ?? undefined;
+      // Workspace-relative paths are POSIX everywhere they cross the wire, and
+      // the workspace-file branch above already returns them that way because
+      // WorkspacePaths normalises. This branch builds its own with
+      // path.relative, so on Windows it was handing clients brand\custom.svg
+      // for the same setting they had sent as brand/custom.svg. relativePath
+      // itself stays native below, where the filesystem still needs it.
+      sourcePath = relativePath ? relativePath.replaceAll("\\", "/") : undefined;
       const canonicalFaviconPath = relativePath
         ? yield* resolveCanonicalWorkspaceFile({ workspaceRoot, relativePath }).pipe(
             Effect.mapError(
