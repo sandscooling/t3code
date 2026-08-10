@@ -29,6 +29,29 @@ export function browserAutomationCountsAsActivity(operation: PreviewAutomationOp
  */
 export const BROWSER_ACTIVITY_LINGER_MS = 900;
 
+/**
+ * How long a single request may hold the indicator before it is released
+ * regardless of whether the handler ever finished.
+ *
+ * The count is a display counter, not a ledger: it only stays accurate while
+ * every `begin` is matched by a settle, and a handler that never settles
+ * strands one forever, leaving a thread pulsing "agent using browser" for the
+ * life of the app. Nothing recovers it, because the release lives in that
+ * handler's `finally`. Renderer-side automation has several awaits that depend
+ * on a live guest replying — the overlay and readiness polls, the per-tab
+ * viewport queue — and a guest that goes away mid-request (crash, close, the
+ * settled-thread reaper) can leave one pending.
+ *
+ * Every request carries the deadline the broker arms against it, so past that
+ * deadline plus a grace the agent has already been handed a timeout and is no
+ * longer waiting on anything. Continuing to claim the browser is being driven
+ * is then simply wrong, whatever the handler is still doing.
+ */
+export const BROWSER_ACTIVITY_WATCHDOG_GRACE_MS = 2_000;
+
+/** Ceiling for callers that have no request deadline of their own. */
+export const BROWSER_ACTIVITY_DEFAULT_CEILING_MS = 60_000;
+
 interface BrowserAutomationActivityState {
   readonly activeByThreadKey: Record<string, number>;
   readonly begin: (threadKey: string) => void;
@@ -67,24 +90,35 @@ export const useBrowserAutomationActivityStore = create<BrowserAutomationActivit
  * continuous active window instead of strobing between them. Calling the
  * returned function more than once is a no-op, so it is safe in a `finally`
  * that can also be reached by an error path.
+ *
+ * A watchdog releases the request after `ceilingMs` whether or not it settles,
+ * so one stranded handler cannot pin the indicator on forever. Pass the
+ * request's own deadline plus `BROWSER_ACTIVITY_WATCHDOG_GRACE_MS`; settling
+ * disarms it.
  */
 export function beginBrowserAutomationRequest(
   threadKey: string,
   options?: {
     readonly lingerMs?: number;
-    readonly setTimeoutFn?: typeof globalThis.setTimeout;
+    readonly ceilingMs?: number;
   },
 ): () => void {
   const lingerMs = options?.lingerMs ?? BROWSER_ACTIVITY_LINGER_MS;
-  const setTimeoutFn = options?.setTimeoutFn ?? globalThis.setTimeout;
+  const ceilingMs = options?.ceilingMs ?? BROWSER_ACTIVITY_DEFAULT_CEILING_MS;
   useBrowserAutomationActivityStore.getState().begin(threadKey);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    useBrowserAutomationActivityStore.getState().release(threadKey);
+  };
+  const watchdog = setTimeout(release, ceilingMs);
   let settled = false;
   return () => {
     if (settled) return;
     settled = true;
-    setTimeoutFn(() => {
-      useBrowserAutomationActivityStore.getState().release(threadKey);
-    }, lingerMs);
+    clearTimeout(watchdog);
+    setTimeout(release, lingerMs);
   };
 }
 

@@ -33,20 +33,22 @@ describe("browserAutomationActivityStore", () => {
   });
 
   it("keeps a thread active until the last overlapping request settles", () => {
-    const setTimeoutFn = vi.fn((callback: () => void) => {
-      callback();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof globalThis.setTimeout;
+    vi.useFakeTimers();
+    try {
+      const first = beginBrowserAutomationRequest("env_a:thread_1", { lingerMs: 0 });
+      const second = beginBrowserAutomationRequest("env_a:thread_1", { lingerMs: 0 });
+      expect(activeKeys()["env_a:thread_1"]).toBe(2);
 
-    const first = beginBrowserAutomationRequest("env_a:thread_1", { setTimeoutFn });
-    const second = beginBrowserAutomationRequest("env_a:thread_1", { setTimeoutFn });
-    expect(activeKeys()["env_a:thread_1"]).toBe(2);
+      first();
+      vi.advanceTimersByTime(0);
+      expect(activeKeys()["env_a:thread_1"]).toBe(1);
 
-    first();
-    expect(activeKeys()["env_a:thread_1"]).toBe(1);
-
-    second();
-    expect(activeKeys()).toEqual({});
+      second();
+      vi.advanceTimersByTime(0);
+      expect(activeKeys()).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("defers the release so brief requests stay visible", () => {
@@ -82,6 +84,65 @@ describe("browserAutomationActivityStore", () => {
       expect(activeKeys()["env_a:thread_1"]).toBe(1);
 
       inner();
+      vi.advanceTimersByTime(900);
+      expect(activeKeys()).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases a request that never settles, so the globe cannot pulse forever", () => {
+    vi.useFakeTimers();
+    try {
+      // No settle call: the handler is stranded on a guest that went away.
+      beginBrowserAutomationRequest("env_a:thread_1", { ceilingMs: 5_000 });
+
+      vi.advanceTimersByTime(4_999);
+      expect(activeKeys()["env_a:thread_1"]).toBe(1);
+
+      vi.advanceTimersByTime(1);
+      expect(activeKeys()).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("strands only the request that hung, not the ones still running", () => {
+    vi.useFakeTimers();
+    try {
+      beginBrowserAutomationRequest("env_a:thread_1", { ceilingMs: 5_000 });
+      const live = beginBrowserAutomationRequest("env_a:thread_1", { ceilingMs: 30_000 });
+
+      vi.advanceTimersByTime(5_000);
+      expect(activeKeys()["env_a:thread_1"]).toBe(1);
+
+      live();
+      vi.advanceTimersByTime(900);
+      expect(activeKeys()).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disarms the watchdog on settle so it cannot double-release", () => {
+    vi.useFakeTimers();
+    try {
+      const settle = beginBrowserAutomationRequest("env_a:thread_1", {
+        lingerMs: 900,
+        ceilingMs: 5_000,
+      });
+      const second = beginBrowserAutomationRequest("env_a:thread_1", { ceilingMs: 30_000 });
+
+      settle();
+      vi.advanceTimersByTime(900);
+      expect(activeKeys()["env_a:thread_1"]).toBe(1);
+
+      // The disarmed watchdog would otherwise fire here and take the second
+      // request's count with it.
+      vi.advanceTimersByTime(5_000);
+      expect(activeKeys()["env_a:thread_1"]).toBe(1);
+
+      second();
       vi.advanceTimersByTime(900);
       expect(activeKeys()).toEqual({});
     } finally {

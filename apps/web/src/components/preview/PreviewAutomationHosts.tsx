@@ -39,6 +39,7 @@ import {
 } from "~/browser/browserRecording";
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
 import {
+  BROWSER_ACTIVITY_WATCHDOG_GRACE_MS,
   beginBrowserAutomationRequest,
   browserAutomationCountsAsActivity,
 } from "~/browser/browserAutomationActivityStore";
@@ -317,7 +318,11 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
       // This host is the only cross-thread view of browser activity, so the
       // signal has to be raised here rather than in the routed preview panel.
       const settleActivity = browserAutomationCountsAsActivity(request.operation)
-        ? beginBrowserAutomationRequest(scopedThreadKey(threadRef))
+        ? beginBrowserAutomationRequest(scopedThreadKey(threadRef), {
+            // The broker arms this same deadline, so past it the agent has
+            // already been answered and nothing is waiting on the handler.
+            ceilingMs: request.timeoutMs + BROWSER_ACTIVITY_WATCHDOG_GRACE_MS,
+          })
         : null;
       let tabId = request.tabId ?? null;
       try {
