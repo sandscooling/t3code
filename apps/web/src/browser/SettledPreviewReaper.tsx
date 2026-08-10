@@ -9,6 +9,7 @@ import type { OrchestrationThreadShell } from "@t3tools/contracts";
 import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 
+import { closeThreadPreviewSessions } from "~/components/preview/closeThreadPreviewSessions";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useActivePreviewSessions } from "~/previewStateStore";
@@ -27,9 +28,11 @@ import { selectReapableThreadKeys } from "./settledPreviewReaper.logic";
  * hostedBrowserWebviewStyle keeps those guests CSS-visible while parked
  * offscreen so background automation keeps working. Nothing throttles them, so
  * a settled thread's tab keeps running its page: timers, polling, sockets. The
- * server owns the session records, so closing one there drops it from the next
- * snapshot, the host stops rendering that webview, and desktopTabLifetime tears
- * the guest down through the path it already uses.
+ * server owns the session records, so the close goes there, and the local
+ * store is updated optimistically alongside it the way the close button does:
+ * the host renders from that store, so dropping the session there is what
+ * stops the webview and lets desktopTabLifetime tear the guest down through
+ * the path it already uses.
  *
  * Runs on the minute-quantized clock the sidebar partitions on, so a tab is
  * only reaped on the tick that moves its thread out of the active list.
@@ -101,9 +104,10 @@ export function SettledPreviewReaper() {
     [autoSettleAfterDays, now, onScreenThreadKeys, previewThreadKeys, shellByThreadKey],
   );
 
-  // A close is in flight until its session leaves the snapshot, and the
-  // snapshot is what this reads, so without this guard every render between
-  // request and acknowledgement fires the same close again.
+  // Belt and braces against re-firing. The optimistic removal inside
+  // closeThreadPreviewSessions already takes the thread out of the snapshot
+  // this reads, but a restore after a failed close puts it back, and the
+  // request may still be outstanding.
   const inFlight = useRef(new Set<string>());
 
   useEffect(() => {
@@ -112,11 +116,7 @@ export function SettledPreviewReaper() {
       const threadRef = parseScopedThreadKey(threadKey);
       if (!threadRef) continue;
       inFlight.current.add(threadKey);
-      void closePreview({
-        environmentId: threadRef.environmentId,
-        // No tabId: every session on a settled thread goes, not just one.
-        input: { threadId: threadRef.threadId },
-      })
+      void closeThreadPreviewSessions({ closePreview, threadRef })
         .catch(() => undefined)
         .finally(() => {
           inFlight.current.delete(threadKey);
