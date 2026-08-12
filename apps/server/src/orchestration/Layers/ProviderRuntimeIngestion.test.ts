@@ -2855,6 +2855,46 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("ignores provider-supplied thread names when thread title generation is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { generateThreadTitles: false } });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "thread.metadata.updated",
+      eventId: asEventId("evt-thread-metadata-updated-disabled"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        name: "Renamed by provider",
+        metadata: { source: "provider" },
+      },
+    });
+
+    // A later event whose effect is never suppressed, so waiting on it proves
+    // the rename was skipped rather than merely not applied yet.
+    harness.emit({
+      type: "turn.plan.updated",
+      eventId: asEventId("evt-turn-plan-updated-disabled"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      payload: {
+        explanation: "Working through the plan",
+        plan: [{ step: "Inspect files", status: "in_progress" }],
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.plan.updated",
+      ),
+    );
+
+    expect(thread.title).toBe("Thread");
+  });
+
   it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

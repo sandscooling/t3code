@@ -1931,7 +1931,13 @@ const make = Effect.gen(function* () {
       }
 
       if (event.type === "thread.metadata.updated" && event.payload.name) {
-        if (canReplaceThreadTitle(thread.title)) {
+        // Providers that name their own sessions (Codex, OpenCode) mirror that
+        // name onto the thread. Automatic titling being off covers this too,
+        // otherwise the setting only silences half of what renames a thread.
+        // Upstream's own guard still applies: the mirror runs only when the
+        // existing title is still replaceable.
+        const { generateThreadTitles } = yield* serverSettingsService.getSettings;
+        if (generateThreadTitles && canReplaceThreadTitle(thread.title)) {
           yield* orchestrationEngine.dispatch({
             type: "thread.meta.update",
             commandId: yield* providerCommandId(event, "thread-meta-update"),

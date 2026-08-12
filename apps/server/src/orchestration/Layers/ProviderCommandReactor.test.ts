@@ -150,6 +150,7 @@ describe("ProviderCommandReactor", () => {
     readonly requiresNewThreadForModelChange?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
+    readonly generateThreadTitles?: boolean;
     readonly startSessionEffect?: (
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderAdapterRequestError>;
@@ -412,7 +413,13 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(
+        ServerSettingsService.layerTest(
+          input?.generateThreadTitles === undefined
+            ? {}
+            : { generateThreadTitles: input.generateThreadTitles },
+        ),
+      ),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -711,6 +718,45 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.title).toBe("Generated title");
   });
+
+  effectIt.effect("keeps the seeded title when thread title generation is disabled", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness({ generateThreadTitles: false }));
+      const now = "2026-01-01T00:00:00.000Z";
+      const seededTitle = "/deep-dive";
+      harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
+
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-title-seed-disabled"),
+        threadId: ThreadId.make("thread-1"),
+        title: seededTitle,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-title-disabled"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-disabled"),
+          role: "user",
+          text: "Please investigate reconnect failures after restarting the session.",
+          attachments: [],
+        },
+        titleSeed: seededTitle,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      // The turn itself still has to run; only the rename is suppressed.
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      expect(harness.generateThreadTitle).not.toHaveBeenCalled();
+      const readModel = yield* Effect.promise(() => harness.readModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      expect(thread?.title).toBe(seededTitle);
+    }),
+  );
 
   it("regenerates a thread title from the current conversation", async () => {
     const harness = await createHarness();

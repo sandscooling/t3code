@@ -163,6 +163,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     desktopOnly: true,
   },
   {
+    id: "generate-thread-titles",
+    title: "Generate thread titles",
+    to: "/settings/general",
+  },
+  {
     id: "text-generation-model",
     title: "Text generation model",
     to: "/settings/general",

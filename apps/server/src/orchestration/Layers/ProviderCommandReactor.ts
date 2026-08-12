@@ -852,8 +852,11 @@ const make = Effect.gen(function* () {
     }) {
       const attachments = input.attachments ?? [];
       yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
+        const { textGenerationModelSelection: modelSelection, generateThreadTitles } =
           yield* serverSettingsService.getSettings;
+        // Read inside the fiber so a toggle flipped mid-turn takes effect on
+        // the very next thread rather than the next server restart.
+        if (!generateThreadTitles) return;
 
         const generated = yield* textGeneration.generateThreadTitle({
           cwd: input.cwd,

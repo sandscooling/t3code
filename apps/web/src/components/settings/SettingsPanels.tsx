@@ -530,6 +530,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit
         ? ["Quit confirmation"]
         : []),
+      ...(settings.generateThreadTitles !== DEFAULT_UNIFIED_SETTINGS.generateThreadTitles
+        ? ["Generate thread titles"]
+        : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
@@ -563,6 +566,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.glassOpacity,
       settings.enableLegacyTokenStreaming,
       settings.enableProviderUpdateChecks,
+      settings.generateThreadTitles,
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
@@ -659,6 +663,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
+      generateThreadTitles: DEFAULT_UNIFIED_SETTINGS.generateThreadTitles,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
@@ -2302,6 +2307,32 @@ export function GeneralSettingsPanel() {
             }
           />
         ) : null}
+
+        <SettingsRow
+          {...searchableSetting("generate-thread-titles")}
+          description="Name a thread from its first message automatically, and follow session names the provider generates. Turn this off to keep whatever the thread was first called. Regenerate title still works on demand."
+          resetAction={
+            settings.generateThreadTitles !== DEFAULT_UNIFIED_SETTINGS.generateThreadTitles ? (
+              <SettingResetButton
+                label="generate thread titles"
+                onClick={() =>
+                  updateSettings({
+                    generateThreadTitles: DEFAULT_UNIFIED_SETTINGS.generateThreadTitles,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.generateThreadTitles}
+              onCheckedChange={(checked) =>
+                updateSettings({ generateThreadTitles: Boolean(checked) })
+              }
+              aria-label="Generate thread titles"
+            />
+          }
+        />
 
         <SettingsRow
           {...searchableSetting("text-generation-model")}
