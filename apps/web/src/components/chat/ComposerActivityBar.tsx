@@ -7,8 +7,9 @@ import { formatSubagentTokenCount } from "@t3tools/client-runtime/state/subagent
 import type { KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { BotIcon, ChevronDownIcon, ChevronUpIcon, ListTodoIcon, TerminalIcon } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { AgentElapsed, isAgentTicking } from "~/components/AgentElapsed";
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../../session-logic";
 import {
@@ -136,7 +137,10 @@ function isSettled(status: RuntimeSubagent["status"]): boolean {
   );
 }
 
-function statusText(status: RuntimeSubagent["status"]): string {
+// Settled outcomes only. In-flight rows used to read "Working", which the
+// ticking clock beside them now says better: it carries the same "this is
+// live" signal and answers how long, which a static word never could.
+function statusText(status: RuntimeSubagent["status"]): string | null {
   switch (status) {
     case "completed":
       return "Completed";
@@ -147,8 +151,13 @@ function statusText(status: RuntimeSubagent["status"]): string {
       return "Stopped";
     case "idle":
       return "Idle";
+    // Spawned but not started, so there is no clock to show yet: startedAt is
+    // only stamped on the move to running. Queued rather than working, since
+    // a fleet past the concurrency cap really is waiting its turn.
+    case "pending":
+      return "Queued";
     default:
-      return "Working";
+      return null;
   }
 }
 
@@ -394,6 +403,10 @@ function AgentsSummary({ model }: { readonly model: AgentPanelModel }) {
   const rows = agentRows(model);
   const lead = rows.find((row) => !isSettled(row.agent.status))?.agent ?? rows[0]?.agent ?? null;
   const working = model.runningCount + model.waitingCount;
+  // The clock belongs to whichever agent is named on this line, so it only
+  // renders while that one is ticking. Pinning it to a settled lead would
+  // put a frozen number next to a live count and read as a stalled run.
+  const leadIsTicking = lead !== null && isAgentTicking(lead.status);
   return (
     <>
       <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
@@ -405,6 +418,9 @@ function AgentsSummary({ model }: { readonly model: AgentPanelModel }) {
       >
         {lead ? (lead.workflowName ?? lead.title) : "Agents"}
       </span>
+      {leadIsTicking ? (
+        <AgentElapsed agent={lead} className="shrink-0 text-muted-foreground" />
+      ) : null}
       <span className="shrink-0 text-muted-foreground tabular-nums">
         {working > 0 ? `${working} working` : `${model.settledCount} settled`}
       </span>
@@ -473,6 +489,7 @@ function ActivityRow({
   dotClass,
   label,
   detail,
+  elapsed,
   trailing,
   onClick,
   title,
@@ -480,6 +497,7 @@ function ActivityRow({
   readonly dotClass: string;
   readonly label: string;
   readonly detail: string | null;
+  readonly elapsed?: ReactNode;
   readonly trailing?: string | null;
   readonly onClick: () => void;
   readonly title: string;
@@ -498,6 +516,9 @@ function ActivityRow({
       <span className="min-w-0 flex-1 truncate text-foreground/90">{label}</span>
       {detail ? (
         <span className="shrink-0 text-[.7rem] text-muted-foreground">{detail}</span>
+      ) : null}
+      {elapsed ? (
+        <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80">{elapsed}</span>
       ) : null}
       {trailing ? (
         <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80 tabular-nums">
@@ -529,6 +550,7 @@ function AgentsList({
             dotClass={AGENT_STATUS_DOT[agent.status]}
             label={agent.workflowName ?? agent.title}
             detail={detail}
+            elapsed={<AgentElapsed agent={agent} />}
             trailing={tokens > 0 ? `${formatSubagentTokenCount(tokens)} tok` : null}
             onClick={onOpenAgents}
             title="Open the Agents panel"
