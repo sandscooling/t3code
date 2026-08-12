@@ -2370,6 +2370,7 @@ function ChatViewContent(props: ChatViewProps) {
     threadError,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const activeTurnInProgress = isWorking || !latestTurnSettled;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -4121,6 +4122,44 @@ function ChatViewContent(props: ChatViewProps) {
       }
     };
   }, [activeThread?.id, timelineEntries, getActiveTimelineTurnMetrics]);
+
+  // Releasing the send-time anchor once the turn settles. The anchored end
+  // space is sized as `viewport - contentBelowAnchor`, so it re-inflates by
+  // whatever the content below the anchor loses — and a settling turn folds its
+  // whole work log behind one "Worked for ..." row. The reserved space grows by
+  // the height of everything that just folded away, stranding the final message
+  // above a screen of blank. The space only exists to hold a streaming reply, so
+  // it has no job left once the reply is done.
+  //
+  // Upstream tracks the symptom as #4619 and #5903. Drop this effect when a
+  // fix lands there.
+  const anchorObservedInFlightRef = useRef<MessageId | null>(null);
+  useEffect(() => {
+    if (timelineAnchorMessageId === null) {
+      return;
+    }
+    // The server has not opened the new turn yet, so `latestTurn` still
+    // describes the previous (settled) one. Releasing here would undo the
+    // anchor a frame after the send placed it.
+    if (activeTurnInProgress) {
+      anchorObservedInFlightRef.current = timelineAnchorMessageId;
+      return;
+    }
+    if (anchorObservedInFlightRef.current !== timelineAnchorMessageId) {
+      return;
+    }
+    anchorObservedInFlightRef.current = null;
+    if (timelineScrollModeRef.current === "anchoring-new-turn") {
+      // Still following this turn: land on the real end of the thread.
+      scrollToEnd(false);
+      return;
+    }
+    // Reading elsewhere in the thread. Drop the reserved space without moving
+    // the reader; it all sits below the viewport.
+    setTimelineAnchor((current) =>
+      current.messageId === null ? current : { ...current, messageId: null },
+    );
+  }, [activeTurnInProgress, scrollToEnd, timelineAnchorMessageId]);
 
   useEffect(() => {
     setPullRequestDialogState(null);
