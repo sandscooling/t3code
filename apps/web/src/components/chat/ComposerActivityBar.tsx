@@ -10,6 +10,7 @@ import { BotIcon, ChevronDownIcon, ChevronUpIcon, ListTodoIcon, TerminalIcon } f
 import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AgentElapsed, isAgentTicking } from "~/components/AgentElapsed";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../../session-logic";
 import {
@@ -503,29 +504,38 @@ function ActivityRow({
   readonly title: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left text-xs leading-5",
-        "transition-colors hover:bg-accent/30",
-      )}
-    >
-      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
-      <span className="min-w-0 flex-1 truncate text-foreground/90">{label}</span>
-      {detail ? (
-        <span className="shrink-0 text-[.7rem] text-muted-foreground">{detail}</span>
-      ) : null}
-      {elapsed ? (
-        <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80">{elapsed}</span>
-      ) : null}
-      {trailing ? (
-        <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80 tabular-nums">
-          {trailing}
-        </span>
-      ) : null}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={onClick}
+            aria-label={title}
+            className={cn(
+              "flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left text-xs leading-5",
+              "transition-colors hover:bg-accent/30",
+            )}
+          >
+            <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
+            <span className="min-w-0 flex-1 truncate text-foreground/90">{label}</span>
+            {detail ? (
+              <span className="shrink-0 text-[.7rem] text-muted-foreground">{detail}</span>
+            ) : null}
+            {elapsed ? (
+              <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80">
+                {elapsed}
+              </span>
+            ) : null}
+            {trailing ? (
+              <span className="shrink-0 font-mono text-[.7rem] text-muted-foreground/80 tabular-nums">
+                {trailing}
+              </span>
+            ) : null}
+          </button>
+        }
+      />
+      <TooltipPopup side="top">{title}</TooltipPopup>
+    </Tooltip>
   );
 }
 
