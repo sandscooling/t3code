@@ -1726,7 +1726,7 @@ function ChatMarkdown({
           />
         );
       },
-      img({ node: _node, src, alt, ...props }) {
+      img({ node: _node, src, alt, title: _title, ...props }) {
         const fileLinkMeta = resolveMarkdownImageFileLinkMeta(src, cwd);
         if (!fileLinkMeta || !threadRef) {
           return <img {...props} src={src} alt={alt} />;
@@ -1825,9 +1825,6 @@ function ChatMarkdown({
           `[${fileLinkMeta.basename}](${normalizedHref})`,
           props.className,
         );
-      },
-      img({ node: _node, title: _title, ...props }) {
-        return <img {...props} />;
       },
       code({ node, children, className, ...props }) {
         if (node?.properties?.dataInlineCode != null) {
