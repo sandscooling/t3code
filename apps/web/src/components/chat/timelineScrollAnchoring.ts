@@ -76,3 +76,22 @@ export function getAnchoredTurnMetrics({
     scrollDeltaToRevealEnd,
   };
 }
+
+/**
+ * Whether the send-time anchor has outlived its job and should be dropped.
+ *
+ * The anchor reserves `viewport - contentBelowAnchor` of empty space so a reply
+ * that has not arrived yet can stream in below the prompt. Once the turn is
+ * taller than the usable viewport that space is already zero and the prompt has
+ * scrolled off the top, so the anchor holds nothing. What it can still do is
+ * re-inflate: the space is sized against the content below it, so anything that
+ * shrinks the timeline (a background shell moving its rows into the composer
+ * activity bar, a settling turn folding its work log behind one row) grows the
+ * blank by exactly the height that just left, stranding the last message a
+ * screen above the composer.
+ */
+export function shouldReleaseAnchorAfterViewportFilled(
+  metrics: AnchoredTurnMetrics | null,
+): boolean {
+  return metrics !== null && metrics.overflowsUsableViewport;
+}

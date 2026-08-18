@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { getAnchoredTurnMetrics, getRowBottom } from "./timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  getRowBottom,
+  shouldReleaseAnchorAfterViewportFilled,
+} from "./timelineScrollAnchoring";
 
 function buildState({
   positions,
@@ -134,5 +138,40 @@ describe("timeline scroll anchoring", () => {
 
     expect(withoutComposer?.overflowsUsableViewport).toBe(false);
     expect(withComposer?.overflowsUsableViewport).toBe(true);
+  });
+
+  it("keeps the anchor while the reply is still shorter than the viewport", () => {
+    const metrics = getAnchoredTurnMetrics({
+      state: buildState({
+        positions: [0, 300, 420],
+        sizes: [240, 120, 160],
+        scrollLength: 760,
+      }),
+      anchorIndex: 1,
+      composerOverlayHeight: 180,
+      anchorOffset: 16,
+    });
+
+    expect(shouldReleaseAnchorAfterViewportFilled(metrics)).toBe(false);
+  });
+
+  it("releases the anchor once the turn fills the viewport on its own", () => {
+    const metrics = getAnchoredTurnMetrics({
+      state: buildState({
+        positions: [0, 300, 500],
+        sizes: [240, 200, 700],
+        scrollLength: 760,
+      }),
+      anchorIndex: 1,
+      composerOverlayHeight: 180,
+      anchorOffset: 16,
+    });
+
+    expect(metrics?.turnHeight).toBe(900);
+    expect(shouldReleaseAnchorAfterViewportFilled(metrics)).toBe(true);
+  });
+
+  it("has no anchor to release when the list has not measured yet", () => {
+    expect(shouldReleaseAnchorAfterViewportFilled(null)).toBe(false);
   });
 });

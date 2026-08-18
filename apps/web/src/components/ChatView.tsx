@@ -103,7 +103,11 @@ import {
   isLatestTurnSettled,
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
-import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  shouldReleaseAnchorAfterViewportFilled,
+  type TimelineScrollMode,
+} from "./chat/timelineScrollAnchoring";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -3892,6 +3896,18 @@ function ChatViewContent(props: ChatViewProps) {
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
+  // Dropping the reserved end space. A reader still following the turn lands on
+  // the real end of the thread; one who scrolled off to read something else
+  // keeps their position, since the space sits below their viewport either way.
+  const releaseTimelineAnchor = useCallback(() => {
+    if (timelineScrollModeRef.current === "anchoring-new-turn") {
+      scrollToEnd(false);
+      return;
+    }
+    setTimelineAnchor((current) =>
+      current.messageId === null ? current : { ...current, messageId: null },
+    );
+  }, [scrollToEnd]);
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
     let frame: number | null = null;
@@ -4106,7 +4122,19 @@ function ChatViewContent(props: ChatViewProps) {
         }
 
         const metrics = getActiveTimelineTurnMetrics(list);
-        if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) {
+        if (!metrics) {
+          return;
+        }
+        // The reply now fills the viewport on its own, so the reserved space is
+        // spent and every later shrink of the timeline would hand it back as
+        // blank. Release here rather than waiting for the turn to settle:
+        // spawning a background shell or agent moves its rows out of the
+        // timeline mid-turn, which re-inflates the space by their full height.
+        if (shouldReleaseAnchorAfterViewportFilled(metrics)) {
+          releaseTimelineAnchor();
+          return;
+        }
+        if (metrics.scrollDeltaToRevealEnd <= 1) {
           return;
         }
 
@@ -4121,7 +4149,7 @@ function ChatViewContent(props: ChatViewProps) {
         cancelAnimationFrame(secondFrame);
       }
     };
-  }, [activeThread?.id, timelineEntries, getActiveTimelineTurnMetrics]);
+  }, [activeThread?.id, timelineEntries, getActiveTimelineTurnMetrics, releaseTimelineAnchor]);
 
   // Releasing the send-time anchor once the turn settles. The anchored end
   // space is sized as `viewport - contentBelowAnchor`, so it re-inflates by
@@ -4149,17 +4177,8 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
     anchorObservedInFlightRef.current = null;
-    if (timelineScrollModeRef.current === "anchoring-new-turn") {
-      // Still following this turn: land on the real end of the thread.
-      scrollToEnd(false);
-      return;
-    }
-    // Reading elsewhere in the thread. Drop the reserved space without moving
-    // the reader; it all sits below the viewport.
-    setTimelineAnchor((current) =>
-      current.messageId === null ? current : { ...current, messageId: null },
-    );
-  }, [activeTurnInProgress, scrollToEnd, timelineAnchorMessageId]);
+    releaseTimelineAnchor();
+  }, [activeTurnInProgress, releaseTimelineAnchor, timelineAnchorMessageId]);
 
   useEffect(() => {
     setPullRequestDialogState(null);
