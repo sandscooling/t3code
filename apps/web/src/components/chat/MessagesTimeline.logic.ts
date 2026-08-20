@@ -30,6 +30,17 @@ export function workEntryIsVisibleInGroup(
   );
 }
 
+/**
+ * Rows a group's overflow toggle never hides. An agent-spawn CTA, so a running
+ * fleet cannot end up behind "+N tool calls", and a submitted answer, which is
+ * the record of a decision the agent asked you to make rather than work to skim
+ * past: it is written once, mid-turn, and everything after it pushes it out of
+ * the visible tail.
+ */
+export function workEntryPinnedInGroup(entry: WorkLogEntry): boolean {
+  return entry.agentSpawn !== undefined || entry.sourceActivityKind === "user-input.resolved";
+}
+
 export interface TimelineEndState {
   readonly isAtEnd?: boolean;
   readonly contentLength?: number;
@@ -922,19 +933,17 @@ export function deriveMessagesTimelineRows(input: {
         } else {
           const groupId = workGroupId(timelineEntry.id, timelineEntry.entry);
           const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-          // Agent-spawn CTA rows are always visible: a running fleet must
-          // never hide behind a "+N tool calls" toggle. Selection is by
-          // membership (spawn OR recent-tail), preserving the group's
-          // chronological order in both collapsed and expanded states
-          // (review finding: concatenating two filtered lists moved a
-          // mid-group spawn row above earlier tool rows).
+          // Pinned rows are always visible. Selection is by membership (pinned
+          // OR recent-tail), preserving the group's chronological order in both
+          // collapsed and expanded states (review finding: concatenating two
+          // filtered lists moved a mid-group spawn row above earlier tool rows).
           const overflowCandidates = visibleGroupedEntries.filter(
-            (entry) => entry.agentSpawn === undefined,
+            (entry) => !workEntryPinnedInGroup(entry),
           );
           const hiddenEntries = overflowCandidates.slice(0, -MAX_VISIBLE_WORK_LOG_ENTRIES);
           const hiddenIds = new Set(hiddenEntries.map((entry) => entry.id));
           const visibleEntries = visibleGroupedEntries.filter(
-            (entry) => entry.agentSpawn !== undefined || !hiddenIds.has(entry.id),
+            (entry) => workEntryPinnedInGroup(entry) || !hiddenIds.has(entry.id),
           );
           const renderedEntries = expanded ? visibleGroupedEntries : visibleEntries;
 

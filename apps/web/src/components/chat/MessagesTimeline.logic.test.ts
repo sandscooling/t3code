@@ -1374,6 +1374,62 @@ describe("deriveMessagesTimelineRows", () => {
       expanded: true,
     });
   });
+
+  it("keeps a submitted answer visible when later work overflows its group", () => {
+    // A group shows only its last entry, and an answer is written mid-turn, so
+    // everything the agent does with the answer pushes it behind the toggle.
+    // Pinned like an agent-spawn row: the decision stays on screen.
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "answer-entry",
+          kind: "work" as const,
+          createdAt: "2026-01-01T00:00:01Z",
+          entry: {
+            id: "answer",
+            createdAt: "2026-01-01T00:00:01Z",
+            label: "Answered question",
+            tone: "info" as const,
+            sourceActivityKind: "user-input.resolved",
+            detail: "Build scope: fold the two fixes in",
+          },
+        },
+        {
+          id: "work-entry-1",
+          kind: "work" as const,
+          createdAt: "2026-01-01T00:00:02Z",
+          entry: {
+            id: "work-1",
+            createdAt: "2026-01-01T00:00:02Z",
+            label: "edit",
+            detail: "Editing MessagesTimeline.tsx",
+            tone: "tool" as const,
+          },
+        },
+        {
+          id: "work-entry-2",
+          kind: "work" as const,
+          createdAt: "2026-01-01T00:00:03Z",
+          entry: {
+            id: "work-2",
+            createdAt: "2026-01-01T00:00:03Z",
+            label: "test",
+            detail: "Running tests",
+            tone: "tool" as const,
+          },
+        },
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.id)).toEqual(["answer", "work-2", "work-toggle:answer-entry"]);
+    expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
+      hiddenCount: 1,
+    });
+  });
 });
 
 describe("computeStableMessagesTimelineRows", () => {

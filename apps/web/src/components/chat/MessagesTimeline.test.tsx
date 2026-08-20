@@ -944,6 +944,21 @@ describe("MessagesTimeline", () => {
               detail: `Globe color: Sky, as you asked\nBehavior: ${freeForm}`,
             },
           },
+          // The work that followed the answer. A group shows only its last
+          // entry, so without the pin this row alone would survive and the
+          // answers block would render nowhere.
+          {
+            id: "entry-2",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "work-2",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "edit",
+              detail: "Editing ThreadStatusIndicators.tsx",
+              tone: "tool",
+            },
+          },
         ]}
       />,
     );
