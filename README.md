@@ -1,120 +1,163 @@
-# T3 Code
+# T3 Code, S&S Cooling Fork
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+This is my working fork of Theo and Team's excellent [T3 Code](https://github.com/pingdotgg/t3code). It is maintained as my daily driver rather than as a release channel. It carries a few upstream pull requests that are still open, plus local fixes and interface changes that have not been sent upstream.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, T3 Code can control them.
+**Looking for the real project?** Read [the upstream README](./README.upstream.md), preserved here unchanged, or go straight to [pingdotgg/t3code](https://github.com/pingdotgg/t3code). Everything in the upstream README about installing, supported providers, and documentation still applies.
 
-## "Wait, what are you selling me?"
+> **_NOTE_**
+> Nothing here is an official build. Upstream ships the real thing at [t3.codes](https://t3.codes) and on [GitHub Releases](https://github.com/pingdotgg/t3code/releases). This fork exists so I can run features before they land, and it is rebased and rebuilt by hand.
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+---
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+## What this fork is for
 
-## Installation
+I use T3 Code as my daily driver. There's a ton of great stuff coming down the pipe and I'm cherry picking stuff that really improves my experience. Specifically:
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build and OpenCode. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
+- Mermaid (@jdalmeida) and image rendering (@berend) in the conversation area.
 
-### Try it out (install-free)
+And several quality of life features I've added:
 
-The easiest way to test T3 Code is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
+- Added globe icon indicator to sidebar when preview is working in a session
+- Made it so the AskUserTool can be cancelled outright, with a close button and an Escape shortcut. Collapsing the panel was carried here too until upstream shipped its own, which is better; the cancel button now sits in upstream's header.
+- Put the task list back where I can see it. Upstream folded plans into the transcript, which buries them under the updates they are meant to summarize, so there is a pill above the composer that stays put and unfolds when I want the detail.
+
+## If you want to use this fork
+
+Four consequences worth stating plainly:
+
+- **Merging a pull request here is a snapshot, not a subscription.** Nothing links this branch to a pull request after the merge. New upstream work on that branch has to be fetched and merged again by hand.
+- **Upstream squash merges.** When a carried pull request finally lands on upstream `main`, it arrives as a single new commit with a different hash. Git cannot tell it is the same work, so the next sync conflicts on files this branch already changed. #5219 landing produced 19 conflicted files across 64 hunks.
+- **Replay whenever the merge fights back.** Fetch upstream, put this branch on top of it, and add the carried set back, rather than resolving hunk by hunk against a base that moves every day. Authorship is the sorting key: every commit worth replaying is one of mine, and the rest belong to a pull request or to upstream. When #5219 landed, replaying turned 19 conflicted files into 3, because the conflicts were almost entirely this branch arguing with upstream over code that was now upstream's. The test is friction, not ceremony: dry-run the merge first, and when it comes back clean, take it. On 2026-08-08 four upstream commits merged with zero conflicts, and replaying 24 commits to absorb them would have been pure risk. One of those 24 would have quietly resurrected the interrupt fix that was deliberately dropped.
+- **Upstream wins every conflict.** If something carried here cannot be replayed cleanly onto the new upstream, it gets dropped and recorded below, not forced in, and never by editing upstream code to make room for it. The list in this file is a list of things I want, not a list of things I am owed. Two entries have already left this way: the interrupt fix that upstream did better, and #5219 once it landed.
+
+## Upstream work carried here
+
+Merged in locally at the pinned commit shown. Each is still open upstream at the time of writing.
+
+| Pull request                                           | Pinned at   | What it adds                                                                                                                                                                                                                                 |
+| ------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#4989](https://github.com/pingdotgg/t3code/pull/4989) | `22a00728c` | Mermaid diagrams rendered in chat markdown, with pan and zoom.                                                                                                                                                                               |
+| [#5114](https://github.com/pingdotgg/t3code/pull/5114) | `b9f2090dd` | Inline workspace images written as `![alt](path)`, including SVG. The branch head now includes the commit that used to be cherry-picked on top, which keeps a generated image rendering when the activity detail is truncated past the path. |
+
+Upstream base: `beab6886f` (259 commits past v0.0.33).
+
+**Upstream rewrote the composer and the work log under this branch, and both carried features were re-wired rather than dropped.** [#7150](https://github.com/pingdotgg/t3code/pull/7150) rebuilt the composer footer, so the plan usage meter went back onto upstream's new `ComposerFooterPrimaryActions` rather than the block it used to live in. [#7152](https://github.com/pingdotgg/t3code/pull/7152) collapses a run's tool calls into one line, which has a visible consequence for the carried inline images: a work log row that is the only tool call in its group now sits behind a "+N tool calls" toggle, so a generated image is one click away rather than open by default. Upstream's collapse won the conflict either way; the image itself renders exactly as before once the group is open.
+
+**Upstream's new usage page does not replace the plan usage meter carried here.** [#5684](https://github.com/pingdotgg/t3code/pull/5684) reads the provider CLIs' own transcripts off disk and prices them against LiteLLM's rate table, answering what the agents cost. The meter in the composer answers a different question, how much of the current plan window is gone, and it comes from a live `/usage` control request to the SDK. Upstream's own text draws the line: its figure is API-equivalent cost, not money spent, because "subscription plans bill separately". On a subscription that figure is a curiosity and the window is the thing that stops you working. The two share no files.
+
+**The plan step is gone from sidebar rows, by upstream's decision.** This fork put the current plan step in the row's second line while a thread was working, displacing the branch. [#5776](https://github.com/pingdotgg/t3code/pull/5776) reverted exactly that, and said why in a code comment: the step truncated to a half-sentence and cost the row its most stable identifier. That is a fair call, and the tie-breaker rule applies, so upstream's version won the merge. What survives is the hover meter from `b6aadba37`, which reads plan progress as a percentage bar and never competed for the branch's slot. The composer pill and activity bar are untouched.
+
+**Upstream fixed the interrupt bug too, so that fix is gone from here.** This fork used to carry `4429c297e`, which stopped a stopped turn from raising a red runtime error card. Upstream shipped [#5557](https://github.com/pingdotgg/t3code/pull/5557) for the same bug in v0.0.32 and did it better: it reads the CLI's own `terminal_reason` field rather than tracking an interrupt flag on the session, and it separately filters the opaque `[ede_diagnostic]` strings out of the error banner. Upstream's version won the merge and the local one was dropped, tests included.
+
+**Upstream shipped the collapsible question panel, so that half is gone from here.** [#6773](https://github.com/pingdotgg/t3code/pull/6773) landed on 2026-08-15 and does what `e69a8a897` did, better in three ways: the whole header is the disclosure trigger rather than a separate chevron button, the collapsed header echoes the question on one line instead of leaving only a section label, and the collapsed state is keyed by question id, so the card reopens when the prompt advances to its next question. The local version stayed collapsed through that advance, which was a real bug it did not have. The chevron direction fix `799a6b345` went with it, since upstream already draws the arrow the way the body folds. What upstream did not take is the dismiss half: there is no close button and no Escape handler anywhere in its panel, so that part is still carried, now grafted onto upstream's header. Two class names on upstream's trigger changed to make room, `w-full` becoming `min-w-0 flex-1` and the wrapper becoming a flex row, because a button cannot be nested inside the trigger button.
+
+**The title toggle now sits on top of upstream's own guard, rather than replacing it.** [#5941](https://github.com/pingdotgg/t3code/pull/5941) stopped the provider title mirror from overwriting a title the user set by hand, gating it on `canReplaceThreadTitle`. This fork gates the same mirror on the `generateThreadTitles` setting. Both guards protect one dispatch and answer different questions, so the merge composes them with `&&` instead of picking a winner: the mirror runs only when automatic titling is on and the existing title is still replaceable. Upstream's condition is untouched.
+
+**#5219 has landed upstream and is no longer carried here.** Subagent and workflow observability now comes from upstream `a2ca89aa1`, which is a superset of the snapshot this fork used to pin: it adds thread background liveness, a workflow script query, and Codex multi agent wire support. The stacked #5316 rode in with it. This branch was rebuilt on top of upstream rather than merged, so every commit hash below is new.
+
+## Changes made in this fork
+
+### Interface
+
+| Change                                                                                                                                                                                                                                                                                                                                                                                                 | Commit                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| Dismiss a pending question outright, with a close button and an Escape shortcut, and mark stopped turns in the transcript. The button sits beside upstream's collapse trigger rather than replacing the header it built                                                                                                                                                                                | `8a695d34a`              |
+| Show submitted question answers as an always visible block instead of hiding them once answered                                                                                                                                                                                                                                                                                                        | `0e739e25a`, `0b900d714` |
+| Cache rendered Mermaid diagrams across remounts, so switching threads repaints instead of re-rendering                                                                                                                                                                                                                                                                                                 | `b93b5a404`              |
+| Match Mermaid diagram chrome to the simplified code blocks introduced upstream                                                                                                                                                                                                                                                                                                                         | `7b46fff6c`              |
+| Show browser activity on sidebar rows, using a globe that pulses only while an agent is driving the browser                                                                                                                                                                                                                                                                                            | `cc2e90176`, `2a92a9138` |
+| Show plan usage windows in the composer                                                                                                                                                                                                                                                                                                                                                                | `e2b45625e`              |
+| Anchor plan progress to the composer as a collapsible pill, after upstream #5558 deleted the plan sidebar and left only a chip that scrolls away with the transcript. The sidebar half of this was later reverted upstream by #5776 and dropped here                                                                                                                                                   | `972d6c513`              |
+| Show plan progress on thread hover as a meter and a percentage instead of naming the step, matching the bar the context window meter already uses, so a glance across sessions answers how far along a thread is rather than only what it is doing                                                                                                                                                     | `b6aadba37`              |
+| Let each thread pick its own output style. The Agent SDK never advertises /output-style as a slash command, so it is set through settings.outputStyle on the thread's own subprocess, which isolates threads more strictly than the CLI does                                                                                                                                                           | `82c0d902d`              |
+| Fold background agents and shells into the composer strip alongside the plan, with tabs once more than one has something to show, so work that outlives its chat rows stays visible without opening a panel                                                                                                                                                                                            | `63c196aff`              |
+| Close a thread's browser previews once it settles. Every open tab stays mounted for every thread and held CSS-visible offscreen so background automation keeps working, so a settled thread kept a renderer polling indefinitely                                                                                                                                                                       | `52e5eba2d`, `2679adc33` |
+| Stop a thread from renaming itself. Two independent paths do it: the first turn hands the opening message to the title generator, and providers that name their own sessions have that name mirrored onto the thread. The setting silences both, since silencing one would leave a Codex thread still renaming itself and the toggle looking broken. Explicit renames and Regenerate title still work  | `4f9bbf5ed`              |
+| Put an elapsed clock on the composer activity rows. They read "Working", which is the one thing the status dot already showed, and said nothing about whether a run started four seconds ago or has been going eleven minutes. The Agents panel clock moves to a shared component so both surfaces tick identically. A spawned but unstarted agent reads "Queued" instead, having no clock to show yet | `33610a9d6`              |
+
+### Fixes
+
+| Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Commit                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Drain every page when bootstrapping a projector. A projector further behind than the read page size stopped short while reporting success, and the next live event advanced its cursor past the gap, stranding those events for good                                                                                                                                                                                                                                                                                                                                  | `00591c531`              |
+| Source plan usage percentages from the `/usage` control request. The meter never rendered: it was built on the push `rate_limit_event`, which names the window and its reset but carries no utilization, so every window was discarded before an activity was written                                                                                                                                                                                                                                                                                                 | `d860a5158`              |
+| Snapshot collaborative browser tabs that are not painted on screen. Electron's `capturePage` copies an existing compositor surface, so a background thread's offscreen preview returned `UnknownVizError` instead of an image, while every other automation operation kept working on the same tab                                                                                                                                                                                                                                                                    | `3f824d111`              |
+| Stop a captured checkpoint from erasing an interrupted turn. Pressing Stop showed "Stopped, ready for your next message" and then lost it a couple of seconds later, because CheckpointReactor captures the real git ref after the turn ends and the projector rewrote the turn state from the checkpoint status, where "ready" means "completed". A checkpoint says a git ref exists, not how the turn ended                                                                                                                                                         | `f20061058`              |
+| Cut the token cost of a browser snapshot, which ran to roughly 50k. The screenshot was never the problem: it returns as an image block priced by dimensions. `accessibilityTree` was the raw `getFullAXTree` dump, the one field with no cap, carrying a node per element with ids and name-computation sources that no caller can address. It is now compacted and capped, and reports its own truncation. `preview_snapshot` also takes `include` so a call can ask for only the sections it needs                                                                  | `f7774124c`              |
+| Keep the plan step visible while a thread waits on you. The sidebar row and the hover tooltip both gated the step on a working status, but pending approvals and pending user input rank above a running session, so a thread that paused mid-plan to ask something reported "approval" or "input" and lost its step at the moment it matters most. Both now gate on the whole in-flight set. Only the hover half remains, since #5776 took the step out of the row entirely                                                                                          | `9b49785ee`              |
+| Drop accessibility nodes that only duplicate page text, and stop recording `console.debug`. StaticText and InlineTextBox names are already in `visibleText` verbatim, so the tree was largely a second, worse copy of the prose, 597 nodes on the worst measured page, enough to push genuinely addressable controls past the node cap. On that page the stored payload fell from 750 KB to 411 KB. Diagnostic text is now capped per entry as well, since the buffer bounded how many entries survived but not their size                                            | `072695a16`              |
+| Read git remotes whose url contains a space. All three parsers of `git remote -v` matched the url as `\S+`, so a remote under a path with a space failed the line match and was skipped without a trace; `ensureRemote` then created a duplicate instead of reusing origin. Not Windows specific                                                                                                                                                                                                                                                                      | `23f120490`              |
+| Flush files through a writable handle and tolerate directories that cannot be flushed. `FlushFileBuffers` needs write access and rejects directory handles, so on Windows every database backup failed and a rollback was recorded as a failure, and `t3 service install` could not complete                                                                                                                                                                                                                                                                          | `280c8d8e8`, `de667502f` |
+| Stop a failed bootstrap teardown from reaching the process as an uncaught exception, which the desktop backend could hit at startup                                                                                                                                                                                                                                                                                                                                                                                                                                   | `280c8d8e8`              |
+| Hold the composer plan pill at one width. It sized to its contents collapsed and to the composer expanded, so every toggle moved both edges, and a short current step made that most of the composer's width                                                                                                                                                                                                                                                                                                                                                          | `78f2e6757`              |
+| Hold the activity panel's height across tab switches. It sized to whichever tab was showing, so moving from a long plan to a short agent list collapsed the box and dragged the composer up under the pointer that had just clicked                                                                                                                                                                                                                                                                                                                                   | `8b89ec167`              |
+| Return the project favicon source path with POSIX separators. The same setting went in as `brand/custom.svg` and came back as `brand\custom.svg` on Windows, because this branch built its own relative path instead of taking the one WorkspacePaths had already normalised. Latent, since nothing reads the field yet. Worth sending upstream                                                                                                                                                                                                                       | `5086837cf`              |
+| Stop a stranded browser request from pinning a thread's globe on. The pulse counts in-flight agent requests, and the release lives in one handler's `finally`, so a handler that never settles left the thread reporting "agent using browser" for the life of the app. A watchdog now releases the count at the request's own deadline, which is the deadline the broker already answered the agent on                                                                                                                                                               | `5b57a18a8`              |
+| Migrate the composer activity row's hover hint from the native `title` attribute to the styled Tooltip. Upstream #7209 added an error-level lint rule banning `title` on intrinsic elements, and this row was the only carried change still using one. It gains the `aria-label` the attribute used to supply                                                                                                                                                                                                                                                         | `8354d89e2`              |
+| Repair the conflict resolutions each replay leaves behind, all caught by `tsgo` and the targeted suites rather than by the merge. The first pair: a duplicated markdown `img` handler after the #5114 merge, and a lost `getProviderDisplayName` import in the composer. The second: a `changeRequestState` field upstream renamed to `changeRequest`, the traits picker's own test missing upstream's new required `planModeEnabled`, and two fork tests describing behaviour #7152 and #7252 changed underneath them                                                | `e34dae6e6`, `86d9eff8d` |
+| Release the chat timeline's send anchor once the turn settles. Sending reserves space below the new user row so the reply streams in while the prompt stays near the top, and the patched LegendList sizes that space as `viewport - contentBelowAnchor`. A settling turn folds its whole work log behind one "Worked for ..." row, the reserved space grows by everything that just folded away, and the final message is stranded above a screen of blank. Upstream tracks the symptom as issues #4619 and #5903, both still open; drop this when a fix lands there | `d785e719c`, `474e8147f` |
+
+### Windows test suite
+
+Upstream CI runs Ubuntu and macOS only, so the server suite had never been
+green on Windows: it failed 30 files and 116 tests here. It now passes in full.
+Most of that was the suite rather than the product, and those fixes are Windows
+branches that leave the POSIX path untouched.
+
+| Change                                                                                                                                                     | Commit                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Give the fake provider CLIs a `.cmd` form, since Windows cannot execute an extensionless `#!/bin/sh` wrapper and the spawn failed before the fake ever ran | `d5e986559`, `536c048fa`, `23a4a3f30` |
+| Resolve the 8.3 short form of `TEMP` before the suite runs, so paths a test builds and paths the code resolves stop disagreeing on spelling                | `e07ae425a`                           |
+| Pin `core.autocrlf` in git fixtures, and wait on the real clock in loops that poll for asynchronous writes rather than only advancing virtual time         | `52fbd2d18`, `d1a72a8a9`              |
+| Account for the absence of POSIX file modes, where `chmod` only toggles the read-only attribute                                                            | `c2adcae2c`                           |
+| Route the favicon assertions v0.0.33 added through the separator helper `e07ae425a` left in that file, which they were written without                     | `ed1720e4f`                           |
+
+Fifteen tests take a Windows early return, each with the reason recorded
+inline, across eleven files. Some are upstream's and some are this fork's. The
+groups worth knowing about: several assert that an agent observed `SIGTERM`,
+which the platform has no equivalent for, and several more depend on
+terminating a provider CLI that `resolveSpawnCommand` runs under `cmd.exe`,
+making it a grandchild. Nothing in the server kills by process tree, so the
+agent outlives the close. That last group looks like a real defect rather than
+a test artefact, since provider CLIs installed from npm are `.cmd` shims too,
+but confirming it needs a real CLI on Windows. The rest turn on POSIX-only
+facilities: `mkfifo`, mode bits that `chmod` cannot set on Windows, and file
+descriptors that would surface `EBADF` if closed twice.
+
+## Building this fork
+
+The upstream instructions apply. In short, using Node.js 24 and a `rustup` toolchain new enough for the native resource monitor:
 
 ```bash
-npx t3@latest
+pnpm install
+pnpm dist:desktop:win
 ```
 
-This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
+The Windows installer lands in `release/`. A few things that cost time to rediscover:
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
+- The artifact name is derived from the package version, which does not change between local builds, so **a rebuild silently overwrites the previous installer**. Copy it aside first if the previous build is your known good fallback. The file timestamp is the only way to tell two builds apart.
+- A local build **replaces** an installed official build rather than sitting beside it. The NSIS uninstall identifier comes from `appId`, which is the same constant on every channel, so the installer quietly uninstalls what is already there and takes over the same directory. Real coexistence needs both `appId` and `legacyUserDataDirName` changed.
+- The installer launches the app when it finishes, and that launch goes through the desktop shell, so it inherits the shell environment rather than the environment of the terminal you ran the installer from.
+- There is no `.env` in the repo, so a local build has no cloud keys. Local work is unaffected.
 
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
+The server can also be run on its own, which is much faster than rebuilding the desktop app when you are changing server code:
 
 ```bash
-winget install T3Tools.T3Code
+cd apps/server
+node src/bin.ts
 ```
 
-#### macOS (Homebrew)
+Set `T3CODE_HOME` to point it at a state directory of your choosing. This is the quickest way to see server errors, which the packaged app does not write to a log.
 
-```bash
-brew install --cask t3-code
-```
+## Relationship to upstream
 
-#### Arch Linux (AUR)
+This fork does not accept contributions and does not track upstream issues. Report anything you find against [pingdotgg/t3code](https://github.com/pingdotgg/t3code) instead, and read [CONTRIBUTING.md](./CONTRIBUTING.md) first. Upstream is only lightly accepting contributions at the moment, so check there before writing a patch.
 
-Stable:
+Some of the fixes above are not fork specific and would be worth sending upstream. The projector bootstrap fix in particular is a correctness bug that affects anyone whose projections need rebuilding.
 
-```bash
-yay -S t3code-bin
-```
+## Original project
 
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Customize a project icon](./docs/user/project-settings.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- Linux: [run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+- [Upstream README](./README.upstream.md), a verbatim copy. Refresh it by copying upstream's `README.md` over it.
+- [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
+- [Documentation](./docs), starting at [docs/internals/overview.md](./docs/internals/overview.md) for building from source
+- [Discord](https://discord.gg/jn4EGJjrvv)
