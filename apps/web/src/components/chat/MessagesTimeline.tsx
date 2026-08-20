@@ -2719,7 +2719,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className="cursor-text whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+          <pre className="cursor-text whitespace-pre-wrap break-words font-mono text-[length:var(--font-size-code,0.6875rem)] leading-relaxed text-muted-foreground select-text">
             {submittedAnswers}
           </pre>
         </div>
