@@ -181,6 +181,7 @@ describe("buildTraitsTriggerDisplay", () => {
       model: "styled-only",
       prompt: "",
       modelOptions: undefined,
+      planModeEnabled: false,
     };
     expect(shouldRenderTraitsControls(input)).toBe(true);
     expect(shouldRenderTraitsControls({ ...input, excludeDescriptorIds: ["outputStyle"] })).toBe(

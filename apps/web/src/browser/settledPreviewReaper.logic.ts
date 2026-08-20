@@ -39,7 +39,7 @@ export function selectReapableThreadKeys(input: ReapableThreadInput): ReadonlyAr
     if (!shell) {
       return false;
     }
-    // changeRequestState is deliberately omitted rather than queried. Pulling
+    // changeRequest is deliberately omitted rather than queried. Pulling
     // VCS status for every thread holding a tab costs a request per thread to
     // sharpen an edge case in both directions: a merged pull request will not
     // reap until the thread also goes quiet, and a thread with an open pull
@@ -49,7 +49,7 @@ export function selectReapableThreadKeys(input: ReapableThreadInput): ReadonlyAr
     return effectiveSettled(shell, {
       now: input.now,
       autoSettleAfterDays: input.autoSettleAfterDays,
-      changeRequestState: null,
+      changeRequest: null,
     });
   });
 }

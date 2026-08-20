@@ -964,6 +964,22 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         timelineEntries={[
+          // Upstream #7152 folds a tool-only group behind a "+N tool calls"
+          // toggle, and only the last entry of a group stays visible. A
+          // non-tool entry ahead of the image view is what a real work log
+          // looks like when the image is the newest row, and it is the shape
+          // that renders the row inline rather than collapsed.
+          {
+            id: "entry-context",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-context",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Context compacted",
+              tone: "info",
+            },
+          },
           {
             id: "entry-image-view",
             kind: "work",
