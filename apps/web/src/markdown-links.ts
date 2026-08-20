@@ -1,3 +1,5 @@
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
 import { resolvePathLinkTarget, splitPathAndPosition } from "./terminal-links";
 
@@ -387,6 +389,14 @@ export function resolveMarkdownFileLinkMeta(
   const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
   if (!targetPath) return null;
   return buildFileLinkMetaFromTarget(targetPath, cwd);
+}
+
+export function resolveMarkdownImageFileLinkMeta(
+  src: string | undefined,
+  cwd?: string,
+): MarkdownFileLinkMeta | null {
+  const meta = resolveMarkdownFileLinkMeta(src, cwd);
+  return meta && isWorkspaceImagePreviewPath(meta.filePath) ? meta : null;
 }
 
 function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): MarkdownFileLinkMeta {
