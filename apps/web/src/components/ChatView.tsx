@@ -81,11 +81,6 @@ import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
-  selectActivityBarExpanded,
-  selectActivityBarTab,
-  useComposerActivityBarStore,
-} from "../composerActivityBarStore";
-import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
   parseStandaloneComposerSlashCommand,
@@ -306,7 +301,6 @@ import {
   threadChangeRequestSnapshotsAtom,
 } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
-import { ComposerActivityBar } from "./chat/ComposerActivityBar";
 import { ThreadSyncStatusPill } from "./chat/ThreadSyncStatusPill";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
@@ -2367,17 +2361,6 @@ function ChatViewContent(props: ChatViewProps) {
       null
     );
   }, [activeLatestTurn?.turnId, activePlan]);
-  // The composer pill, unlike the working row, deliberately reads activePlan
-  // as-is: its whole point is to still say something when you switch into a
-  // thread whose turn has already settled.
-  const activityBarExpanded = useComposerActivityBarStore((store) =>
-    selectActivityBarExpanded(store.expandedByThreadKey, activeThreadRef),
-  );
-  const activityBarTab = useComposerActivityBarStore((store) =>
-    selectActivityBarTab(store.tabByThreadKey, activeThreadRef),
-  );
-  const toggleActivityBar = useComposerActivityBarStore((store) => store.toggleActivityBar);
-  const selectActivityTab = useComposerActivityBarStore((store) => store.selectActivityTab);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -2930,13 +2913,6 @@ function ChatViewContent(props: ChatViewProps) {
   );
   // Activity-bar shells row: the session may be a server-side terminal this
   // client has never opened locally, so ensure it before focusing the drawer.
-  const openShellFromActivityBar = useCallback(
-    (terminalId: string) => {
-      if (!activeThreadRef) return;
-      storeEnsureTerminal(activeThreadRef, terminalId, { open: true });
-    },
-    [activeThreadRef, storeEnsureTerminal],
-  );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
     const nextOpen = !terminalUiState.terminalOpen;
@@ -6732,19 +6708,6 @@ function ChatViewContent(props: ChatViewProps) {
                   )}
                   {threadSyncPhase && !activeEnvironmentUnavailable ? (
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
-                  ) : null}
-                  {activeThreadRef ? (
-                    <ComposerActivityBar
-                      plan={activePlan}
-                      agents={agentPanelModel}
-                      shells={activeThreadKnownSessions}
-                      expanded={activityBarExpanded}
-                      storedTab={activityBarTab}
-                      onToggle={() => toggleActivityBar(activeThreadRef)}
-                      onSelectTab={(tab) => selectActivityTab(activeThreadRef, tab)}
-                      onOpenAgents={addAgentsSurface}
-                      onOpenShell={openShellFromActivityBar}
-                    />
                   ) : null}
                   <div
                     className="relative"
