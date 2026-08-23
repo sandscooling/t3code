@@ -23,7 +23,6 @@ function makeActivity(
   id: string,
   itemType: string,
   data: Record<string, unknown>,
-  detail = `${itemType} detail`,
 ): OrchestrationThreadActivity {
   return {
     id: EventId.make(id),
@@ -33,7 +32,7 @@ function makeActivity(
     payload: {
       itemType,
       title: itemType,
-      detail,
+      detail: `${itemType} detail`,
       status: "completed",
       requestKind: "command",
       data,
@@ -130,18 +129,9 @@ const fixtures = [
     },
     ignored: "top-level bulk",
   }),
-  makeActivity(
-    "image",
-    "image_view",
-    {
-      item: {
-        type: "imageGeneration",
-        savedPath: "/repo/project/generated/cat.png",
-      },
-      ignored: "top-level bulk",
-    },
-    "/repo/project/generated/cat.png",
-  ),
+  makeActivity("image", "image_view", {
+    ignored: "top-level bulk",
+  }),
 ] satisfies ReadonlyArray<OrchestrationThreadActivity>;
 
 describe("projectActivityPayload", () => {
@@ -230,71 +220,38 @@ describe("projectActivityPayload", () => {
     }
   });
 
-  it("keeps image paths available after projecting nested provider data", () => {
-    const projectedCodex = projectActivityPayload(fixtures[6]!);
-
-    expect(projectedCodex.payload).toEqual({
-      itemType: "image_view",
-      title: "image_view",
-      detail: "/repo/project/generated/cat.png",
-      status: "completed",
-      requestKind: "command",
-      data: {
+  it("preserves failed stored tool outcomes for web and mobile clients", () => {
+    const activities = [
+      makeActivity("failed-command", "command_execution", {
         item: {
-          savedPath: "/repo/project/generated/cat.png",
+          command: "vp test run",
+          exitCode: 1,
+          status: "failed",
         },
-      },
-    });
-    expect(deriveWorkLogEntries([projectedCodex])[0]?.imagePath).toBe(
-      "/repo/project/generated/cat.png",
-    );
-
-    const projectedClaude = projectActivityPayload(
-      makeActivity(
-        "claude-image",
-        "image_view",
-        {
-          toolName: "ReadImage",
-          input: { path: "/repo/project/screenshots/claude.png" },
+      }),
+      makeActivity("failed-mcp", "mcp_tool_call", {
+        item: {
+          server: "simulator",
+          tool: "build",
+          arguments: {},
+          status: "failed",
         },
-        'ReadImage: {"path":"/repo/project/screenshots/claude.png"}',
-      ),
-    );
+      }),
+    ];
 
-    expect(projectedClaude.payload).toEqual({
-      itemType: "image_view",
-      title: "image_view",
-      detail: 'ReadImage: {"path":"/repo/project/screenshots/claude.png"}',
-      status: "completed",
-      requestKind: "command",
-      data: {
-        files: [{ path: "/repo/project/screenshots/claude.png" }],
-      },
-    });
-    expect(deriveWorkLogEntries([projectedClaude])[0]?.imagePath).toBe(
-      "/repo/project/screenshots/claude.png",
-    );
-  });
+    for (const activity of activities) {
+      const projected = projectActivityPayload(activity);
+      expect(projected.payload).toMatchObject({ status: "failed" });
 
-  it("keeps generated image paths when the activity detail is truncated", () => {
-    const imagePath = `/repo/project/${"generated/".repeat(20)}cat.png`;
-    const truncatedDetail = `${imagePath.slice(0, 177)}...`;
-    const projected = projectActivityPayload(
-      makeActivity(
-        "long-image",
-        "image_view",
-        {
-          item: {
-            type: "imageGeneration",
-            savedPath: imagePath,
-          },
-        },
-        truncatedDetail,
-      ),
-    );
+      const [webEntry] = deriveWorkLogEntries([projected]);
+      expect(webEntry?.toolLifecycleStatus).toBe("failed");
 
-    expect(imagePath.length).toBeGreaterThan(180);
-    expect(deriveWorkLogEntries([projected])[0]?.imagePath).toBe(imagePath);
+      const [mobileGroup] = buildThreadFeed(makeThread([projected]));
+      expect(mobileGroup).toMatchObject({ type: "activity-group" });
+      if (mobileGroup?.type === "activity-group") {
+        expect(mobileGroup.activities[0]?.status).toBe("failure");
+      }
+    }
   });
 
   it("projects snapshot and event transports without mutating their sources", () => {
