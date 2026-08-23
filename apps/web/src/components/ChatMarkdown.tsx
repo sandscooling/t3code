@@ -81,13 +81,11 @@ import {
   normalizeMarkdownLinkDestination,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
-  resolveMarkdownImageFileLinkMeta,
   rewriteMarkdownFileUriHref,
   shouldOpenMarkdownFileLinkInEditor,
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
-import { useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
@@ -1004,49 +1002,6 @@ const MARKDOWN_LINK_FAVICON_CLASS_NAME = "block size-full shrink-0 select-none";
 /** Hosts whose favicon request already failed this session — skip straight to the globe. */
 const failedFaviconHosts = new Set<string>();
 
-function MarkdownWorkspaceImage({
-  filePath,
-  markdownSrc,
-  threadRef,
-  alt,
-  className,
-  onError,
-  ...props
-}: Omit<React.ComponentProps<"img">, "src"> & {
-  readonly filePath: string;
-  readonly markdownSrc: string;
-  readonly threadRef: ScopedThreadRef;
-}) {
-  const assetUrl = useAssetUrlState(threadRef.environmentId, {
-    _tag: "workspace-file",
-    threadId: threadRef.threadId,
-    path: filePath,
-  });
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const label = alt?.trim() || filePath.split(/[\\/]/).at(-1) || "image";
-
-  if (assetUrl._tag === "Failure" || (assetUrl._tag === "Success" && failedUrl === assetUrl.url)) {
-    return <span className="text-destructive">Unable to load {label}.</span>;
-  }
-  if (assetUrl._tag !== "Success") {
-    return <span className="text-muted-foreground">Loading {label}…</span>;
-  }
-
-  return (
-    <img
-      {...props}
-      className={cn("max-h-[32rem] max-w-full rounded-md object-contain", className)}
-      data-markdown-src={markdownSrc}
-      src={assetUrl.url}
-      alt={alt}
-      onError={(event) => {
-        setFailedUrl(assetUrl.url);
-        onError?.(event);
-      }}
-    />
-  );
-}
-
 const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({ host }: { host: string }) {
   const [failedHost, setFailedHost] = useState<string | null>(null);
   return (
@@ -1811,21 +1766,6 @@ function ChatMarkdown({
               if (!Number.isSafeInteger(markerOffset)) return;
               onTaskListChange({ markerOffset, checked: event.currentTarget.checked });
             }}
-          />
-        );
-      },
-      img({ node: _node, src, alt, title: _title, ...props }) {
-        const fileLinkMeta = resolveMarkdownImageFileLinkMeta(src, cwd);
-        if (!fileLinkMeta || !threadRef) {
-          return <img {...props} src={src} alt={alt} />;
-        }
-        return (
-          <MarkdownWorkspaceImage
-            {...props}
-            filePath={fileLinkMeta.filePath}
-            markdownSrc={src ?? fileLinkMeta.filePath}
-            threadRef={threadRef}
-            alt={alt}
           />
         );
       },
