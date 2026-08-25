@@ -126,7 +126,9 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
   filterCommandPaletteGroups,
+  NEW_THREAD_PROJECTS_GROUP,
   parseSessionSpawnQuery,
+  resolveSessionCountCompletion,
   filterPinnedBrowseEntries,
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
@@ -627,7 +629,8 @@ function OpenCommandPaletteDialog(props: {
   // "New thread in..." lets the query carry a trailing count ("fleet 5"). The
   // count is split off before filtering, since otherwise the digits join the
   // project filter and the list goes empty with nothing to select.
-  const acceptsSessionCount = currentView?.acceptsSessionCount === true;
+  const acceptsSessionCount =
+    currentView?.groups.some((group) => group.value === NEW_THREAD_PROJECTS_GROUP) === true;
   const sessionSpawnCount = acceptsSessionCount ? parseSessionSpawnQuery(query).count : null;
   const filterQuery = acceptsSessionCount
     ? parseSessionSpawnQuery(deferredQuery).filterText
@@ -1285,7 +1288,6 @@ function OpenCommandPaletteDialog(props: {
           addonIcon: view.addonIcon,
           groups: view.groups,
           ...(view.initialQuery ? { initialQuery: view.initialQuery } : {}),
-          ...(view.acceptsSessionCount ? { acceptsSessionCount: true } : {}),
         },
       ]);
       setHighlightedItemValue(null);
@@ -1299,7 +1301,6 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: item.addonIcon,
       groups: item.groups,
       ...(item.initialQuery ? { initialQuery: item.initialQuery } : {}),
-      ...(item.acceptsSessionCount ? { acceptsSessionCount: true } : {}),
     });
   }
 
@@ -1595,7 +1596,7 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [
         {
-          value: "projects",
+          value: NEW_THREAD_PROJECTS_GROUP,
           label: "Projects",
           items: enumerateCommandPaletteItems(prioritized),
         },
@@ -1648,8 +1649,7 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      acceptsSessionCount: true,
-      groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+      groups: [{ value: NEW_THREAD_PROJECTS_GROUP, label: "Projects", items: projectThreadItems }],
     });
   }
 
@@ -2322,18 +2322,19 @@ function OpenCommandPaletteDialog(props: {
     // few letters otherwise leaves the box holding "fl" while the selection
     // sits somewhere below it.
     if (event.key === "Tab" && acceptsSessionCount && !event.shiftKey) {
-      const highlighted = displayedGroups
-        .flatMap((group) => group.items)
-        .find((item) => item.value === highlightedItemValue);
-      if (highlighted && typeof highlighted.title === "string") {
-        event.preventDefault();
-        setQuery(
-          sessionSpawnCount === null
-            ? `${highlighted.title} `
-            : `${highlighted.title} ${sessionSpawnCount}`,
-        );
-        return;
+      // Tab never leaves this box. Falling through would move focus to the back
+      // arrow, which reads as the completion silently doing nothing, so an empty
+      // list makes Tab a no-op instead.
+      event.preventDefault();
+      const completion = resolveSessionCountCompletion({
+        items: displayedGroups.flatMap((group) => group.items),
+        highlightedItemValue,
+        count: sessionSpawnCount,
+      });
+      if (completion !== null) {
+        setQuery(completion);
       }
+      return;
     }
 
     if (event.key === "Backspace" && query === "" && isSubmenu) {

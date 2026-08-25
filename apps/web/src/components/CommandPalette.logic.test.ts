@@ -9,6 +9,7 @@ import {
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   parseSessionSpawnQuery,
+  resolveSessionCountCompletion,
   reduceCommandPaletteUiState,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
@@ -440,5 +441,56 @@ describe("parseSessionSpawnQuery", () => {
 
   it("accepts an explicit single session", () => {
     expect(parseSessionSpawnQuery("fleet 1")).toEqual({ filterText: "fleet", count: 1 });
+  });
+});
+
+describe("resolveSessionCountCompletion", () => {
+  const items = [
+    { value: "new-thread-in:env:a", title: "T3 Code" },
+    { value: "new-thread-in:env:b", title: "Fleet Cooling" },
+  ];
+
+  it("completes to the highlighted project", () => {
+    expect(
+      resolveSessionCountCompletion({
+        items,
+        highlightedItemValue: "new-thread-in:env:b",
+        count: null,
+      }),
+    ).toBe("Fleet Cooling ");
+  });
+
+  it("falls back to the first match when nothing is highlighted yet", () => {
+    // The list highlights its first match on its own, so Tab has to accept it
+    // without the user arrowing down first.
+    expect(resolveSessionCountCompletion({ items, highlightedItemValue: null, count: null })).toBe(
+      "T3 Code ",
+    );
+  });
+
+  it("keeps a count that was already typed", () => {
+    expect(
+      resolveSessionCountCompletion({
+        items,
+        highlightedItemValue: "new-thread-in:env:b",
+        count: 5,
+      }),
+    ).toBe("Fleet Cooling 5");
+  });
+
+  it("returns null when the list is empty, so Tab stays a no-op", () => {
+    expect(
+      resolveSessionCountCompletion({ items: [], highlightedItemValue: null, count: null }),
+    ).toBeNull();
+  });
+
+  it("ignores an item whose title is not plain text", () => {
+    expect(
+      resolveSessionCountCompletion({
+        items: [{ value: "x", title: null }],
+        highlightedItemValue: null,
+        count: null,
+      }),
+    ).toBeNull();
   });
 });

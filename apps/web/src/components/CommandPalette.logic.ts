@@ -110,8 +110,6 @@ export interface CommandPaletteSubmenuItem extends CommandPaletteItem {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
-  /** Lets the query carry a trailing session count, e.g. "fleet 5". */
-  readonly acceptsSessionCount?: boolean;
 }
 
 export interface CommandPaletteGroup {
@@ -124,7 +122,6 @@ export interface CommandPaletteView {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
-  readonly acceptsSessionCount?: boolean;
 }
 
 export function enumerateCommandPaletteItems(
@@ -466,6 +463,33 @@ export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): str
  * projects each one also pays for a checkout and a setup-script run.
  */
 export const SESSION_SPAWN_LIMIT = 20;
+
+/**
+ * Group value shared by every "New thread in..." project list. The trailing
+ * session count keys off this rather than a flag set at each call site: the
+ * picker is reachable from the palette submenu and from the New thread intent,
+ * and a third entry point that forgot the flag would silently lose the feature.
+ */
+export const NEW_THREAD_PROJECTS_GROUP = "new-thread-projects";
+
+/**
+ * The query Tab should complete to, or null when there is nothing to complete.
+ * Falls back to the first item because the list highlights its first match on
+ * its own, so requiring an explicit highlight would make Tab look broken on the
+ * common path of typing a few letters and completing straight away.
+ */
+export function resolveSessionCountCompletion(input: {
+  items: ReadonlyArray<{ readonly value: string; readonly title: ReactNode }>;
+  highlightedItemValue: string | null;
+  count: number | null;
+}): string | null {
+  const target =
+    input.items.find((item) => item.value === input.highlightedItemValue) ?? input.items[0];
+  if (!target || typeof target.title !== "string") {
+    return null;
+  }
+  return input.count === null ? `${target.title} ` : `${target.title} ${input.count}`;
+}
 
 export interface SessionSpawnQuery {
   /** The project filter with any trailing count removed. */
