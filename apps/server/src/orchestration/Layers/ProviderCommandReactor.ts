@@ -663,6 +663,9 @@ const make = Effect.gen(function* () {
         providerInstanceId: desiredInstanceId,
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         ...(thread.title ? { title: thread.title } : {}),
+        // Only grouped threads get a stable peer name: their titles are chosen
+        // to be addressable, while an ordinary thread's title is prose.
+        ...(thread.group != null && thread.title ? { peerName: thread.title } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: desiredRuntimeMode,

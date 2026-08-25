@@ -57,6 +57,12 @@ export const ProviderSessionStartInput = Schema.Struct({
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Name the provider should register its session under, when it supports
+   * one. Set for grouped threads so other agents can address the session by
+   * its thread title across restarts.
+   */
+  peerName: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),

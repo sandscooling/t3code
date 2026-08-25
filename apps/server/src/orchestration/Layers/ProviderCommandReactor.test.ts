@@ -573,6 +573,45 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+    // An ordinary thread's title is prose, not an address.
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("peerName");
+  });
+
+  it("hands a grouped thread's title to the provider as its peer name", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-group"),
+        threadId: ThreadId.make("thread-1"),
+        title: "T-1234-dev",
+        group: "T-1234",
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-grouped"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-grouped"),
+          role: "user",
+          text: "Session dev. Standby.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      title: "T-1234-dev",
+      peerName: "T-1234-dev",
+    });
   });
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>
