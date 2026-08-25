@@ -34,6 +34,8 @@ import {
   pinOrderKeyBetween,
   planPinnedReorder,
   sortPinnedThreadsForSidebar,
+  groupActiveThreadsForSidebar,
+  isSidebarThreadLive,
   sortThreadsForSidebar,
   sortProjectsForSidebar,
   sortScopedProjectsForSidebar,
@@ -847,6 +849,76 @@ describe("sortThreadsForSidebar", () => {
     ]);
 
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("groupActiveThreadsForSidebar", () => {
+  const entry = (input: {
+    id: string;
+    group?: string | null;
+    status?: "ready" | "running" | "starting" | "stopped" | "error";
+  }) => ({
+    id: input.id,
+    group: input.group ?? null,
+    session: input.status === undefined ? null : { status: input.status },
+  });
+  const read = (thread: ReturnType<typeof entry>) => ({
+    group: thread.group,
+    live: isSidebarThreadLive(thread.session),
+  });
+
+  it("passes ungrouped threads through in order", () => {
+    const entries = groupActiveThreadsForSidebar([entry({ id: "a" }), entry({ id: "b" })], read);
+    expect(entries.map((item) => (item.kind === "thread" ? item.thread.id : item.group))).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("folds a group into the slot of its newest member and keeps member order", () => {
+    const entries = groupActiveThreadsForSidebar(
+      [
+        entry({ id: "newest-loose" }),
+        entry({ id: "dev", group: "T-1" }),
+        entry({ id: "loose" }),
+        entry({ id: "review", group: "T-1" }),
+        entry({ id: "other", group: "T-2" }),
+      ],
+      read,
+    );
+    expect(
+      entries.map((item) =>
+        item.kind === "thread" ? item.thread.id : `${item.group}:${item.threads.length}`,
+      ),
+    ).toEqual(["newest-loose", "T-1:2", "loose", "T-2:1"]);
+    const group = entries[1];
+    if (group?.kind === "group") {
+      expect(group.threads.map((thread) => thread.id)).toEqual(["dev", "review"]);
+    }
+  });
+
+  it("counts ready, running, and starting sessions as live, nothing else", () => {
+    const entries = groupActiveThreadsForSidebar(
+      [
+        entry({ id: "a", group: "T-1", status: "ready" }),
+        entry({ id: "b", group: "T-1", status: "running" }),
+        entry({ id: "c", group: "T-1", status: "starting" }),
+        entry({ id: "d", group: "T-1", status: "stopped" }),
+        entry({ id: "e", group: "T-1", status: "error" }),
+        entry({ id: "f", group: "T-1" }),
+      ],
+      read,
+    );
+    const group = entries[0];
+    expect(group?.kind).toBe("group");
+    if (group?.kind === "group") {
+      expect(group.liveCount).toBe(3);
+      expect(group.threads).toHaveLength(6);
+    }
+  });
+
+  it("returns nothing for no threads", () => {
+    expect(groupActiveThreadsForSidebar([], read)).toEqual([]);
   });
 });
 

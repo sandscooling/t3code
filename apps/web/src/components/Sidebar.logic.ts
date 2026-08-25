@@ -586,6 +586,56 @@ export function sortThreadsForSidebar<
   );
 }
 
+export type SidebarActiveEntry<T> =
+  | { readonly kind: "thread"; readonly thread: T }
+  | {
+      readonly kind: "group";
+      readonly group: string;
+      readonly threads: readonly T[];
+      readonly liveCount: number;
+    };
+
+/** A session with a provider process behind it, as opposed to a stopped one. */
+export function isSidebarThreadLive(
+  session: { readonly status: string } | null | undefined,
+): boolean {
+  return (
+    session?.status === "ready" || session?.status === "running" || session?.status === "starting"
+  );
+}
+
+// Folds threads that share a group into one entry, in place of that group's
+// first (newest) member, so a group holds the position its newest thread would
+// have had and its members keep their own order inside it. Ungrouped threads
+// pass straight through. The reader keeps this free of the thread shape.
+export function groupActiveThreadsForSidebar<T>(
+  threads: readonly T[],
+  read: (thread: T) => { readonly group: string | null; readonly live: boolean },
+): SidebarActiveEntry<T>[] {
+  const entries: SidebarActiveEntry<T>[] = [];
+  const indexByGroup = new Map<string, number>();
+  for (const thread of threads) {
+    const { group, live } = read(thread);
+    if (group === null) {
+      entries.push({ kind: "thread", thread });
+      continue;
+    }
+    const index = indexByGroup.get(group);
+    const existing = index === undefined ? undefined : entries[index];
+    if (index === undefined || existing?.kind !== "group") {
+      indexByGroup.set(group, entries.length);
+      entries.push({ kind: "group", group, threads: [thread], liveCount: live ? 1 : 0 });
+      continue;
+    }
+    entries[index] = {
+      ...existing,
+      threads: [...existing.threads, thread],
+      liveCount: existing.liveCount + (live ? 1 : 0),
+    };
+  }
+  return entries;
+}
+
 // Pinned-reorder key math and the keyed sort live in client-runtime
 // (state/thread-sort) so web and mobile compute identical pinned orders.
 export {

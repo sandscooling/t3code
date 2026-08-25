@@ -145,6 +145,8 @@ import {
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
+  groupActiveThreadsForSidebar,
+  isSidebarThreadLive,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
@@ -203,6 +205,8 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
+// Per-group collapse, keyed by group name; absent means expanded.
+const GROUP_COLLAPSED_KEY = "t3code:sidebar:group-collapsed";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -1250,6 +1254,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <GlobeIcon className={cn("size-3.5", browserStatus.pulse && "animate-status-pulse")} />
     </span>
   ) : null;
+  // Grouped rows are a roster, so say whether a process is behind each one.
+  const liveDot =
+    thread.group != null ? (
+      <span
+        role="img"
+        aria-label={isSidebarThreadLive(thread.session) ? "Session live" : "Session stopped"}
+        data-testid={`sidebar-live-dot-${thread.id}`}
+        className={cn(
+          "inline-block size-1.5 shrink-0 rounded-full",
+          isSidebarThreadLive(thread.session) ? "bg-emerald-500" : "bg-muted-foreground/40",
+        )}
+      />
+    ) : null;
   const pinIndicator = props.isPinned ? (
     props.pinningSupported ? (
       <Tooltip>
@@ -1319,6 +1336,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {pinIndicator}
             {terminalStatusIcon}
             {browserStatusIcon}
+            {liveDot}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
                 Regenerating title
@@ -1610,6 +1628,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               )}
               {terminalStatusIcon}
               {browserStatusIcon}
+              {liveDot}
               {prBadge}
               {diff ? (
                 <span className="shrink-0 font-mono">
@@ -2078,6 +2097,7 @@ export default function Sidebar() {
     pinnedThreads,
     reorderablePinnedKeys,
     activeThreads,
+    activeEntries,
     snoozedThreads,
     settledThreads,
     snoozeNow,
@@ -2150,6 +2170,10 @@ export default function Sidebar() {
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
       activeThreads: sortThreadsForSidebar(active),
+      activeEntries: groupActiveThreadsForSidebar(sortThreadsForSidebar(active), (thread) => ({
+        group: thread.group ?? null,
+        live: isSidebarThreadLive(thread.session),
+      })),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -2278,6 +2302,15 @@ export default function Sidebar() {
   const toggleSnoozedShelf = useCallback(
     () => setSnoozedShelfExpanded((value) => !value),
     [setSnoozedShelfExpanded],
+  );
+  const [groupCollapsed, setGroupCollapsed] = useLocalStorage(
+    GROUP_COLLAPSED_KEY,
+    {} as Record<string, boolean>,
+    Schema.Record(Schema.String, Schema.Boolean),
+  );
+  const toggleGroupCollapsed = useCallback(
+    (group: string) => setGroupCollapsed((value) => ({ ...value, [group]: value[group] !== true })),
+    [setGroupCollapsed],
   );
   const visibleSnoozedThreads = useMemo(() => {
     if (snoozedShelfExpanded) return snoozedThreads;
@@ -3883,8 +3916,49 @@ export default function Sidebar() {
                       />,
                     );
                   }
-                  for (const thread of activeThreads) {
-                    items.push(renderThreadRow(thread, "active"));
+                  for (const entry of activeEntries) {
+                    if (entry.kind === "thread") {
+                      items.push(renderThreadRow(entry.thread, "active"));
+                      continue;
+                    }
+                    // A group header sits where its newest member would
+                    // have; the live count is the roster at a glance.
+                    const expanded = groupCollapsed[entry.group] !== true;
+                    items.push(
+                      <li
+                        key={`group-header:${entry.group}`}
+                        data-thread-selection-safe
+                        className="list-none"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleGroupCollapsed(entry.group)}
+                          aria-expanded={expanded}
+                          data-testid="sidebar-group-toggle"
+                          className="mb-1 mt-2 flex w-full cursor-pointer items-center gap-2 px-2.5 text-left"
+                        >
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {entry.group}
+                          </span>
+                          <span className="text-xs tabular-nums text-muted-foreground/60">
+                            {entry.liveCount}/{entry.threads.length} live
+                          </span>
+                          <span className="h-px flex-1 bg-sidebar-border/60" />
+                          <ChevronDownIcon
+                            aria-hidden
+                            className={cn(
+                              "size-3 text-muted-foreground/60 transition-transform",
+                              expanded && "rotate-180",
+                            )}
+                          />
+                        </button>
+                      </li>,
+                    );
+                    if (expanded) {
+                      for (const thread of entry.threads) {
+                        items.push(renderThreadRow(thread, "active"));
+                      }
+                    }
                   }
                   // Snoozed shelf: between the inbox and Settled — out of the
                   // way, never gone. The header always renders while anything
