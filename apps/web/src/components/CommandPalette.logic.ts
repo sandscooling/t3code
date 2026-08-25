@@ -473,22 +473,28 @@ export const SESSION_SPAWN_LIMIT = 20;
 export const NEW_THREAD_PROJECTS_GROUP = "new-thread-projects";
 
 /**
- * The query Tab should complete to, or null when there is nothing to complete.
- * Falls back to the first item because the list highlights its first match on
- * its own, so requiring an explicit highlight would make Tab look broken on the
- * common path of typing a few letters and completing straight away.
+ * The row Tab completes to and Enter runs. Falls back to the first item because
+ * the list highlights its first match on its own, so requiring an explicit
+ * highlight would make both keys look broken on the common path of typing a few
+ * letters and acting straight away.
  */
-export function resolveSessionCountCompletion(input: {
-  items: ReadonlyArray<{ readonly value: string; readonly title: ReactNode }>;
+export function resolveSessionCountTarget<T extends { readonly value: string }>(input: {
+  items: ReadonlyArray<T>;
   highlightedItemValue: string | null;
+}): T | undefined {
+  return input.items.find((item) => item.value === input.highlightedItemValue) ?? input.items[0];
+}
+
+/** The query Tab should complete to, or null when there is nothing to complete. */
+export function resolveSessionCountCompletion(input: {
+  target: { readonly title: ReactNode } | undefined;
   count: number | null;
 }): string | null {
-  const target =
-    input.items.find((item) => item.value === input.highlightedItemValue) ?? input.items[0];
-  if (!target || typeof target.title !== "string") {
+  const title = input.target?.title;
+  if (typeof title !== "string") {
     return null;
   }
-  return input.count === null ? `${target.title} ` : `${target.title} ${input.count}`;
+  return input.count === null ? `${title} ` : `${title} ${input.count}`;
 }
 
 export interface SessionSpawnQuery {

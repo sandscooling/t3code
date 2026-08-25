@@ -129,6 +129,7 @@ import {
   NEW_THREAD_PROJECTS_GROUP,
   parseSessionSpawnQuery,
   resolveSessionCountCompletion,
+  resolveSessionCountTarget,
   filterPinnedBrowseEntries,
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
@@ -2279,6 +2280,17 @@ function OpenCommandPaletteDialog(props: {
     return useMetaForMod ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   }
 
+  /**
+   * The row Tab completes to and Enter runs. The list highlights its first match
+   * on its own, so an explicit highlight is not required to act on one.
+   */
+  function sessionCountTarget(): CommandPaletteActionItem | CommandPaletteSubmenuItem | undefined {
+    return resolveSessionCountTarget({
+      items: displayedGroups.flatMap((group) => group.items),
+      highlightedItemValue,
+    });
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
@@ -2317,18 +2329,32 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    // Tab completes the highlighted project into the search box, so the box
-    // shows what is selected before a count is typed after it. Filtering by a
-    // few letters otherwise leaves the box holding "fl" while the selection
-    // sits somewhere below it.
+    // The autocomplete drives Enter off its own notion of an active item, and a
+    // completed query ("Fleet Cooling 5", or "Fleet Cooling " straight after Tab)
+    // matches no item, so it had no target and the keypress did nothing while
+    // clicking the row worked. Running the row this resolves to is what a click
+    // already does, so the only case this changes is the one that was broken.
+    if (event.key === "Enter" && acceptsSessionCount) {
+      const target = sessionCountTarget();
+      if (target) {
+        event.preventDefault();
+        event.stopPropagation();
+        executeItem(target);
+        return;
+      }
+    }
+
+    // Tab completes the resolved project into the search box, so the box shows
+    // what is selected before a count is typed after it. Filtering by a few
+    // letters otherwise leaves the box holding "fl" while the selection sits
+    // somewhere below it.
     if (event.key === "Tab" && acceptsSessionCount && !event.shiftKey) {
       // Tab never leaves this box. Falling through would move focus to the back
       // arrow, which reads as the completion silently doing nothing, so an empty
       // list makes Tab a no-op instead.
       event.preventDefault();
       const completion = resolveSessionCountCompletion({
-        items: displayedGroups.flatMap((group) => group.items),
-        highlightedItemValue,
+        target: sessionCountTarget(),
         count: sessionSpawnCount,
       });
       if (completion !== null) {

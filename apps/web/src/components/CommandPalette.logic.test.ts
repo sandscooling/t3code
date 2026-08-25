@@ -10,6 +10,7 @@ import {
   filterCommandPaletteGroups,
   parseSessionSpawnQuery,
   resolveSessionCountCompletion,
+  resolveSessionCountTarget,
   reduceCommandPaletteUiState,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
@@ -444,53 +445,51 @@ describe("parseSessionSpawnQuery", () => {
   });
 });
 
-describe("resolveSessionCountCompletion", () => {
+describe("resolveSessionCountTarget", () => {
   const items = [
     { value: "new-thread-in:env:a", title: "T3 Code" },
     { value: "new-thread-in:env:b", title: "Fleet Cooling" },
   ];
 
-  it("completes to the highlighted project", () => {
-    expect(
-      resolveSessionCountCompletion({
-        items,
-        highlightedItemValue: "new-thread-in:env:b",
-        count: null,
-      }),
-    ).toBe("Fleet Cooling ");
+  it("picks the highlighted row", () => {
+    expect(resolveSessionCountTarget({ items, highlightedItemValue: "new-thread-in:env:b" })).toBe(
+      items[1],
+    );
   });
 
   it("falls back to the first match when nothing is highlighted yet", () => {
-    // The list highlights its first match on its own, so Tab has to accept it
-    // without the user arrowing down first.
-    expect(resolveSessionCountCompletion({ items, highlightedItemValue: null, count: null })).toBe(
-      "T3 Code ",
+    // The list highlights its first match on its own, so Tab and Enter have to
+    // act on it without the user arrowing down first.
+    expect(resolveSessionCountTarget({ items, highlightedItemValue: null })).toBe(items[0]);
+  });
+
+  it("falls back to the first match when the highlight is stale", () => {
+    expect(resolveSessionCountTarget({ items, highlightedItemValue: "gone" })).toBe(items[0]);
+  });
+
+  it("returns undefined for an empty list", () => {
+    expect(resolveSessionCountTarget({ items: [], highlightedItemValue: null })).toBeUndefined();
+  });
+});
+
+describe("resolveSessionCountCompletion", () => {
+  it("completes to the target title with a trailing space", () => {
+    expect(resolveSessionCountCompletion({ target: { title: "Fleet Cooling" }, count: null })).toBe(
+      "Fleet Cooling ",
     );
   });
 
   it("keeps a count that was already typed", () => {
-    expect(
-      resolveSessionCountCompletion({
-        items,
-        highlightedItemValue: "new-thread-in:env:b",
-        count: 5,
-      }),
-    ).toBe("Fleet Cooling 5");
+    expect(resolveSessionCountCompletion({ target: { title: "Fleet Cooling" }, count: 5 })).toBe(
+      "Fleet Cooling 5",
+    );
   });
 
-  it("returns null when the list is empty, so Tab stays a no-op", () => {
-    expect(
-      resolveSessionCountCompletion({ items: [], highlightedItemValue: null, count: null }),
-    ).toBeNull();
+  it("returns null with no target, so Tab stays a no-op", () => {
+    expect(resolveSessionCountCompletion({ target: undefined, count: null })).toBeNull();
   });
 
-  it("ignores an item whose title is not plain text", () => {
-    expect(
-      resolveSessionCountCompletion({
-        items: [{ value: "x", title: null }],
-        highlightedItemValue: null,
-        count: null,
-      }),
-    ).toBeNull();
+  it("ignores a target whose title is not plain text", () => {
+    expect(resolveSessionCountCompletion({ target: { title: null }, count: null })).toBeNull();
   });
 });
