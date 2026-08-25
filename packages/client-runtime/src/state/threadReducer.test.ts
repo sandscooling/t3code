@@ -307,6 +307,60 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  describe("thread.meta-updated group", () => {
+    it("sets, keeps, and clears the group", () => {
+      const set = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 5,
+        occurredAt: "2026-04-01T05:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          group: "T-1234",
+          updatedAt: "2026-04-01T05:00:00.000Z",
+        },
+      });
+      expect(set.kind).toBe("updated");
+      if (set.kind !== "updated") return;
+      expect(set.thread.group).toBe("T-1234");
+
+      // A payload without the key leaves the group untouched.
+      const renamed = applyThreadDetailEvent(set.thread, {
+        ...baseEventFields,
+        sequence: 6,
+        occurredAt: "2026-04-01T06:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          title: "Renamed",
+          updatedAt: "2026-04-01T06:00:00.000Z",
+        },
+      });
+      if (renamed.kind !== "updated") return;
+      expect(renamed.thread.group).toBe("T-1234");
+
+      const cleared = applyThreadDetailEvent(renamed.thread, {
+        ...baseEventFields,
+        sequence: 7,
+        occurredAt: "2026-04-01T07:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          group: null,
+          updatedAt: "2026-04-01T07:00:00.000Z",
+        },
+      });
+      if (cleared.kind !== "updated") return;
+      expect(cleared.thread.group).toBeNull();
+    });
+  });
+
   describe("thread.message-sent", () => {
     it("appends a new message", () => {
       const result = applyThreadDetailEvent(baseThread, {
