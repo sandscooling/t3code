@@ -355,6 +355,44 @@ function BrowserAppearanceSetting({ disabled }: { readonly disabled: boolean }) 
   );
 }
 
+function AgentOrchestrationSetting() {
+  const settings = usePrimarySettings();
+  const updateSettings = useUpdatePrimarySettings();
+
+  return (
+    <SettingsRow
+      {...searchableSetting("agent-orchestration")}
+      description="Let agents start, list, and wake other sessions in their own project through the session tools. Spawned sessions inherit the calling session's model and permission mode."
+      status={
+        settings.enableAgentOrchestration
+          ? "Applies to sessions started from now on; a running agent keeps the tools it was given."
+          : undefined
+      }
+      resetAction={
+        settings.enableAgentOrchestration !== DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration ? (
+          <SettingResetButton
+            label="agent orchestration"
+            onClick={() =>
+              updateSettings({
+                enableAgentOrchestration: DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.enableAgentOrchestration}
+          onCheckedChange={(checked) =>
+            updateSettings({ enableAgentOrchestration: Boolean(checked) })
+          }
+          aria-label="Allow agent orchestration"
+        />
+      }
+    />
+  );
+}
+
 function AgentBrowserAccessSetting() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
@@ -471,6 +509,7 @@ export function IntegrationsSettingsPanel() {
         {/* Server-authoritative, so it stays editable on every client and sits
             outside the block covering the desktop-only defaults. */}
         <AgentBrowserAccessSetting />
+        <AgentOrchestrationSetting />
         {previewDefaultsDisabled ? (
           <DesktopOnlyBrowserDefaults>{previewDefaults}</DesktopOnlyBrowserDefaults>
         ) : (

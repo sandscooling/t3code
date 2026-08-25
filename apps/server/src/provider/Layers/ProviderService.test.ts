@@ -2121,8 +2121,13 @@ validation.layer("ProviderServiceLive validation", (it) => {
 
 describe("agent browser access", () => {
   const revokedThreads: Array<ThreadId> = [];
+  const grantedCapabilities: Array<ReadonlyArray<string>> = [];
 
-  const startSessionWith = (enableAgentBrowserAccess: boolean, threadId: ThreadId) =>
+  const startSessionWith = (
+    enableAgentBrowserAccess: boolean,
+    threadId: ThreadId,
+    enableAgentOrchestration = false,
+  ) =>
     Effect.gen(function* () {
       const issued: Array<ThreadId> = [];
       const codex = makeFakeCodexAdapter();
@@ -2140,13 +2145,19 @@ describe("agent browser access", () => {
         issueMcpCredential: (request) =>
           Effect.sync(() => {
             issued.push(request.threadId);
+            grantedCapabilities.push([...request.capabilities].toSorted());
             return undefined;
           }),
         revokeMcpCredential: (revoked) => Effect.sync(() => void revokedThreads.push(revoked)),
       }).pipe(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
-        Layer.provide(ServerSettings.ServerSettingsService.layerTest({ enableAgentBrowserAccess })),
+        Layer.provide(
+          ServerSettings.ServerSettingsService.layerTest({
+            enableAgentBrowserAccess,
+            enableAgentOrchestration,
+          }),
+        ),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
@@ -2202,6 +2213,30 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(true, threadId);
 
       assert.deepEqual(issued, [threadId]);
+      assert.deepEqual(grantedCapabilities.at(-1), ["preview"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  // Orchestration is its own grant: it must issue a credential on its own
+  // and must not smuggle preview in with it.
+  it.effect("issues an orchestration-only credential when only that setting is on", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-orchestration-on");
+
+      const issued = yield* startSessionWith(false, threadId, true);
+
+      assert.deepEqual(issued, [threadId]);
+      assert.deepEqual(grantedCapabilities.at(-1), ["orchestration"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("grants both capabilities when both settings are on", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-both-on");
+
+      yield* startSessionWith(true, threadId, true);
+
+      assert.deepEqual(grantedCapabilities.at(-1), ["orchestration", "preview"]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
