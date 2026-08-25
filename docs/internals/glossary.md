@@ -88,6 +88,13 @@ A typed signal emitted when an async milestone completes, such as `checkpoint.ba
 
 "Quiesced" means a turn has gone quiet and stable: follow-up work such as [CheckpointReactor.ts][6] has settled. It appears in [the receipt schema][13], so in practice it is something tests wait on rather than a production signal.
 
+#### Group
+
+An optional label on a thread, set when an agent spawns it through the orchestration tools and
+shared by the threads that belong together. The sidebar folds threads with the same group under one
+header, and grouped threads register their provider session under their title so other agents can
+address them by name. Stored as `group_key` in `projection_threads`.
+
 ### Provider runtime
 
 The live backend agent implementation and its event stream. The main service is [ProviderService.ts][14], the adapter contract is [ProviderAdapter.ts][15], and the overview is in [providers.md][16].

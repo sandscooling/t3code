@@ -75,6 +75,28 @@ spills the whole accumulated text as one delta. The buffer also flushes at inter
 when a request opens (approval) or user input is requested, via
 `flushBufferedAssistantMessagesForTurn`.
 
+## Agent MCP tools
+
+The server hosts an MCP endpoint at `/mcp` ([`McpHttpServer.ts`][mcp]) that every provider session
+is pointed at as the `t3-code` server. A per-session bearer credential is minted in
+[`ProviderService`][service] when the session starts, and it carries a set of capabilities decided
+by settings: `preview` from `enableAgentBrowserAccess`, `orchestration` from
+`enableAgentOrchestration`. No capability, no credential, no server attached. Each toolkit begins
+by requiring its capability, so a preview-only credential cannot spawn sessions.
+
+The `orchestration` toolkit ([`toolkits/orchestration`][orchestration]) exposes `session_spawn`,
+`session_list`, and `session_wake`. They act only within the calling thread's project, read the
+projection through `ProjectionSnapshotQuery`, and dispatch ordinary commands through the
+orchestration engine with `server:orchestration-*` command ids. Spawn is `thread.create` followed
+by `thread.turn.start` with no `titleSeed`, which is what keeps the title out of reach of
+automatic titling. Wake is a bare `thread.turn.start`, which respawns a stopped provider process.
+
+Threads carry an optional `group`. A spawned thread is created with one, and the spawning thread
+joins it on first use. For grouped threads the command reactor passes `peerName` (the title) in
+`ProviderSessionStartInput`; the Claude adapter forwards it as `CLAUDE_CODE_SESSION_NAME` on a
+per-session copy of the environment, so the CLI registers under that name across restarts. Other
+adapters ignore `peerName`.
+
 [drivers]: ../../apps/server/src/provider/builtInDrivers.ts
 [codex]: ../../apps/server/src/provider/Drivers/CodexDriver.ts
 [claude]: ../../apps/server/src/provider/Drivers/ClaudeDriver.ts
@@ -90,3 +112,5 @@ when a request opens (approval) or user input is requested, via
 [ingest]: ../../apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts
 [cmd]: ../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts
 [checkpoint]: ../../apps/server/src/orchestration/Layers/CheckpointReactor.ts
+[mcp]: ../../apps/server/src/mcp/McpHttpServer.ts
+[orchestration]: ../../apps/server/src/mcp/toolkits/orchestration/handlers.ts

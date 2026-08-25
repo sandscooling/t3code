@@ -15,6 +15,21 @@ If reordering is unavailable for one environment, update the T3 Code server runn
 environment. Older servers can still pin and unpin threads, but do not understand synced ordering;
 their pinned threads keep the default newest-first order below the ones you have arranged.
 
+## Session groups
+
+Sessions that an agent started with the orchestration tools share a group, usually named for the
+ticket or task they belong to. The sidebar shows a group's sessions together under a header with
+the group name and a live count, such as `T-1234 3/5 live`. Click the header to collapse or
+expand the group; the choice is remembered per group.
+
+Each session in a group carries a small dot: green while a process is running behind it, muted
+once it has stopped. A stopped session is still there and keeps its history; sending it a message,
+or having the orchestrator wake it, starts a fresh process under the same name. See
+[Agent orchestration](agent-orchestration.md).
+
+Grouped sessions that are pinned, snoozed, or settled appear in those sections rather than under
+the group header.
+
 ## Environment artwork
 
 Dev and Nightly environments can identify themselves with artwork at the top of the sidebar and in

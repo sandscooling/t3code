@@ -75,7 +75,8 @@ export async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSes
           attachments: [],
         },
         modelSelection: input.modelSelection,
-        titleSeed: title,
+        // No titleSeed: a seed equal to the title makes the title eligible for
+        // automatic replacement, and a spawned session must keep its name.
         runtimeMode: DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         bootstrap: {
