@@ -8,6 +8,7 @@ import {
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
+  parseSessionSpawnQuery,
   reduceCommandPaletteUiState,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
@@ -406,5 +407,38 @@ describe("filterPinnedBrowseEntries", () => {
       visibleEntries: windowsEntries,
       exactEntry: windowsEntries[0],
     });
+  });
+});
+
+describe("parseSessionSpawnQuery", () => {
+  it("leaves a plain project filter untouched", () => {
+    expect(parseSessionSpawnQuery("fleet")).toEqual({ filterText: "fleet", count: null });
+  });
+
+  it("splits a trailing count off the filter", () => {
+    expect(parseSessionSpawnQuery("fleet 5")).toEqual({ filterText: "fleet", count: 5 });
+  });
+
+  it("keeps the filter intact when the project name has inner spaces", () => {
+    expect(parseSessionSpawnQuery("Fleet Cooling 3")).toEqual({
+      filterText: "Fleet Cooling",
+      count: 3,
+    });
+  });
+
+  it("treats a bare number as a filter, since it names no project", () => {
+    expect(parseSessionSpawnQuery("5")).toEqual({ filterText: "5", count: null });
+  });
+
+  it("ignores a count above the spawn limit rather than starting a runaway fleet", () => {
+    expect(parseSessionSpawnQuery("fleet 99")).toEqual({ filterText: "fleet 99", count: null });
+  });
+
+  it("ignores a zero count", () => {
+    expect(parseSessionSpawnQuery("fleet 0")).toEqual({ filterText: "fleet 0", count: null });
+  });
+
+  it("accepts an explicit single session", () => {
+    expect(parseSessionSpawnQuery("fleet 1")).toEqual({ filterText: "fleet", count: 1 });
   });
 });

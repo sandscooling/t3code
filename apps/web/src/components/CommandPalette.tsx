@@ -74,6 +74,9 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
+import { threadEnvironment } from "../state/threads";
+import { vcsEnvironment } from "../state/vcs";
+import { spawnSessions } from "../lib/spawnSessions";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
@@ -123,6 +126,7 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
   filterCommandPaletteGroups,
+  parseSessionSpawnQuery,
   filterPinnedBrowseEntries,
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
@@ -146,7 +150,14 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import {
+  primaryServerKeybindingsAtom,
+  primaryServerProvidersAtom,
+  primaryServerSettingsAtom,
+} from "../state/server";
+import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
+import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import {
   deriveProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
@@ -582,6 +593,12 @@ function OpenCommandPaletteDialog(props: {
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
     reportFailure: false,
   });
+  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
+  const loadProjectBranches = useAtomQueryRunner(vcsEnvironment.listRefs, {
+    reportFailure: false,
+  });
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -607,6 +624,18 @@ function OpenCommandPaletteDialog(props: {
   }, [environments, primaryEnvironmentId, providers]);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
+  // "New thread in..." lets the query carry a trailing count ("fleet 5"). The
+  // count is split off before filtering, since otherwise the digits join the
+  // project filter and the list goes empty with nothing to select.
+  const acceptsSessionCount = currentView?.acceptsSessionCount === true;
+  const sessionSpawnCount = acceptsSessionCount ? parseSessionSpawnQuery(query).count : null;
+  const filterQuery = acceptsSessionCount
+    ? parseSessionSpawnQuery(deferredQuery).filterText
+    : deferredQuery;
+  // Read at execution time, so the project item closures do not go stale as
+  // the count is typed.
+  const sessionSpawnCountRef = useRef<number | null>(null);
+  sessionSpawnCountRef.current = sessionSpawnCount;
   const environmentIds = useMemo(
     () =>
       environments
@@ -1021,6 +1050,96 @@ function OpenCommandPaletteDialog(props: {
     [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
   );
 
+  const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
+
+  /**
+   * Starts a fleet of standby sessions in one project, each one already running
+   * so it registers as a peer that an orchestrator session can address. Env mode
+   * follows the project's own default, so a fleet lands wherever a single new
+   * thread in that project would have.
+   */
+  const startSessionFleet = useCallback(
+    async (project: Project, count: number): Promise<void> => {
+      const modelSelection = project.defaultModelSelection ?? activeThread?.modelSelection ?? null;
+      if (modelSelection === null) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "No model to start with",
+            description: `Set a default model for ${project.title}, then spawn sessions.`,
+          }),
+        );
+        return;
+      }
+
+      const envMode = resolveDefaultThreadEnvMode({
+        projectSetting: project.defaultThreadEnvMode,
+        projectFile:
+          project.defaultThreadEnvMode == null
+            ? await readT3ProjectFileDefaultThreadEnvMode(
+                project.environmentId,
+                project.workspaceRoot,
+              )
+            : null,
+        globalDefault: primaryServerSettings.defaultThreadEnvMode,
+      });
+
+      // Worktree mode needs a base branch to cut from. The project's checked-out
+      // branch is the same starting point the composer offers by default.
+      let baseBranch: string | null = null;
+      if (envMode === "worktree") {
+        const refsResult = await loadProjectBranches({
+          environmentId: project.environmentId,
+          input: { cwd: project.workspaceRoot, refKind: "local" },
+        });
+        if (refsResult._tag === "Success") {
+          const refs = refsResult.value.refs;
+          baseBranch =
+            refs.find((ref) => ref.current)?.name ??
+            refs.find((ref) => ref.isDefault)?.name ??
+            null;
+        }
+        if (baseBranch === null) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "No base branch",
+              description: `${project.title} starts threads in a worktree, but its current branch could not be read.`,
+            }),
+          );
+          return;
+        }
+      }
+
+      const result = await spawnSessions({
+        count,
+        environmentId: project.environmentId,
+        projectId: project.id,
+        projectCwd: project.workspaceRoot,
+        modelSelection,
+        envMode,
+        baseBranch,
+        startFromOrigin: resolveNewDraftStartFromOrigin({
+          envMode,
+          newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
+        }),
+        startTurn: startThreadTurn,
+      });
+
+      toastManager.add(
+        stackedThreadToast({
+          type: result.failed > 0 ? "error" : "success",
+          title:
+            result.failed > 0
+              ? `Started ${result.started} of ${count} sessions`
+              : `Started ${result.started} ${result.started === 1 ? "session" : "sessions"}`,
+          description: project.title,
+        }),
+      );
+    },
+    [activeThread, loadProjectBranches, primaryServerSettings, startThreadTurn],
+  );
+
   const projectThreadItems = useMemo(
     () =>
       enumerateCommandPaletteItems(
@@ -1056,6 +1175,11 @@ function OpenCommandPaletteDialog(props: {
           },
           icon: projectFavicon,
           runProject: async (project) => {
+            const fleetCount = sessionSpawnCountRef.current;
+            if (fleetCount !== null) {
+              await startSessionFleet(project, fleetCount);
+              return;
+            }
             const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
             const contextualRefBelongsToGroup =
               contextualProjectRef !== null &&
@@ -1078,6 +1202,7 @@ function OpenCommandPaletteDialog(props: {
       pickerProjects,
       projectEnvironmentLocationById,
       projectGroupByTargetKey,
+      startSessionFleet,
     ],
   );
 
@@ -1160,6 +1285,7 @@ function OpenCommandPaletteDialog(props: {
           addonIcon: view.addonIcon,
           groups: view.groups,
           ...(view.initialQuery ? { initialQuery: view.initialQuery } : {}),
+          ...(view.acceptsSessionCount ? { acceptsSessionCount: true } : {}),
         },
       ]);
       setHighlightedItemValue(null);
@@ -1173,6 +1299,7 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: item.addonIcon,
       groups: item.groups,
       ...(item.initialQuery ? { initialQuery: item.initialQuery } : {}),
+      ...(item.acceptsSessionCount ? { acceptsSessionCount: true } : {}),
     });
   }
 
@@ -1521,6 +1648,7 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      acceptsSessionCount: true,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
     });
   }
@@ -1665,7 +1793,7 @@ function OpenCommandPaletteDialog(props: {
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
-    query: deferredQuery,
+    query: filterQuery,
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     threadSearchItems: allThreadItems,
@@ -2187,6 +2315,25 @@ function OpenCommandPaletteDialog(props: {
         void handleAddProject(resolvedAddProjectPath);
       }
       return;
+    }
+
+    // Tab completes the highlighted project into the search box, so the box
+    // shows what is selected before a count is typed after it. Filtering by a
+    // few letters otherwise leaves the box holding "fl" while the selection
+    // sits somewhere below it.
+    if (event.key === "Tab" && acceptsSessionCount && !event.shiftKey) {
+      const highlighted = displayedGroups
+        .flatMap((group) => group.items)
+        .find((item) => item.value === highlightedItemValue);
+      if (highlighted && typeof highlighted.title === "string") {
+        event.preventDefault();
+        setQuery(
+          sessionSpawnCount === null
+            ? `${highlighted.title} `
+            : `${highlighted.title} ${sessionSpawnCount}`,
+        );
+        return;
+      }
     }
 
     if (event.key === "Backspace" && query === "" && isSubmenu) {

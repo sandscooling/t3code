@@ -110,6 +110,8 @@ export interface CommandPaletteSubmenuItem extends CommandPaletteItem {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+  /** Lets the query carry a trailing session count, e.g. "fleet 5". */
+  readonly acceptsSessionCount?: boolean;
 }
 
 export interface CommandPaletteGroup {
@@ -122,6 +124,7 @@ export interface CommandPaletteView {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+  readonly acceptsSessionCount?: boolean;
 }
 
 export function enumerateCommandPaletteItems(
@@ -455,4 +458,39 @@ export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): str
     case "submenu-browse":
       return "Enter path (e.g. ~/projects/my-app)";
   }
+}
+
+/**
+ * Spawning more than this many sessions at once is almost certainly a typo:
+ * every session is a real provider subprocess, and in worktree-backed
+ * projects each one also pays for a checkout and a setup-script run.
+ */
+export const SESSION_SPAWN_LIMIT = 20;
+
+export interface SessionSpawnQuery {
+  /** The project filter with any trailing count removed. */
+  readonly filterText: string;
+  /** How many sessions to start, or null when the query names no count. */
+  readonly count: number | null;
+}
+
+/**
+ * Splits a trailing session count off the "New thread in..." query, so
+ * "fleet 5" filters projects by "fleet" while asking for five sessions.
+ * Without this the digits join the filter and the project list empties out.
+ *
+ * A project whose title genuinely ends in a number ("Sprint 3") is the
+ * ambiguous case: the count wins, and the filter still matches the project,
+ * so the palette shows what it is about to do rather than guessing silently.
+ */
+export function parseSessionSpawnQuery(query: string): SessionSpawnQuery {
+  const match = /^(.*\S)\s+(\d{1,2})$/.exec(query);
+  if (!match) {
+    return { filterText: query, count: null };
+  }
+  const count = Number(match[2]);
+  if (count < 1 || count > SESSION_SPAWN_LIMIT) {
+    return { filterText: query, count: null };
+  }
+  return { filterText: match[1] ?? "", count };
 }
