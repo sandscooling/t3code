@@ -91,8 +91,9 @@ orchestration engine with `server:orchestration-*` command ids. Spawn is `thread
 by `thread.turn.start` with no `titleSeed`, which is what keeps the title out of reach of
 automatic titling. Wake is a bare `thread.turn.start`, which respawns a stopped provider process.
 
-Threads carry an optional `group`. A spawned thread is created with one, and the spawning thread
-joins it on first use. For grouped threads the command reactor passes `peerName` (the title) in
+Threads carry an optional `group`. A spawned thread is created with one; the spawning thread stays
+ungrouped, since one orchestrator drives many tickets. For any thread whose title matches
+`SESSION_NAME_PATTERN` the command reactor passes `peerName` (the title) in
 `ProviderSessionStartInput`; the Claude adapter forwards it as `CLAUDE_CODE_SESSION_NAME` on a
 per-session copy of the environment, so the CLI registers under that name across restarts. Other
 adapters ignore `peerName`.

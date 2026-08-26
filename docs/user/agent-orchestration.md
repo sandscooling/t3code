@@ -29,9 +29,11 @@ as `T-1234` works well as a group and `T-1234-dev` as a name.
 A session started this way keeps its title. Automatic titling never replaces it, so the name
 the orchestrator used is the name it can keep using.
 
-For Claude Code sessions, the title is also the name other Claude sessions see and can message,
-and it survives restarts: a session that stops and is woken again comes back under the same
-name.
+For Claude Code sessions whose title is a valid session name (no spaces), the title is also the
+name other Claude sessions see and can message, and it survives restarts: a session that stops
+and is woken again comes back under the same name. That covers every spawned session, and any
+thread you title that way yourself. A single long-lived orchestrator works well titled
+`orchestrator`, driving one group per ticket.
 
 ## What to expect in the sidebar
 

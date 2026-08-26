@@ -92,8 +92,8 @@ A typed signal emitted when an async milestone completes, such as `checkpoint.ba
 
 An optional label on a thread, set when an agent spawns it through the orchestration tools and
 shared by the threads that belong together. The sidebar folds threads with the same group under one
-header, and grouped threads register their provider session under their title so other agents can
-address them by name. Stored as `group_key` in `projection_threads`.
+header, and threads whose title is a valid session name register their provider session under it so other
+agents can address them by name. Stored as `group_key` in `projection_threads`.
 
 ### Provider runtime
 

@@ -105,19 +105,8 @@ const handlers = {
       }
       const engine = yield* OrchestrationEngineService;
 
-      // The orchestrator joins the group it creates, so the whole set sits
-      // under one header rather than the children alone.
-      if (caller.group == null) {
-        yield* engine
-          .dispatch({
-            type: "thread.meta.update",
-            commandId: yield* serverCommandId("caller-group"),
-            threadId: caller.id,
-            group: input.group,
-          })
-          .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
-      }
-
+      // The caller stays out of the group on purpose: one orchestrator drives
+      // many tickets, and groups are the tickets, not the driver.
       const threadId = ThreadId.make(yield* randomId);
       const createdAt = yield* nowIso;
       yield* engine

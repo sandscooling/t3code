@@ -192,62 +192,42 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
   ),
 );
 
-it.effect(
-  "spawns by creating the thread, joining the caller to the group, then starting the turn",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = makeHarness(baseThreads);
-        const result = yield* callTool("session_spawn", {
-          name: "T-1234-tests",
-          group: "T-1234",
-          message: "Session tests. Standby.",
-        }).pipe(Effect.provide(harness.layer));
-
-        expect(result.isError).toBe(false);
-        expect(result.structuredContent).toMatchObject({ name: "T-1234-tests", group: "T-1234" });
-
-        const types = harness.dispatched.map((command) => command.type);
-        expect(types).toEqual(["thread.meta.update", "thread.create", "thread.turn.start"]);
-
-        const [join, create, turn] = harness.dispatched;
-        expect(join).toMatchObject({ threadId: callerId, group: "T-1234" });
-        expect(create).toMatchObject({
-          projectId,
-          title: "T-1234-tests",
-          group: "T-1234",
-          branch: null,
-          worktreePath: null,
-          runtimeMode: "full-access",
-        });
-        expect(String(create?.commandId)).toMatch(/^server:orchestration-thread-create:/);
-        // No titleSeed: the title must never be eligible for auto-replacement.
-        expect(turn).not.toHaveProperty("titleSeed");
-        expect(turn).toMatchObject({
-          message: { role: "user", text: "Session tests. Standby.", attachments: [] },
-        });
-        if (turn?.type === "thread.turn.start" && create?.type === "thread.create") {
-          expect(turn.threadId).toBe(create.threadId);
-        }
-      }),
-    ),
-);
-
-it.effect("does not touch the caller's group when it already has one", () =>
+it.effect("spawns by creating the thread and starting its turn, leaving the caller ungrouped", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const harness = makeHarness([
-        shell({ id: "thread-orchestrator", title: "orchestrator", group: "T-1234" }),
-      ]);
-      yield* callTool("session_spawn", {
-        name: "T-1234-dev",
+      const harness = makeHarness(baseThreads);
+      const result = yield* callTool("session_spawn", {
+        name: "T-1234-tests",
         group: "T-1234",
-        message: "go",
+        message: "Session tests. Standby.",
       }).pipe(Effect.provide(harness.layer));
-      expect(harness.dispatched.map((command) => command.type)).toEqual([
-        "thread.create",
-        "thread.turn.start",
-      ]);
+
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({ name: "T-1234-tests", group: "T-1234" });
+
+      const types = harness.dispatched.map((command) => command.type);
+      // One orchestrator drives many tickets, so it must never be pulled
+      // into a ticket's group.
+      expect(types).toEqual(["thread.create", "thread.turn.start"]);
+
+      const [create, turn] = harness.dispatched;
+      expect(create).toMatchObject({
+        projectId,
+        title: "T-1234-tests",
+        group: "T-1234",
+        branch: null,
+        worktreePath: null,
+        runtimeMode: "full-access",
+      });
+      expect(String(create?.commandId)).toMatch(/^server:orchestration-thread-create:/);
+      // No titleSeed: the title must never be eligible for auto-replacement.
+      expect(turn).not.toHaveProperty("titleSeed");
+      expect(turn).toMatchObject({
+        message: { role: "user", text: "Session tests. Standby.", attachments: [] },
+      });
+      if (turn?.type === "thread.turn.start" && create?.type === "thread.create") {
+        expect(turn.threadId).toBe(create.threadId);
+      }
     }),
   ),
 );
@@ -296,7 +276,6 @@ it.effect("deletes the created thread when its first turn fails to start", () =>
       expect(result.isError).toBe(true);
       expect(errorText(result)).toContain("dispatch-failed");
       expect(harness.dispatched.map((command) => command.type)).toEqual([
-        "thread.meta.update",
         "thread.create",
         "thread.turn.start",
         "thread.delete",

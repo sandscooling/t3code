@@ -573,45 +573,60 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
-    // An ordinary thread's title is prose, not an address.
-    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("peerName");
   });
 
-  it("hands a grouped thread's title to the provider as its peer name", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
-
-    await harness.runEffect(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.make("cmd-thread-group"),
-        threadId: ThreadId.make("thread-1"),
-        title: "T-1234-dev",
-        group: "T-1234",
-      }),
-    );
-    await harness.runEffect(
+  const startTurnOnThreadOne = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+    harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-grouped"),
+        commandId: CommandId.make("cmd-turn-start-peer-name"),
         threadId: ThreadId.make("thread-1"),
         message: {
-          messageId: asMessageId("user-message-grouped"),
+          messageId: asMessageId("user-message-peer-name"),
           role: "user",
-          text: "Session dev. Standby.",
+          text: "Standby.",
           attachments: [],
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
-        createdAt: now,
+        createdAt: "2026-01-01T00:00:00.000Z",
       }),
     );
 
+  it("hands an addressable title to the provider as its peer name, group or not", async () => {
+    const harness = await createHarness();
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-title-addressable"),
+        threadId: ThreadId.make("thread-1"),
+        title: "orchestrator",
+      }),
+    );
+    await startTurnOnThreadOne(harness);
+
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      title: "T-1234-dev",
-      peerName: "T-1234-dev",
+      title: "orchestrator",
+      peerName: "orchestrator",
     });
+  });
+
+  it("keeps the provider's own name for a prose title", async () => {
+    const harness = await createHarness();
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-title-prose"),
+        threadId: ThreadId.make("thread-1"),
+        title: "Fix the login bug",
+      }),
+    );
+    await startTurnOnThreadOne(harness);
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({ title: "Fix the login bug" });
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("peerName");
   });
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>
