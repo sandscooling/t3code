@@ -1,6 +1,6 @@
 # T3 Code, S&S Cooling Fork
 
-This is my working fork of Theo and Team's excellent [T3 Code](https://github.com/pingdotgg/t3code). It is maintained as my daily driver rather than as a release channel. It carries a few upstream pull requests that are still open, plus local fixes and interface changes that have not been sent upstream.
+This is my working fork of Theo and Team's excellent [T3 Code](https://github.com/pingdotgg/t3code). It is maintained as my daily driver rather than as a release channel. It carries work from two upstream pull requests, both since closed without merging, plus local fixes and interface changes that have not been sent upstream.
 
 **Looking for the real project?** Read [the upstream README](./README.upstream.md), preserved here unchanged, or go straight to [pingdotgg/t3code](https://github.com/pingdotgg/t3code). Everything in the upstream README about installing, supported providers, and documentation still applies.
 
@@ -13,7 +13,7 @@ This is my working fork of Theo and Team's excellent [T3 Code](https://github.co
 
 I use T3 Code as my daily driver. There's a ton of great stuff coming down the pipe and I'm cherry picking stuff that really improves my experience. Specifically:
 
-- Mermaid diagrams (@jdalmeida) in the conversation area. Inline image _rendering_ used to come from @berend's pull request too; upstream shipped its own on 2026-08-22, so what is left of that one is the work log image row.
+- Mermaid diagrams (@jdalmeida) in the conversation area. That pull request was closed upstream on 2026-08-28 with nothing shipped in its place, so this is now the only build that has it. Inline image _rendering_ used to come from @berend's pull request too; upstream shipped its own on 2026-08-22, so what is left of that one is the work log image row.
 
 And several quality of life features I've added:
 
