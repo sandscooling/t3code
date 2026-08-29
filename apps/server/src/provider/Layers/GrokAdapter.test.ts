@@ -49,7 +49,7 @@ async function makeMockGrokWrapper(extraEnv?: Record<string, string>) {
   return writeFakeExecutable({
     directory: dir,
     name: "fake-grok",
-platform: HOST_PLATFORM,
+    platform: HOST_PLATFORM,
     command: mockAgentCommand,
     args: [mockAgentPath],
     env: extraEnv,

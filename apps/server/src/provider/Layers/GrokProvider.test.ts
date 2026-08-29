@@ -249,13 +249,11 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
             writeFakeScript({
               directory: dir,
               name: "grok",
-platform: HOST_PLATFORM,
+              platform: HOST_PLATFORM,
               sh: ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
-              mjs: [
-                `process.stderr.write('${secretStderr}\\n');`,
-                "process.exit(2);",
-                "",
-              ].join("\n"),
+              mjs: [`process.stderr.write('${secretStderr}\\n');`, "process.exit(2);", ""].join(
+                "\n",
+              ),
             }),
           );
 
@@ -283,7 +281,7 @@ platform: HOST_PLATFORM,
             writeFakeScript({
               directory: dir,
               name: "grok",
-platform: HOST_PLATFORM,
+              platform: HOST_PLATFORM,
               sh: ["#!/bin/sh", 'printf "grok-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
               mjs: ['process.stdout.write("grok-cli 0.0.99\\n");', "process.exit(0);", ""].join(
                 "\n",

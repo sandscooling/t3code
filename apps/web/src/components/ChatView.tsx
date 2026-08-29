@@ -2363,9 +2363,10 @@ function ChatViewContent(props: ChatViewProps) {
   );
   // Derived here rather than in the composer, so the composer takes a snapshot
   // instead of the whole activity list and stops re-rendering on every activity.
-  const activeRateLimits = useMemo(() => deriveRateLimitSnapshot(threadActivities), [
-    threadActivities,
-  ]);
+  const activeRateLimits = useMemo(
+    () => deriveRateLimitSnapshot(threadActivities),
+    [threadActivities],
+  );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const turnPlans = useMemo(() => deriveTurnPlans(threadActivities), [threadActivities]);
   // Native subagent fold: memoized by activity-list identity, shared by the
