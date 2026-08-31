@@ -4631,8 +4631,12 @@ function ChatViewContent(props: ChatViewProps) {
   // partition (same shell, same capability gate, same PR auto-settle input)
   // so the banner and the sidebar row never disagree.
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  // Interrupting the agent opens a new turn, so the plan the agent is still working
+  // through belongs to the previous one. Match deriveActivePlanState and keep showing
+  // it while work is in flight; unfinished steps are what makes a plan worth showing,
+  // and a fully completed plan drops out below.
   const activeComposerTasksProgress = useMemo(() => {
-    if (!activeLatestTurn || latestTurnSettled || activePlan?.turnId !== activeLatestTurn.turnId) {
+    if (!activeLatestTurn || latestTurnSettled || !activePlan) {
       return null;
     }
     const currentStep =
@@ -4646,9 +4650,7 @@ function ChatViewContent(props: ChatViewProps) {
     };
   }, [activeLatestTurn, activePlan, latestTurnSettled]);
   const activeComposerTaskSteps =
-    activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
-      ? activePlan.steps
-      : null;
+    activeComposerTasksProgress && activePlan ? activePlan.steps : null;
 
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
