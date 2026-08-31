@@ -57,6 +57,8 @@ export const SessionSummary = Schema.Struct({
   group: Schema.NullOr(Schema.String),
   /** `stopped` when the session has no live provider process. */
   status: OrchestrationSessionStatus,
+  /** True on the calling session's own row, so it can pass its threadId as a reply address. */
+  self: Schema.Boolean,
 });
 export type SessionSummary = typeof SessionSummary.Type;
 
@@ -67,7 +69,8 @@ export type SessionListResult = typeof SessionListResult.Type;
 
 export const SessionWakeInput = Schema.Struct({
   name: SessionName.annotate({
-    description: "Title of an existing session in this project to send a turn to.",
+    description:
+      "Title of an existing session in this project to send a turn to, or the threadId session_list reports for it. Use the threadId when the title has spaces.",
   }),
   message: Schema.String.annotate({
     description:

@@ -180,9 +180,27 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
       expect(result.isError).toBe(false);
       expect(result.structuredContent).toEqual({
         sessions: [
-          { threadId: "thread-orchestrator", name: "orchestrator", group: null, status: "running" },
-          { threadId: "thread-dev", name: "T-1234-dev", group: "T-1234", status: "ready" },
-          { threadId: "thread-review", name: "T-1234-review", group: "T-1234", status: "stopped" },
+          {
+            threadId: "thread-orchestrator",
+            name: "orchestrator",
+            group: null,
+            status: "running",
+            self: true,
+          },
+          {
+            threadId: "thread-dev",
+            name: "T-1234-dev",
+            group: "T-1234",
+            status: "ready",
+            self: false,
+          },
+          {
+            threadId: "thread-review",
+            name: "T-1234-review",
+            group: "T-1234",
+            status: "stopped",
+            self: false,
+          },
         ],
       });
 
@@ -313,6 +331,45 @@ it.effect("wakes exactly one matching session and reports zero or many", () =>
       expect(ambiguous.isError).toBe(true);
       expect(errorText(ambiguous)).toContain("ambiguous-name");
       expect(ambiguousHarness.dispatched).toHaveLength(0);
+    }),
+  ),
+);
+
+it.effect("wakes a prose-titled session by the threadId session_list reports", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        ...baseThreads,
+        shell({ id: "thread-prose", title: "Create ticket 23.9D." }),
+      ]);
+      const woken = yield* callTool("session_wake", {
+        name: "thread-prose",
+        message: "Where are the acceptance criteria?",
+      }).pipe(Effect.provide(harness.layer));
+      expect(woken.isError).toBe(false);
+      expect(woken.structuredContent).toEqual({
+        threadId: "thread-prose",
+        name: "Create ticket 23.9D.",
+      });
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.turn.start",
+        threadId: "thread-prose",
+      });
+    }),
+  ),
+);
+
+it.effect("does not reach a threadId in another project", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const missing = yield* callTool("session_wake", {
+        name: "thread-elsewhere",
+        message: "hi",
+      }).pipe(Effect.provide(harness.layer));
+      expect(missing.isError).toBe(true);
+      expect(errorText(missing)).toContain("thread-not-found");
+      expect(harness.dispatched).toHaveLength(0);
     }),
   ),
 );

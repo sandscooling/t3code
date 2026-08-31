@@ -37,7 +37,7 @@ export const SessionSpawnTool = Tool.make("session_spawn", {
 
 export const SessionListTool = Tool.make("session_list", {
   description:
-    "List the open sessions in this project with their group and live status. Status is `stopped` when a session has no running provider process; pass such a session's name to session_wake to bring it back.",
+    "List the open sessions in this project with their threadId, group and live status. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on.",
   parameters: SessionListInput,
   success: SessionListResult,
   failure: OrchestrationToolError,
@@ -51,7 +51,7 @@ export const SessionListTool = Tool.make("session_list", {
 
 export const SessionWakeTool = Tool.make("session_wake", {
   description:
-    "Send a message to an existing session in this project by name, starting a turn on it. A stopped session gets its provider process back under the same name. Fails if no open session has that name, or more than one does.",
+    "Send a message to an existing session in this project by name, or by the threadId session_list reports, starting a turn on it. A stopped session gets its provider process back under the same name. Use the threadId to reach a session whose title has spaces. Fails if no open session matches, or more than one shares that name.",
   parameters: SessionWakeInput,
   success: SessionWakeResult,
   failure: OrchestrationToolError,

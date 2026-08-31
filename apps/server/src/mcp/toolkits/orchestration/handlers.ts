@@ -151,7 +151,7 @@ const handlers = {
 
   session_list: (input) =>
     Effect.gen(function* () {
-      const { siblings } = yield* requireScope;
+      const { caller, siblings } = yield* requireScope;
       const group = input?.group;
       const sessions = siblings
         .filter((thread) => group === undefined || thread.group === group)
@@ -160,6 +160,10 @@ const handlers = {
           name: thread.title,
           group: thread.group ?? null,
           status: thread.session?.status ?? ("stopped" as const),
+          // Marks the caller's own row, which is the only way a session learns
+          // its own threadId and can therefore hand another session a reply
+          // address. session_wake starts a turn and returns; it carries no answer back.
+          self: thread.id === caller.id,
         }));
       return { sessions };
     }),
@@ -168,9 +172,17 @@ const handlers = {
     Effect.gen(function* () {
       yield* requireMessage(input.message);
       const { siblings } = yield* requireScope;
-      const matches = siblings.filter((thread) => thread.title === input.name);
+      // A threadId from session_list is accepted in place of a name. It is
+      // unique, so an id hit wins outright and is never ambiguous, and it is
+      // the only handle on a session whose prose title could never pass the
+      // session name pattern.
+      const byId = siblings.find((thread) => thread.id === input.name);
+      const matches = byId ? [byId] : siblings.filter((thread) => thread.title === input.name);
       if (matches.length === 0) {
-        return yield* toolError("thread-not-found", `no open session named ${input.name}`);
+        return yield* toolError(
+          "thread-not-found",
+          `no open session has the name or threadId ${input.name}`,
+        );
       }
       const target = matches[0];
       if (matches.length > 1 || target === undefined) {
