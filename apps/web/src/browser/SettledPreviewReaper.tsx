@@ -10,8 +10,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { closeThreadPreviewSessions } from "~/components/preview/closeThreadPreviewSessions";
-import { useClientSettings } from "~/hooks/useSettings";
-import { useNowMinute } from "~/hooks/useNowMinute";
 import { useActivePreviewSessions } from "~/previewStateStore";
 import { useThreadShells } from "~/state/entities";
 import { previewEnvironment } from "~/state/preview";
@@ -34,14 +32,13 @@ import { selectReapableThreadKeys } from "./settledPreviewReaper.logic";
  * stops the webview and lets desktopTabLifetime tear the guest down through
  * the path it already uses.
  *
- * Runs on the minute-quantized clock the sidebar partitions on, so a tab is
- * only reaped on the tick that moves its thread out of the active list.
+ * Reads the settled flag the server stamps on the shell, the same one the
+ * sidebar partitions on, so a tab is only reaped once its thread has moved out
+ * of the active list.
  */
 export function SettledPreviewReaper() {
   const previewByThreadKey = useActivePreviewSessions();
   const shells = useThreadShells();
-  const now = useNowMinute();
-  const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const closePreview = useAtomCommand(previewEnvironment.close);
 
   // Only visibility is read from the surface store. Subscribing to the whole
@@ -98,10 +95,8 @@ export function SettledPreviewReaper() {
         previewThreadKeys,
         shellByThreadKey,
         onScreenThreadKeys,
-        now,
-        autoSettleAfterDays,
       }),
-    [autoSettleAfterDays, now, onScreenThreadKeys, previewThreadKeys, shellByThreadKey],
+    [onScreenThreadKeys, previewThreadKeys, shellByThreadKey],
   );
 
   // Belt and braces against re-firing. The optimistic removal inside

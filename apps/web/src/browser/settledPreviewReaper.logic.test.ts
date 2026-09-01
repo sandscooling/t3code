@@ -11,15 +11,12 @@ import { selectReapableThreadKeys } from "./settledPreviewReaper.logic";
 
 const NOW = "2026-04-10T00:00:00.000Z";
 const FRESH = "2026-04-09T00:00:00.000Z";
-const STALE = "2026-04-06T00:00:00.000Z";
-const AUTO_SETTLE_DAYS = 3;
 
 function makeShell(input: {
   readonly id: string;
   readonly activityAt: string | null;
   readonly settledOverride?: "settled" | "active" | null;
   readonly sessionStatus?: "starting" | "running";
-  readonly pending?: "approval";
 }): OrchestrationThreadShell {
   const threadId = ThreadId.make(input.id);
   return {
@@ -60,7 +57,7 @@ function makeShell(input: {
             updatedAt: NOW,
           },
     latestUserMessageAt: null,
-    hasPendingApprovals: input.pending === "approval",
+    hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
   };
@@ -79,44 +76,27 @@ function reap(input: {
     previewThreadKeys: input.previewThreadKeys,
     shellByThreadKey: shellMap(...input.shells),
     onScreenThreadKeys: new Set(input.onScreen ?? []),
-    now: NOW,
-    autoSettleAfterDays: AUTO_SETTLE_DAYS,
   });
 }
 
 describe("selectReapableThreadKeys", () => {
-  it("reaps a thread that aged past the auto-settle window", () => {
-    const shell = makeShell({ id: "old", activityAt: STALE });
-    expect(reap({ previewThreadKeys: ["old"], shells: [shell] })).toEqual(["old"]);
-  });
-
-  it("reaps an explicitly settled thread even when it is fresh", () => {
+  it("reaps a thread the server has stamped settled", () => {
     const shell = makeShell({ id: "settled", activityAt: FRESH, settledOverride: "settled" });
     expect(reap({ previewThreadKeys: ["settled"], shells: [shell] })).toEqual(["settled"]);
   });
 
-  it("leaves a recently active thread alone", () => {
+  it("leaves an unsettled thread alone", () => {
     const shell = makeShell({ id: "fresh", activityAt: FRESH });
     expect(reap({ previewThreadKeys: ["fresh"], shells: [shell] })).toEqual([]);
   });
 
   it("never reaps the thread on screen, even once it settles", () => {
-    const shell = makeShell({ id: "open", activityAt: STALE });
+    const shell = makeShell({ id: "open", activityAt: FRESH, settledOverride: "settled" });
     expect(reap({ previewThreadKeys: ["open"], shells: [shell], onScreen: ["open"] })).toEqual([]);
   });
 
-  it("leaves a running session alone however old its last turn is", () => {
-    const shell = makeShell({ id: "busy", activityAt: STALE, sessionStatus: "running" });
-    expect(reap({ previewThreadKeys: ["busy"], shells: [shell] })).toEqual([]);
-  });
-
-  it("leaves a thread blocked on an approval alone", () => {
-    const shell = makeShell({ id: "blocked", activityAt: STALE, pending: "approval" });
-    expect(reap({ previewThreadKeys: ["blocked"], shells: [shell] })).toEqual([]);
-  });
-
   it("leaves a keep-active pin alone", () => {
-    const shell = makeShell({ id: "pinned", activityAt: STALE, settledOverride: "active" });
+    const shell = makeShell({ id: "pinned", activityAt: FRESH, settledOverride: "active" });
     expect(reap({ previewThreadKeys: ["pinned"], shells: [shell] })).toEqual([]);
   });
 
@@ -125,28 +105,15 @@ describe("selectReapableThreadKeys", () => {
   });
 
   it("reaps only the settled subset when several threads hold tabs", () => {
-    const stale = makeShell({ id: "stale", activityAt: STALE });
+    const settled = makeShell({ id: "settled", activityAt: FRESH, settledOverride: "settled" });
     const fresh = makeShell({ id: "fresh", activityAt: FRESH });
-    const viewed = makeShell({ id: "viewed", activityAt: STALE });
+    const viewed = makeShell({ id: "viewed", activityAt: FRESH, settledOverride: "settled" });
     expect(
       reap({
-        previewThreadKeys: ["stale", "fresh", "viewed"],
-        shells: [stale, fresh, viewed],
+        previewThreadKeys: ["settled", "fresh", "viewed"],
+        shells: [settled, fresh, viewed],
         onScreen: ["viewed"],
       }),
-    ).toEqual(["stale"]);
-  });
-
-  it("does not reap when auto-settle is disabled and nothing is explicitly settled", () => {
-    const shell = makeShell({ id: "old", activityAt: STALE });
-    expect(
-      selectReapableThreadKeys({
-        previewThreadKeys: ["old"],
-        shellByThreadKey: shellMap(shell),
-        onScreenThreadKeys: new Set(),
-        now: NOW,
-        autoSettleAfterDays: null,
-      }),
-    ).toEqual([]);
+    ).toEqual(["settled"]);
   });
 });

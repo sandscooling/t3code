@@ -1,4 +1,3 @@
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
 
 /**
@@ -12,8 +11,11 @@ import type { OrchestrationThreadShell } from "@t3tools/contracts";
  * tab goes on running the page's timers, fetches and sockets indefinitely.
  * A reactive app polling on a four-day-old thread is pure waste.
  *
- * Settled here is the same predicate the sidebar partitions on, so a tab is
- * only reaped once its thread has visibly moved out of the active list.
+ * Settled is read straight off the shell, which the server stamps. That is the
+ * same flag the sidebar partitions on, so a tab is only reaped once its thread
+ * has visibly moved out of the active list, and the exemptions the settlement
+ * policy already applies (a running session, a pending approval, a keep-active
+ * pin) hold here for free.
  */
 
 export interface ReapableThreadInput {
@@ -22,15 +24,13 @@ export interface ReapableThreadInput {
   readonly shellByThreadKey: ReadonlyMap<string, OrchestrationThreadShell>;
   /** Threads whose tab is presented on screen right now, never reaped. */
   readonly onScreenThreadKeys: ReadonlySet<string>;
-  readonly now: string;
-  readonly autoSettleAfterDays: number | null;
 }
 
 export function selectReapableThreadKeys(input: ReapableThreadInput): ReadonlyArray<string> {
   return input.previewThreadKeys.filter((threadKey) => {
-    // Never close the browser someone is looking at. Settled state can flip
-    // under a thread that is open (its inactivity window elapses while you
-    // read), and a tab vanishing mid-use is worse than the waste it saves.
+    // Never close the browser someone is looking at. A thread can settle while
+    // it is open (the server's inactivity window elapses while you read), and
+    // a tab vanishing mid-use is worse than the waste it saves.
     if (input.onScreenThreadKeys.has(threadKey)) {
       return false;
     }
@@ -39,17 +39,6 @@ export function selectReapableThreadKeys(input: ReapableThreadInput): ReadonlyAr
     if (!shell) {
       return false;
     }
-    // changeRequest is deliberately omitted rather than queried. Pulling
-    // VCS status for every thread holding a tab costs a request per thread to
-    // sharpen an edge case in both directions: a merged pull request will not
-    // reap until the thread also goes quiet, and a thread with an open pull
-    // request reaps on inactivity even though the sidebar still lists it as
-    // active. Both leave a recoverable tab, which is worth more than the
-    // traffic.
-    return effectiveSettled(shell, {
-      now: input.now,
-      autoSettleAfterDays: input.autoSettleAfterDays,
-      changeRequest: null,
-    });
+    return shell.settledOverride === "settled";
   });
 }
