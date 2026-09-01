@@ -70,6 +70,13 @@ import {
   usePromptStashStore,
   type PromptStashEntry,
 } from "../../promptStashStore";
+import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+
+import {
+  ComposerAgentsBadge,
+  ComposerAgentsContent,
+  ComposerAgentsDrawer,
+} from "./ComposerAgentsBadge";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import {
@@ -676,6 +683,13 @@ export interface ChatComposerProps {
   activeTaskSteps: readonly ComposerTaskStep[] | null;
   threadSyncPhase: ThreadSyncPhase | null;
 
+  // Agents. The composer strip carries the roster alongside the task list:
+  // subagents outlive the chat rows that spawned them, and the Agents right
+  // panel is not visible while you type. Rows click through to that panel,
+  // which stays the only place the full roster renders.
+  activeAgents: AgentPanelModel | null;
+  onOpenAgents: () => void;
+
   // Mode
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -823,6 +837,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   } = props;
   const activeTasksProgress = props.threadSyncPhase === null ? props.activeTasksProgress : null;
   const activeTaskSteps = props.threadSyncPhase === null ? props.activeTaskSteps : null;
+  const activeAgents =
+    props.threadSyncPhase === null && props.activeAgents?.hasAgents === true
+      ? props.activeAgents
+      : null;
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
   // ------------------------------------------------------------------
@@ -1240,6 +1258,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
   const [isTasksDrawerOpen, setIsTasksDrawerOpen] = useState(false);
+  // Agents expand independently of tasks. They are unrelated feeds, and
+  // folding one open to read the other would hide the thing you came for.
+  const [isAgentsDrawerOpen, setIsAgentsDrawerOpen] = useState(false);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -2874,6 +2895,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const toggleTasksDrawer = useCallback(() => {
     setIsTasksDrawerOpen((open) => !open);
   }, []);
+  const toggleAgentsDrawer = useCallback(() => {
+    setIsAgentsDrawerOpen((open) => !open);
+  }, []);
   const hasBannerItems = props.bannerItems.length > 0;
   const hasBlockingComposerTopDrawer =
     activePendingApproval !== null || pendingUserInputs.length > 0;
@@ -2892,6 +2916,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       steps={activeTaskSteps}
     />
   ) : null;
+  const showInlineAgentsBadge =
+    activeAgents !== null &&
+    !isAgentsDrawerOpen &&
+    !hasBlockingComposerTopDrawer &&
+    (hasBannerItems || showComposerTopDrawer || isComposerCollapsedMobile);
+  const inlineAgentsBadge =
+    showInlineAgentsBadge && activeAgents ? (
+      <ComposerAgentsBadge
+        expanded={false}
+        model={activeAgents}
+        onToggle={toggleAgentsDrawer}
+        placement="inline"
+      />
+    ) : null;
   const showTasksTab =
     !hasBannerItems &&
     !showComposerTopDrawer &&
@@ -2900,16 +2938,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeTasksProgress !== null &&
     activeTaskSteps !== null &&
     activeTasksProgress.totalSteps > 0;
-  const activityStackContent = hasBannerItems ? (
-    props.threadSyncPhase ? (
-      <ComposerActivityRow phase={props.threadSyncPhase} />
-    ) : !hasBlockingComposerTopDrawer && activeTasksProgress && activeTaskSteps ? (
+  const showAgentsTab =
+    !hasBannerItems &&
+    !showComposerTopDrawer &&
+    !isAgentsDrawerOpen &&
+    !isComposerCollapsedMobile &&
+    activeAgents !== null;
+  const stackedTasksContent =
+    !hasBlockingComposerTopDrawer && activeTasksProgress && activeTaskSteps ? (
       <ComposerTasksContent
         expanded={isTasksDrawerOpen}
         onToggle={toggleTasksDrawer}
         progress={activeTasksProgress}
         steps={activeTaskSteps}
       />
+    ) : null;
+  const stackedAgentsContent =
+    !hasBlockingComposerTopDrawer && activeAgents ? (
+      <ComposerAgentsContent
+        expanded={isAgentsDrawerOpen}
+        model={activeAgents}
+        onOpenAgents={props.onOpenAgents}
+        onToggle={toggleAgentsDrawer}
+      />
+    ) : null;
+  const activityStackContent = hasBannerItems ? (
+    props.threadSyncPhase ? (
+      <ComposerActivityRow phase={props.threadSyncPhase} />
+    ) : stackedTasksContent || stackedAgentsContent ? (
+      <>
+        {stackedTasksContent}
+        {stackedAgentsContent}
+      </>
     ) : null
   ) : null;
   const activityStackItem: ComposerBannerStackContent | null = activityStackContent
@@ -2930,13 +2990,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, [activeTaskSteps, activeTasksProgress]);
 
   useEffect(() => {
+    if (activeAgents === null) {
+      setIsAgentsDrawerOpen(false);
+    }
+  }, [activeAgents]);
+
+  useEffect(() => {
     if (hasBlockingComposerTopDrawer) {
       setIsTasksDrawerOpen(false);
+      setIsAgentsDrawerOpen(false);
     }
   }, [hasBlockingComposerTopDrawer]);
 
   useEffect(() => {
     setIsTasksDrawerOpen(false);
+    setIsAgentsDrawerOpen(false);
   }, [activeThreadId]);
 
   // Close the stash menu whenever the trigger-driven command menu opens so
@@ -3460,13 +3528,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             className="relative z-0"
             items={bannerStackItems}
           />
-          {!activityStackItem && (props.threadSyncPhase || inlineTasksBadge) ? (
+          {!activityStackItem &&
+          (props.threadSyncPhase || inlineTasksBadge || inlineAgentsBadge) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-activity-strip="true">
                 {props.threadSyncPhase ? (
                   <ComposerActivityRow phase={props.threadSyncPhase} />
                 ) : (
-                  inlineTasksBadge
+                  <>
+                    {inlineTasksBadge}
+                    {inlineAgentsBadge}
+                  </>
                 )}
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
@@ -3597,6 +3669,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 onToggle={toggleTasksDrawer}
                 progress={activeTasksProgress}
                 steps={activeTaskSteps}
+              />
+            </ComposerBanner.Attachment>
+          ) : null}
+          {!activityStackItem &&
+          isAgentsDrawerOpen &&
+          !hasBlockingComposerTopDrawer &&
+          activeAgents ? (
+            <ComposerAgentsDrawer
+              model={activeAgents}
+              onCollapse={toggleAgentsDrawer}
+              onOpenAgents={props.onOpenAgents}
+            />
+          ) : null}
+          {showAgentsTab && activeAgents ? (
+            <ComposerBanner.Attachment>
+              <ComposerAgentsBadge
+                expanded={false}
+                model={activeAgents}
+                onToggle={toggleAgentsDrawer}
               />
             </ComposerBanner.Attachment>
           ) : null}

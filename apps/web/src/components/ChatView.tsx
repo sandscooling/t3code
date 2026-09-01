@@ -7426,6 +7426,8 @@ function ChatViewContent(props: ChatViewProps) {
                             activeProposedPlan={activeProposedPlan}
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
+                            activeAgents={agentPanelModel}
+                            onOpenAgents={addAgentsSurface}
                             threadSyncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
