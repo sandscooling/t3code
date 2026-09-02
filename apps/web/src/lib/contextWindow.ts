@@ -25,7 +25,12 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly updatedAt: string;
 };
 
-/** Map a provider driver kind to a user-facing display name. */
+/**
+ * Map a provider driver kind to a user-facing display name.
+ *
+ * Fork-only. Upstream removed this in #9150 as unused. The composer's plan usage
+ * meter falls back to it when the selected instance has no live provider entry.
+ */
 export function formatProviderDisplayName(provider: string | null | undefined): string {
   if (!provider) return "This agent";
   switch (provider) {

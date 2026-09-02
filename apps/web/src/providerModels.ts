@@ -38,6 +38,8 @@ export function getProviderSnapshot(
   return providers.find((candidate) => candidate.instanceId === defaultInstanceId);
 }
 
+// Fork-only. Upstream removed this in #9150 as unused; the composer's plan usage
+// meter still names the provider it is reporting for.
 export function getProviderDisplayName(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderDriverKind,
@@ -51,16 +53,6 @@ export function getProviderInteractionModeToggle(
   provider: ProviderDriverKind,
 ): boolean {
   return getProviderSnapshot(providers, provider)?.showInteractionModeToggle ?? true;
-}
-
-export function isProviderEnabled(
-  providers: ReadonlyArray<ServerProvider>,
-  provider: ProviderDriverKind,
-): boolean {
-  if (providers.length === 0) {
-    return true;
-  }
-  return getProviderSnapshot(providers, provider)?.enabled ?? false;
 }
 
 // Resolve an instance selection to the correlated live driver. If the

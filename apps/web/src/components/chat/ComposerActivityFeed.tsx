@@ -174,7 +174,9 @@ export const ComposerActivityBadge = memo(function ComposerActivityBadge({
   return placement === "inline" ? (
     row
   ) : (
-    <ComposerBanner.Root data-composer-shoulder-tab>{row}</ComposerBanner.Root>
+    <ComposerBanner.Root density="comfortable" data-composer-shoulder-tab>
+      {row}
+    </ComposerBanner.Root>
   );
 });
 

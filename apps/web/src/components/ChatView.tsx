@@ -1,4 +1,5 @@
 import {
+  type AssistantCitation,
   type ApprovalRequestId,
   type ChatFileAttachment,
   DEFAULT_MODEL,
@@ -24,10 +25,7 @@ import {
   RuntimeMode,
   TerminalOpenInput,
 } from "@t3tools/contracts";
-import {
-  connectionStatusTitle,
-  type EnvironmentConnectionPresentation,
-} from "@t3tools/client-runtime/connection";
+import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
 import { type CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
@@ -70,7 +68,10 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
+import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
+import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
+import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { useShallow } from "zustand/react/shallow";
 import {
   isAtomCommandInterrupted,
@@ -279,6 +280,7 @@ import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
+import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
@@ -294,6 +296,7 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
@@ -380,6 +383,7 @@ import {
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
+  toolGroupConsumesUpwardNavigation,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -426,6 +430,8 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   serverUpdateGuidance,
+  supportsDesktopAppUpdate,
+  supportsServerUpdateThreadContinuation,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 
@@ -1391,6 +1397,8 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return {
       loading: routeThreadState.page._tag === "Some" && routeThreadState.page.value.loadingOlder,
+      cursor:
+        routeThreadState.page._tag === "Some" ? routeThreadState.page.value.beforeCursor : null,
       onLoadEarlier: () => {
         requestOlderThreadTurns(routeThreadRef.environmentId, routeThreadRef.threadId);
       },
@@ -1407,6 +1415,18 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
+  const citationLocation = useLocation({
+    select: (location) => ({
+      href: location.href,
+      key: location.state.assistantCitationActivation ?? location.state.__TSR_key,
+    }),
+  });
+  const citationRequest = useMemo<AssistantCitationRequest | null>(() => {
+    const citation = assistantCitationFromLocation(citationLocation.href);
+    return citation && citation.environmentId === environmentId && citation.threadId === threadId
+      ? { citation, key: citationLocation.key ?? citationLocation.href }
+      : null;
+  }, [citationLocation.href, citationLocation.key, environmentId, threadId]);
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
@@ -1459,6 +1479,21 @@ function ChatViewContent(props: ChatViewProps) {
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const citeAssistantText = useCallback(
+    (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => {
+      const inserted = composerRef.current?.citeAssistantText(citation, sourceAnchor) ?? false;
+      if (!inserted) {
+        toastManager.add({
+          type: "warning",
+          title: "The composer is not ready",
+          description:
+            "Try citing the selection after the connection or pending input is resolved.",
+        });
+      }
+      return inserted;
+    },
+    [composerRef],
+  );
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const routeThreadKeyRef = useRef(routeThreadKey);
   routeThreadKeyRef.current = routeThreadKey;
@@ -2198,6 +2233,8 @@ function ChatViewContent(props: ChatViewProps) {
       : "server";
   const serverUpdateEnvironmentId = activeThread?.environmentId ?? null;
   const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
+  const versionMismatchDesktopAppUpdate = supportsDesktopAppUpdate(serverConfig);
+  const versionMismatchThreadContinuation = supportsServerUpdateThreadContinuation(serverConfig);
   const serverUpdateState = useAtomValue(
     serverEnvironment.updateStateAtom(serverUpdateEnvironmentId),
   );
@@ -2243,21 +2280,20 @@ function ChatViewContent(props: ChatViewProps) {
             />
           ),
           title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
-          description: "It may be finishing an update. One moment.",
+          description: "Finishing an update",
         });
       } else {
         items.push({
           id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
           variant: unavailableConnection.phase === "error" ? "error" : "warning",
           icon: <WifiOffIcon />,
-          title: `${activeEnvironmentUnavailableState.label}: ${connectionStatusTitle(unavailableConnection)}`,
-          description:
-            unavailableConnection.error ??
-            "Reconnect this environment before sending messages or running actions.",
+          title: `${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`,
+          description: environmentReconnecting ? "Trying again" : "Reconnect to continue",
           actions: (
             <>
               <Button
                 size="xs"
+                variant="ghost"
                 disabled={environmentReconnecting}
                 onClick={() =>
                   void handleReconnectActiveEnvironment(
@@ -2269,7 +2305,7 @@ function ChatViewContent(props: ChatViewProps) {
               </Button>
               <Button
                 size="xs"
-                variant="outline"
+                variant="ghost"
                 onClick={() => void navigate({ to: "/settings/connections" })}
               >
                 Connections
@@ -2318,21 +2354,26 @@ function ChatViewContent(props: ChatViewProps) {
             "Server update available"
           ),
         description:
-          !updateInProgress && !updateFailed && versionMismatchSelfUpdate === "desktop-managed"
-            ? serverUpdateGuidance(versionMismatchSelfUpdate, versionMismatchServerLabel)
+          !updateInProgress &&
+          !updateFailed &&
+          versionMismatchSelfUpdate !== null &&
+          (versionMismatchSelfUpdate !== "desktop-managed" || !versionMismatchDesktopAppUpdate)
+            ? serverUpdateGuidance(versionMismatchSelfUpdate)
             : undefined,
-        // The desktop-managed guidance is already the description; the action
-        // slot would only repeat it.
         actions:
           updateInProgress ||
           !versionMismatch ||
-          versionMismatchSelfUpdate === "desktop-managed" ? undefined : (
+          (versionMismatchSelfUpdate === "desktop-managed" &&
+            !versionMismatchDesktopAppUpdate) ? undefined : (
             <ServerUpdateAction
               environmentId={serverUpdateEnvironmentId}
               serverLabel={versionMismatchServerLabel}
               selfUpdate={versionMismatchSelfUpdate}
+              desktopAppUpdate={versionMismatchDesktopAppUpdate}
+              threadContinuation={versionMismatchThreadContinuation}
               targetVersion={versionMismatch.clientVersion}
               label={updateFailed ? "Retry" : "Update"}
+              variant="ghost"
             />
           ),
         ...(updateInProgress || (!updateFailed && !versionMismatchDismissKey)
@@ -2364,6 +2405,8 @@ function ChatViewContent(props: ChatViewProps) {
     versionMismatchDismissKey,
     serverUpdateEnvironmentId,
     versionMismatchSelfUpdate,
+    versionMismatchDesktopAppUpdate,
+    versionMismatchThreadContinuation,
     versionMismatchServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
@@ -4228,7 +4271,11 @@ function ChatViewContent(props: ChatViewProps) {
         // Only an upward wheel is a navigation intent; wheeling down while
         // following either does nothing (at the end) or moves toward it.
         const handleWheel = (event: WheelEvent) => {
-          if (event.deltaY < 0 && contentScrollsUp()) {
+          if (
+            event.deltaY < 0 &&
+            contentScrollsUp() &&
+            !toolGroupConsumesUpwardNavigation(event.target)
+          ) {
             handleManualNavigation();
           }
         };
@@ -4265,7 +4312,7 @@ function ChatViewContent(props: ChatViewProps) {
             case "PageUp":
             case "Home":
             case "ArrowUp":
-              if (contentScrollsUp()) {
+              if (contentScrollsUp() && !toolGroupConsumesUpwardNavigation(event.target)) {
                 handleManualNavigation();
               }
               break;
@@ -5047,8 +5094,8 @@ function ChatViewContent(props: ChatViewProps) {
       id: `thread-woke:${activeThread?.id ?? "unknown"}`,
       variant: "info",
       icon: <AlarmClockIcon />,
-      title: "This thread woke from snooze",
-      description: "Dismiss to clear the Woke indicator, or send a message to keep going.",
+      title: "Thread woke from snooze",
+      description: "Send a message to continue",
       dismissLabel: "Dismiss Woke notification",
       onDismiss: acknowledgeActiveThreadWoke,
     };
@@ -5063,13 +5110,11 @@ function ChatViewContent(props: ChatViewProps) {
       variant: "info",
       icon: isSnoozed ? <AlarmClockIcon /> : <CheckCircle2Icon />,
       title: `This thread is ${isSnoozed ? "snoozed" : "settled"}`,
-      description: isSnoozed
-        ? "Sending a message wakes it and moves it back to Active in the sidebar."
-        : "Sending a message moves it back to Active in the sidebar.",
+      description: `Send a message to ${isSnoozed ? "wake" : "unsettle"}`,
       actions: (
         <Button
           size="xs"
-          variant="outline"
+          variant="ghost"
           disabled={isSnoozed ? isUnsnoozing : isUnsettling}
           onClick={() =>
             void (isSnoozed ? handleUnsnoozeActiveThread() : handleUnsettleActiveThread())
@@ -5153,7 +5198,7 @@ function ChatViewContent(props: ChatViewProps) {
     const compactAction = (
       <Button
         size="xs"
-        variant="outline"
+        variant="ghost"
         disabled={compactDisabled}
         onClick={() => {
           if (compactDisabled) return;
@@ -5168,7 +5213,7 @@ function ChatViewContent(props: ChatViewProps) {
       variant: "info",
       icon: <Minimize2Icon />,
       title: "Resume with less context",
-      description: `${formatContextWindowTokens(activeContextWindow.usedTokens)} tokens from an older session`,
+      description: `${formatContextWindowTokens(activeContextWindow.usedTokens)} tokens from earlier`,
       actions: compactDisabledReason ? (
         <Tooltip>
           <TooltipTrigger render={<span className="inline-flex">{compactAction}</span>} />
@@ -5245,7 +5290,6 @@ function ChatViewContent(props: ChatViewProps) {
             </Tooltip>
           </span>
         ),
-        className: "dark:shadow-none",
         actions: (
           <Button
             size="xs"
@@ -6157,7 +6201,7 @@ function ChatViewContent(props: ChatViewProps) {
         firstComposerImageName = firstComposerImage.name;
       }
     }
-    let titleSeed = trimmed;
+    let titleSeed = assistantCitationsToPlainText(trimmed);
     if (!titleSeed) {
       if (firstComposerImageName) {
         titleSeed = `Image: ${firstComposerImageName}`;
@@ -7343,6 +7387,9 @@ function ChatViewContent(props: ChatViewProps) {
             <div className="relative flex min-h-0 flex-1 flex-col">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
+                citationRequest={citationRequest}
+                citationHistoryLoading={threadDetailLoading}
+                onCiteAssistantText={citeAssistantText}
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
                 key={activeThread.id}
@@ -7368,7 +7415,11 @@ function ChatViewContent(props: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
-                skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                skills={
+                  activeProviderStatus
+                    ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
+                    : EMPTY_PROVIDER_SKILLS
+                }
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}
