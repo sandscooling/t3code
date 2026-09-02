@@ -1693,16 +1693,21 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
   }
 });
 
+// The Spectre libs ship as `VC.Runtimes.<arch>.Spectre`, not `VC.Tools.<arch>.Spectre`.
+// No Visual Studio catalog offers the Tools spelling, so vswhere matched nothing and the
+// preflight failed on a machine that had every prerequisite. The Visual Studio Installer
+// makes this hard to notice: `setup.exe modify --add <unknown id>` still exits 0 and adds
+// nothing, so the fix-it step reads as success too.
 function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
   const components =
     arch === "arm64"
       ? [
           "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
-          "Microsoft.VisualStudio.Component.VC.Tools.ARM64.Spectre",
+          "Microsoft.VisualStudio.Component.VC.Runtimes.ARM64.Spectre",
         ]
       : [
           "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre",
+          "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre",
         ];
   return [
     "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
