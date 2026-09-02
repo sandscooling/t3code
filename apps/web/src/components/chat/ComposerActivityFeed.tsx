@@ -35,9 +35,22 @@ export interface ComposerActivityTasks {
   readonly steps: readonly ComposerTaskStep[];
 }
 
-interface ComposerActivityFeeds {
+export interface ComposerActivityFeeds {
   readonly agents: AgentPanelModel | null;
   readonly tasks: ComposerActivityTasks | null;
+}
+
+/**
+ * Whether either feed still has work in flight, and so is worth a row.
+ *
+ * A task list drops out on its own once every step is done, so a live one is
+ * always worth showing. Agents linger after they settle, which left a finished
+ * roster holding a row above the composer with nothing left to report. The
+ * strip keeps that row only while an agent is unsettled.
+ */
+export function hasLiveComposerActivity({ agents, tasks }: ComposerActivityFeeds): boolean {
+  if (tasks !== null) return true;
+  return agents !== null && agents.liveCount + agents.idleCount > 0;
 }
 
 /** The tab actually shown: a requested tab whose feed went away falls back to the other. */

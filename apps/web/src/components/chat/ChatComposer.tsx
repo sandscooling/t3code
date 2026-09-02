@@ -76,6 +76,7 @@ import {
   ComposerActivityBadge,
   ComposerActivityContent,
   ComposerActivityDrawer,
+  hasLiveComposerActivity,
   type ComposerActivityTab,
   type ComposerActivityTasks,
 } from "./ComposerActivityFeed";
@@ -2897,7 +2898,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null,
     [activeTaskSteps, activeTasksProgress],
   );
-  const hasActivityFeed = activeTasks !== null || activeAgents !== null;
+  const hasActivityFeed = hasLiveComposerActivity({ agents: activeAgents, tasks: activeTasks });
   const hasBannerItems = props.bannerItems.length > 0;
   const hasBlockingComposerTopDrawer =
     activePendingApproval !== null || pendingUserInputs.length > 0;
