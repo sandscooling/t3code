@@ -51,9 +51,13 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-claude-probe-sdk-" });
       const executablePath = path.join(tempDir, "fake-claude.mjs");
       const invocationPath = path.join(tempDir, "invocation.json");
-      const workspaceCwd = path.join(tempDir, "workspace");
-      yield* fs.makeDirectory(workspaceCwd, { recursive: true });
-
+      // Deliberately outside the scoped temp directory. The probe spawns the
+      // fake CLI with this as its working directory and the fake stays alive on
+      // a timer, so Windows holds a lock on it that outlives the test. Nested,
+      // that lock made the scoped cleanup fail the whole test with EBUSY even
+      // though every assertion had passed. Left here it is temp-directory
+      // litter the OS reclaims, and the test still exercises the real cwd.
+      const workspaceCwd = yield* fs.makeTempDirectory({ prefix: "t3-claude-probe-workspace-" });
       yield* fs.writeFileString(
         executablePath,
         [

@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -34,6 +37,10 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import {
+  BUNDLED_CLAUDE_MODEL_CATALOG,
+  getClaudeCatalogModelCapabilities,
+} from "../ClaudeModelCatalog.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { AntigravityInstallation } from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -343,6 +350,25 @@ function makeMutableServerSettingsService(
     } satisfies ServerSettingsModule.ServerSettingsService["Service"];
   });
 }
+
+/**
+ * Yields a real event-loop turn.
+ *
+ * The retry loops below wait for a provider status cache file that the registry
+ * writes asynchronously. `Effect.yieldNow` only drains Effect's own scheduler,
+ * so a pending filesystem callback never gets a turn and the loop can exhaust
+ * its attempts while the write is still outstanding. Waiting on the real clock
+ * gives the write somewhere to happen: fifty attempts become about a quarter of
+ * a second of wall time rather than none at all. Filesystems slower than the
+ * scheduler need this, Windows routinely.
+ */
+const yieldToEventLoop = Effect.promise(
+  () =>
+    new Promise<void>((resolve) => {
+      // @effect-diagnostics-next-line globalTimers:off - deliberately waits on the real clock, which Effect.sleep cannot do under TestClock.
+      setTimeout(resolve, 5);
+    }),
+);
 
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), TestHttpClientLive))(
   "ProviderRegistry",
@@ -1582,7 +1608,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               attempt += 1
             ) {
               yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
+              yield* yieldToEventLoop;
               cachedProvider = yield* readProviderStatusCache(filePath);
             }
 
@@ -1708,7 +1734,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 attempt += 1
               ) {
                 yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* yieldToEventLoop;
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1721,7 +1747,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 attempt += 1
               ) {
                 yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* yieldToEventLoop;
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1871,7 +1897,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           const changes = yield* PubSub.unbounded<void>();
           const instancesRef = yield* Ref.make<ReadonlyArray<ProviderInstance>>([codexInstance]);
           const failNextList = yield* Ref.make(false);
-          const wait = () => Effect.yieldNow;
+          const wait = () => yieldToEventLoop;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
             {
@@ -2392,6 +2418,85 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ),
       );
 
+      it.effect("publishes reported output styles as a trait on every model", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({ outputStyles: ["default", "Explanatory", "Team Voice"] }),
+          );
+          assert.ok(status.models.length > 0);
+          for (const model of status.models) {
+            const descriptors = model.capabilities?.optionDescriptors ?? [];
+            const descriptor = descriptors.find((entry) => entry.id === "outputStyle");
+            assert.ok(descriptor, `${model.slug} is missing the output style trait`);
+            assert.strictEqual(descriptor.type, "select");
+            assert.deepEqual(
+              descriptor.type === "select" ? descriptor.options.map((option) => option.id) : [],
+              ["default", "Explanatory", "Team Voice"],
+            );
+            // Appended last, never inserted: clients read the first select
+            // descriptor as reasoning effort. Haiku advertises no select trait
+            // of its own, so output style does land first there and the client
+            // guard, not descriptor order, is what keeps it out of that slot.
+            assert.strictEqual(descriptors.at(-1)?.id, "outputStyle");
+            assert.deepEqual(
+              descriptors.slice(0, -1).map((entry) => entry.id),
+              (
+                getClaudeCatalogModelCapabilities(BUNDLED_CLAUDE_MODEL_CATALOG, model.slug)
+                  .optionDescriptors ?? []
+              ).map((entry) => entry.id),
+            );
+          }
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("leaves the output style trait off when only the default exists", () =>
+        Effect.gen(function* () {
+          // A lone "default" means no styles are installed; a one-choice picker
+          // would be a control that can never change anything.
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({ outputStyles: ["default"] }),
+          );
+          assert.ok(status.models.length > 0);
+          for (const model of status.models) {
+            assert.ok(
+              !(model.capabilities?.optionDescriptors ?? []).some(
+                (entry) => entry.id === "outputStyle",
+              ),
+            );
+          }
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
       it.effect("returns ready and labels Bedrock-backed Claude as authenticated", () =>
         Effect.gen(function* () {
           // Bedrock authenticates via external AWS credentials, so the SDK init
@@ -2538,7 +2643,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           assert.strictEqual(status.status, "ready");
           assert.deepStrictEqual(
             recorded.commands.map((command) => command.env?.CLAUDE_CONFIG_DIR),
-            [claudeConfigDir],
+            // resolveClaudeHomePath resolves to an absolute path, which on
+            // Windows gains a drive letter.
+            [NodePath.resolve(claudeConfigDir)],
           );
         }).pipe(Effect.provide(recorded.layer));
       });

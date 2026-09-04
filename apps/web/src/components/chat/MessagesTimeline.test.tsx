@@ -5,15 +5,23 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef, MaintainScrollAtEndOptions } from "@legendapp/list/react";
 
+// Only workspace media resolves here. Attachment resources keep the real
+// pending behaviour so the optimistic-upload rows still assert against it.
 const assetUrlMocks = vi.hoisted(() => ({
-  useAssetUrlState: vi.fn(() => ({
-    _tag: "Success" as const,
-    url: "https://environment.test/api/assets/signed-token/result.png",
-  })),
+  useAssetUrlState: vi.fn((_environmentId: unknown, resource: { _tag?: string } | null) =>
+    resource?._tag === "media-file"
+      ? {
+          _tag: "Success" as const,
+          url: "https://environment.test/api/assets/signed-token/result.png",
+        }
+      : { _tag: "Loading" as const },
+  ),
+  useAssetUrlRefresh: vi.fn(() => async () => {}),
 }));
 
 vi.mock("../../assets/assetUrls", () => ({
   useAssetUrlState: assetUrlMocks.useAssetUrlState,
+  useAssetUrlRefresh: assetUrlMocks.useAssetUrlRefresh,
 }));
 
 vi.mock("@legendapp/list/react", async () => {
@@ -1466,7 +1474,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(assetUrlMocks.useAssetUrlState).toHaveBeenCalledWith(ACTIVE_THREAD_ENVIRONMENT_ID, {
-      _tag: "workspace-file",
+      _tag: "media-file",
       threadId: ThreadId.make("thread-1"),
       path: imagePath,
     });
