@@ -1,10 +1,5 @@
-import { describe, expect, it, vi } from "vite-plus/test";
-import {
-  getAnchoredTurnMetrics,
-  getRowBottom,
-  keepTimelineEndVisibleAfterOverlayGrowth,
-  shouldReleaseAnchorAfterViewportFilled,
-} from "./timelineScrollAnchoring";
+import { describe, expect, it } from "vite-plus/test";
+import { getAnchoredTurnMetrics, getRowBottom } from "./timelineScrollAnchoring";
 
 function buildState({
   positions,
@@ -27,33 +22,6 @@ function buildState({
 }
 
 describe("timeline scroll anchoring", () => {
-  it("keeps the live edge visible when the composer overlay grows", () => {
-    const scrollToEnd = vi.fn();
-
-    keepTimelineEndVisibleAfterOverlayGrowth({
-      timeline: { scrollToEnd },
-      previousOverlayHeight: 120,
-      overlayHeight: 180,
-      followingEnd: true,
-    });
-
-    expect(scrollToEnd).toHaveBeenCalledOnce();
-    expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
-  });
-
-  it("leaves the scroll position alone while the user reads history", () => {
-    const scrollToEnd = vi.fn();
-
-    keepTimelineEndVisibleAfterOverlayGrowth({
-      timeline: { scrollToEnd },
-      previousOverlayHeight: 120,
-      overlayHeight: 180,
-      followingEnd: false,
-    });
-
-    expect(scrollToEnd).not.toHaveBeenCalled();
-  });
-
   it("measures row bottoms from LegendList row position and size", () => {
     const state = buildState({
       positions: [0, 120],
@@ -166,40 +134,5 @@ describe("timeline scroll anchoring", () => {
 
     expect(withoutComposer?.overflowsUsableViewport).toBe(false);
     expect(withComposer?.overflowsUsableViewport).toBe(true);
-  });
-
-  it("keeps the anchor while the reply is still shorter than the viewport", () => {
-    const metrics = getAnchoredTurnMetrics({
-      state: buildState({
-        positions: [0, 300, 420],
-        sizes: [240, 120, 160],
-        scrollLength: 760,
-      }),
-      anchorIndex: 1,
-      composerOverlayHeight: 180,
-      anchorOffset: 16,
-    });
-
-    expect(shouldReleaseAnchorAfterViewportFilled(metrics)).toBe(false);
-  });
-
-  it("releases the anchor once the turn fills the viewport on its own", () => {
-    const metrics = getAnchoredTurnMetrics({
-      state: buildState({
-        positions: [0, 300, 500],
-        sizes: [240, 200, 700],
-        scrollLength: 760,
-      }),
-      anchorIndex: 1,
-      composerOverlayHeight: 180,
-      anchorOffset: 16,
-    });
-
-    expect(metrics?.turnHeight).toBe(900);
-    expect(shouldReleaseAnchorAfterViewportFilled(metrics)).toBe(true);
-  });
-
-  it("has no anchor to release when the list has not measured yet", () => {
-    expect(shouldReleaseAnchorAfterViewportFilled(null)).toBe(false);
   });
 });

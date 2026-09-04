@@ -14,6 +14,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
 import { ProviderApprovalOption } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
@@ -298,6 +299,8 @@ export type ThreadStartedPayload = typeof ThreadStartedPayload.Type;
 
 const ThreadStateChangedPayload = Schema.Struct({
   state: RuntimeThreadState,
+  beforeTokens: Schema.optional(NonNegativeInt),
+  afterTokens: Schema.optional(NonNegativeInt),
   detail: Schema.optional(Schema.Unknown),
 });
 export type ThreadStateChangedPayload = typeof ThreadStateChangedPayload.Type;
@@ -364,6 +367,35 @@ const TurnStartedPayload = Schema.Struct({
 });
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 
+/**
+ * Normalized main-agent usage for one turn. Input includes cache reads and
+ * writes. Output includes reasoning, and reasoningTokens is an optional subset.
+ * Complete means the provider supplied full input and output totals. Partial
+ * means every included count is valid, but the full turn total is not known.
+ */
+const TurnTokenUsageCommonFields = {
+  usageScope: Schema.Literal("main_agent"),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  cacheCreationTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  hasSubagents: Schema.Boolean,
+};
+export const TurnTokenUsage = Schema.Union([
+  Schema.Struct({
+    ...TurnTokenUsageCommonFields,
+    usageStatus: Schema.Literal("complete"),
+    inputTokens: NonNegativeInt,
+    outputTokens: NonNegativeInt,
+  }),
+  Schema.Struct({
+    ...TurnTokenUsageCommonFields,
+    usageStatus: Schema.Literals(["partial", "unavailable"]),
+    inputTokens: Schema.optional(NonNegativeInt),
+    outputTokens: Schema.optional(NonNegativeInt),
+  }),
+]);
+export type TurnTokenUsage = typeof TurnTokenUsage.Type;
+
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
   stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
@@ -371,11 +403,13 @@ const TurnCompletedPayload = Schema.Struct({
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
+  tokenUsage: Schema.optional(TurnTokenUsage),
 });
 export type TurnCompletedPayload = typeof TurnCompletedPayload.Type;
 
 const TurnAbortedPayload = Schema.Struct({
   reason: TrimmedNonEmptyStringSchema,
+  tokenUsage: Schema.optional(TurnTokenUsage),
 });
 export type TurnAbortedPayload = typeof TurnAbortedPayload.Type;
 
@@ -406,11 +440,54 @@ const TurnDiffUpdatedPayload = Schema.Struct({
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 
+export const ToolActivitySurface = Schema.Literals(["browser", "computer"]);
+export type ToolActivitySurface = typeof ToolActivitySurface.Type;
+
+export const ToolActivityNativeAppReference = Schema.Union([
+  Schema.TaggedStruct("app-id", {
+    appId: TrimmedNonEmptyStringSchema.check(
+      Schema.isMaxLength(512),
+      Schema.isPattern(/^[A-Za-z0-9._-]+$/u),
+    ),
+  }),
+  Schema.TaggedStruct("display-name", {
+    displayName: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(160)),
+  }),
+]);
+export type ToolActivityNativeAppReference = typeof ToolActivityNativeAppReference.Type;
+
+export const ToolActivityIcon = Schema.Union([
+  Schema.TaggedStruct("website", {
+    pageUrl: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096)),
+    faviconUrl: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096))),
+    faviconUrlDark: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096))),
+  }),
+  Schema.TaggedStruct("native-app", {
+    app: ToolActivityNativeAppReference,
+  }),
+  Schema.TaggedStruct("themed-logo", {
+    logoUrl: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096)),
+    logoUrlDark: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096))),
+  }),
+]);
+export type ToolActivityIcon = typeof ToolActivityIcon.Type;
+
+export const ToolActivitySource = Schema.Struct({
+  key: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(512)),
+  name: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(160)),
+  kind: Schema.Literals(["browser", "computer", "integration"]),
+  icon: Schema.optional(ToolActivityIcon),
+});
+export type ToolActivitySource = typeof ToolActivitySource.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolSurface: Schema.optional(ToolActivitySurface),
+  toolIcon: Schema.optional(ToolActivityIcon),
+  toolSource: Schema.optional(ToolActivitySource),
   data: Schema.optional(Schema.Unknown),
   /**
    * Owning agent when this item ran inside a subagent (resolved from the
@@ -448,7 +525,8 @@ export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
 const UserInputQuestionOption = Schema.Struct({
   label: TrimmedNonEmptyStringSchema,
-  description: TrimmedNonEmptyStringSchema,
+  description: Schema.String,
+  value: Schema.optional(Schema.String),
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 
@@ -457,14 +535,16 @@ export const UserInputQuestion = Schema.Struct({
   header: TrimmedNonEmptyStringSchema,
   question: TrimmedNonEmptyStringSchema,
   options: Schema.Array(UserInputQuestionOption),
+  allowCustomAnswer: Schema.optional(Schema.Boolean),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
     Schema.withConstructorDefault(Effect.succeed(false)),
   ),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
 
-const UserInputRequestedPayload = Schema.Struct({
+export const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
+  responseMode: Schema.optional(Schema.Literal("message")),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
@@ -705,44 +785,11 @@ const AccountUpdatedPayload = Schema.Struct({
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
 /**
- * Canonical usage windows across providers. Claude reports one window per
- * `rate_limit_event` (keyed by `rateLimitType`); Codex reports a `primary` +
- * `secondary` pair keyed only by `windowDurationMins`, so both map onto the
- * same kinds and consumers never branch on the provider.
+ * Adapters normalise their native rate-limit payload at the boundary so the
+ * consumer that folds it into the provider snapshot never sees driver shapes.
  */
-export const ProviderRateLimitWindowKind = Schema.Literals([
-  "five_hour",
-  "weekly",
-  "weekly_opus",
-  "weekly_sonnet",
-  "monthly",
-  "overage",
-  "unknown",
-]);
-export type ProviderRateLimitWindowKind = typeof ProviderRateLimitWindowKind.Type;
-
-const ProviderRateLimitStatus = Schema.Literals(["allowed", "warning", "rejected"]);
-export type ProviderRateLimitStatus = typeof ProviderRateLimitStatus.Type;
-
-/**
- * Providers expose utilization, never the quota itself — there is no token or
- * message ceiling to report, only `usedPercent` (0-100) and when it resets.
- */
-export const ProviderRateLimitWindow = Schema.Struct({
-  kind: ProviderRateLimitWindowKind,
-  usedPercent: Schema.Number,
-  resetsAt: Schema.optional(IsoDateTime),
-  windowDurationMins: Schema.optional(PositiveInt),
-  status: Schema.optional(ProviderRateLimitStatus),
-});
-export type ProviderRateLimitWindow = typeof ProviderRateLimitWindow.Type;
-
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  windows: Schema.Array(ProviderRateLimitWindow),
-  planLabel: Schema.optional(TrimmedNonEmptyStringSchema),
-  // Unnormalized provider snapshot, retained for debugging and for fields no
-  // surface reads yet (credits, spend controls).
-  rateLimits: Schema.optional(Schema.Unknown),
+  limits: ProviderUsageLimitsUpdate,
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

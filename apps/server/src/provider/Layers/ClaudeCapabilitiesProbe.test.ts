@@ -51,13 +51,9 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-claude-probe-sdk-" });
       const executablePath = path.join(tempDir, "fake-claude.mjs");
       const invocationPath = path.join(tempDir, "invocation.json");
-      // Deliberately outside the scoped temp directory. The probe spawns the
-      // fake CLI with this as its working directory and the fake stays alive on
-      // a timer, so Windows holds a lock on it that outlives the test. Nested,
-      // that lock made the scoped cleanup fail the whole test with EBUSY even
-      // though every assertion had passed. Left here it is temp-directory
-      // litter the OS reclaims, and the test still exercises the real cwd.
-      const workspaceCwd = yield* fs.makeTempDirectory({ prefix: "t3-claude-probe-workspace-" });
+      const workspaceCwd = path.join(tempDir, "workspace");
+      yield* fs.makeDirectory(workspaceCwd, { recursive: true });
+
       yield* fs.writeFileString(
         executablePath,
         [
@@ -81,22 +77,31 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "const lines = createInterface({ input: process.stdin });",
           'lines.on("line", (line) => {',
           "  const message = JSON.parse(line);",
-          '  if (message.type !== "control_request" || message.request?.subtype !== "initialize") return;',
-          "  process.stdout.write(JSON.stringify({",
+          '  if (message.type !== "control_request") return;',
+          "  const reply = (response) => process.stdout.write(JSON.stringify({",
           '    type: "control_response",',
-          "    response: {",
-          '      subtype: "success",',
-          "      request_id: message.request_id,",
-          "      response: {",
-          '        commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
-          "        agents: [],",
-          '        output_style: "default",',
-          '        available_output_styles: ["default", "Explanatory", "Team Voice"],',
-          "        models: [],",
-          '        account: { email: "dev@example.com", subscriptionType: "pro", tokenSource: "oauth" },',
-          "      },",
-          "    },",
+          '    response: { subtype: "success", request_id: message.request_id, response },',
           '  }) + "\\n");',
+          '  if (message.request?.subtype === "initialize") {',
+          "    reply({",
+          '      commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
+          "      agents: [],",
+          '      output_style: "default",',
+          '      available_output_styles: ["default", "Explanatory", "Team Voice"],',
+          "      models: [],",
+          '      account: { email: "dev@example.com", subscriptionType: "pro", tokenSource: "oauth" },',
+          "    });",
+          "  }",
+          "  // The probe follows initialize with get_usage on the same process.",
+          '  if (message.request?.subtype === "get_usage") {',
+          "    reply({",
+          "      session: {},",
+          '      subscription_type: "pro",',
+          "      rate_limits_available: true,",
+          '      rate_limits: { five_hour: { utilization: 12, resets_at: "2026-07-18T14:39:00Z" } },',
+          "      behaviors: null,",
+          "    });",
+          "  }",
           "});",
           "setInterval(() => {}, 1_000);",
           "",
@@ -127,6 +132,10 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           },
         ],
         outputStyles: ["default", "Explanatory", "Team Voice"],
+        usage: {
+          rate_limits_available: true,
+          rate_limits: { five_hour: { utilization: 12, resets_at: "2026-07-18T14:39:00Z" } },
+        },
       });
 
       // @effect-diagnostics-next-line preferSchemaOverJson:off
