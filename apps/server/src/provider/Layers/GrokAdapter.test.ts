@@ -35,24 +35,22 @@ import {
   nextGrokPlanModeActive,
   selectGrokPermissionOptionId,
 } from "./GrokAdapter.ts";
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
-
+import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
-const mockAgentCommand = process.execPath;
+// Stopping a session kills the agent with SIGTERM; Windows terminates the
+// process instead, so the mock never sees a signal to log.
+const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 
 async function makeMockGrokWrapper(extraEnv?: Record<string, string>) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-acp-mock-"));
-  return writeFakeExecutable({
+  return writeFakeCli({
     directory: dir,
     name: "fake-grok",
-    platform: HOST_PLATFORM,
-    command: mockAgentCommand,
-    args: [mockAgentPath],
-    env: extraEnv,
+    env: extraEnv ?? {},
+    source: execScriptSource({ scriptPath: mockAgentPath }),
   });
 }
 
@@ -342,7 +340,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
     }),
   );
 
-  it.effect("closes the ACP child process when a session stops", () =>
+  it.effect.skipIf(windowsHost)("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
       // Asserts the agent observed SIGTERM, which Windows has no equivalent for:
       // `process.kill` there calls TerminateProcess and delivers no JS signal.

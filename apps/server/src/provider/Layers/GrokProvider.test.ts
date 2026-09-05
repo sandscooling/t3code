@@ -6,7 +6,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { GrokSettings } from "@t3tools/contracts";
 
@@ -18,6 +17,7 @@ import {
   checkGrokProviderStatus,
   parseGrokModelsCliOutput,
 } from "./GrokProvider.ts";
+import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
 const HOST_PLATFORM: NodeJS.Platform = process.platform;
@@ -313,17 +313,16 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-version-" });
-          const grokPath = yield* Effect.promise(() =>
-            writeFakeScript({
-              directory: dir,
-              name: "grok",
-              platform: HOST_PLATFORM,
-              sh: ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
-              mjs: [`process.stderr.write('${secretStderr}\\n');`, "process.exit(2);", ""].join(
-                "\n",
-              ),
-            }),
-          );
+          const grokPath = writeFakeCli({
+            directory: dir,
+            name: "grok",
+            source: [
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              `process.stderr.write(${JSON.stringify(`${secretStderr}\n`)});`,
+              "process.exit(2);",
+              "",
+            ].join("\n"),
+          });
 
           return yield* checkGrokProviderStatus(
             decodeGrokSettings({ enabled: true, binaryPath: grokPath }),
@@ -339,66 +338,31 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
     }),
   );
 
-  // Single-quotes a path for /bin/sh. Temp dirs and execPath never contain quotes.
-  const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
-
-  // Escapes a path as a JS string literal for the Node stand-in body. Windows
-  // paths carry backslashes, which a bare template would swallow.
-  const jsQuote = (value: string) => `"${value.replaceAll("\\", "\\\\")}"`;
-
-  // A stand-in for the Grok CLI: `--version` and `models` print canned text, and
-  // `agent stdio` runs the mock ACP agent so `initialize` returns model metadata.
-  // Windows cannot execute the extensionless shell script, so it gets the same
-  // behaviour as Node source behind a `.cmd`.
+  // A stand-in for the Grok CLI: `--version` and `models` print canned text,
+  // and `agent stdio` execs the mock ACP agent so `initialize` returns model metadata.
   const writeFakeGrokCli = (input: { readonly modelsOutput: string; readonly acp: boolean }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
       const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-grok-probe-" });
-      const modelsPath = path.join(dir, "models.txt");
-      yield* fs.writeFileString(modelsPath, input.modelsOutput);
-      const mockAgentPath = path.resolve(__dirname, "../../../scripts/acp-mock-agent.ts");
-      return yield* Effect.promise(() =>
-        writeFakeScript({
-          directory: dir,
-          name: "grok",
-          platform: HOST_PLATFORM,
-          sh: [
-            "#!/bin/sh",
-            'case "$1" in',
-            '  --version) printf "grok 1.0.13\\n"; exit 0;;',
-            `  models) cat ${shellQuote(modelsPath)}; exit 0;;`,
-            input.acp
-              ? `  agent) exec ${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)};;`
-              : "  agent) exit 3;;",
-            "esac",
-            "exit 1",
-            "",
-          ].join("\n"),
-          mjs: [
-            'import { spawnSync } from "node:child_process";',
-            'import { readFileSync } from "node:fs";',
-            "",
-            "const [command] = process.argv.slice(2);",
-            'if (command === "--version") {',
-            '  process.stdout.write("grok 1.0.13\\n");',
-            "  process.exit(0);",
-            "}",
-            'if (command === "models") {',
-            `  process.stdout.write(readFileSync(${jsQuote(modelsPath)}, "utf8"));`,
-            "  process.exit(0);",
-            "}",
-            'if (command === "agent") {',
-            input.acp
-              ? `  const result = spawnSync(${jsQuote(process.execPath)}, [${jsQuote(mockAgentPath)}], { stdio: "inherit" });`
-              : "  process.exit(3);",
-            input.acp ? "  process.exit(result.status ?? 1);" : "",
-            "}",
-            "process.exit(1);",
-            "",
-          ].join("\n"),
-        }),
-      );
+      const mockAgentPath = NodePath.resolve(__dirname, "../../../scripts/acp-mock-agent.ts");
+      return writeFakeCli({
+        directory: dir,
+        name: "grok",
+        source: [
+          'if (process.argv[2] === "--version") {',
+          '  process.stdout.write("grok 1.0.13\\n");',
+          "  process.exit(0);",
+          "}",
+          'if (process.argv[2] === "models") {',
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          `  process.stdout.write(${JSON.stringify(input.modelsOutput)});`,
+          "  process.exit(0);",
+          "}",
+          'if (process.argv[2] !== "agent") process.exit(1);',
+          ...(input.acp ? [execScriptSource({ scriptPath: mockAgentPath })] : ["process.exit(3);"]),
+          "",
+        ].join("\n"),
+      });
     });
 
   it.effect("reports ready with ACP-discovered models when logged in", () =>

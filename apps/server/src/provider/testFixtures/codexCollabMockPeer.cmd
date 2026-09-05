@@ -1,6 +1,8 @@
 @echo off
-rem Wrapper so CodexSessionRuntime can spawn the mock peer on Windows, which
-rem cannot execute the .sh sibling. The runtime passes "app-server" first (a
-rem real codex CLI subcommand); the peer ignores argv, so it is forwarded as-is
-rem rather than shifted, which batch cannot do to %*.
-node "%~dp0codexCollabMockPeer.mjs" %*
+rem Wrapper so CodexSessionRuntime can spawn the mock peer on Windows: the
+rem runtime always passes "app-server" as the first argument; drop it and
+rem run the .mjs peer with node. "shift /1" leaves %0 alone so %~dp0 still
+rem names this file's directory.
+shift /1
+node "%~dp0codexCollabMockPeer.mjs" %1 %2 %3 %4 %5 %6 %7 %8 %9
+exit /b %ERRORLEVEL%

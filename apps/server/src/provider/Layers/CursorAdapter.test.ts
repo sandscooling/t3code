@@ -32,9 +32,7 @@ import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { makeCursorAdapter } from "./CursorAdapter.ts";
-
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
+import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CursorAdapter`.
@@ -44,22 +42,24 @@ class CursorAdapter extends Context.Service<CursorAdapter, CursorAdapterShape>()
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
-const mockAgentCommand = "node";
-const mockAgentArgs = [mockAgentPath] as const;
-
+// Stopping a session kills the agent with SIGTERM; Windows terminates the
+// process instead, so the mock never sees a signal to log.
+const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 async function makeMockAgentWrapper(
   extraEnv?: Record<string, string>,
   options?: { initialDelaySeconds?: number },
 ) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-acp-mock-"));
-  return writeFakeExecutable({
+  return writeFakeCli({
     directory: dir,
     name: "fake-agent",
-    platform: HOST_PLATFORM,
-    command: mockAgentCommand,
-    args: mockAgentArgs,
-    env: extraEnv,
-    initialDelaySeconds: options?.initialDelaySeconds,
+    env: extraEnv ?? {},
+    source: execScriptSource({
+      scriptPath: mockAgentPath,
+      ...(options?.initialDelaySeconds === undefined
+        ? {}
+        : { delayMs: Math.round(options.initialDelaySeconds * 1000) }),
+    }),
   });
 }
 
@@ -69,14 +69,11 @@ async function makeProbeWrapper(
   extraEnv?: Record<string, string>,
 ) {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-acp-probe-"));
-  return writeFakeExecutable({
+  return writeFakeCli({
     directory: dir,
     name: "fake-agent",
-    platform: HOST_PLATFORM,
-    command: mockAgentCommand,
-    args: mockAgentArgs,
-    argvLogPath,
     env: { T3_ACP_REQUEST_LOG_PATH: requestLogPath, ...extraEnv },
+    source: execScriptSource({ scriptPath: mockAgentPath, argvLogPath }),
   });
 }
 
@@ -387,7 +384,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
-  it.effect("closes the ACP child process when a session stops", () =>
+  it.effect.skipIf(windowsHost)("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
       // Asserts the agent observed SIGTERM. Windows delivers no JS signal from
       // `process.kill` (it calls TerminateProcess), and the fake cannot `exec`
@@ -425,7 +422,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
-  it.effect(
+  it.effect.skipIf(windowsHost)(
     "serializes concurrent startSession calls for the same thread and closes the replaced ACP session",
     () =>
       Effect.gen(function* () {

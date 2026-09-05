@@ -36,7 +36,7 @@ import { formatTokens } from "@t3tools/shared/usageFormat";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
-import { isGitRepository } from "../../git/Utils.ts";
+import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
@@ -956,6 +956,7 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1018,9 +1019,11 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
-  const resolveThreadShell = Effect.fn("resolveThreadShell")(function* (threadId: ThreadId) {
+  const resolveThreadRuntimeContext = Effect.fn("resolveThreadRuntimeContext")(function* (
+    threadId: ThreadId,
+  ) {
     return yield* projectionSnapshotQuery
-      .getThreadShellById(threadId)
+      .getThreadRuntimeContext(threadId)
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
@@ -1562,7 +1565,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const thread = yield* resolveThreadShell(event.threadId);
+      const thread = yield* resolveThreadRuntimeContext(event.threadId);
       if (!thread) return;
 
       let loadedThreadDetail: OrchestrationThread | null | undefined;
@@ -2017,7 +2020,12 @@ const make = Effect.gen(function* () {
           : undefined;
         const workspaceCwd =
           checkpointContext?.worktreePath ?? checkpointContext?.workspaceRoot ?? undefined;
-        if (turnId && checkpointContext && workspaceCwd && isGitRepository(workspaceCwd)) {
+        if (
+          turnId &&
+          checkpointContext &&
+          workspaceCwd &&
+          (yield* checkpointStore.isGitRepository(workspaceCwd))
+        ) {
           // Skip if a checkpoint already exists for this turn. A real
           // (non-placeholder) capture from CheckpointReactor should not
           // be clobbered, and dispatching a duplicate placeholder for the

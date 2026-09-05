@@ -17,51 +17,25 @@ import * as ServerConfig from "../config.ts";
 import { writeFakeScript } from "../testUtils/fakeExecutable.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeGrokTextGeneration } from "./GrokTextGeneration.ts";
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
-
+import { execScriptSource, writeFakeCli } from "../testUtils/fakeCli.ts";
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../scripts/acp-mock-agent.ts");
 
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
 const GrokTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3code-grok-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
-function makeAcpGrokWrapper(dir: string, env: Record<string, string>): Promise<string> {
-  return writeFakeScript({
+function makeAcpGrokWrapper(dir: string, env: Record<string, string>): string {
+  return writeFakeCli({
     directory: NodePath.join(dir, "bin"),
     name: "grok",
-platform: HOST_PLATFORM,
-    sh: [
-      "#!/bin/sh",
-      ...Object.entries(env).map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`),
-      'if [ "$1" != "agent" ] || [ "$2" != "stdio" ]; then',
-      '  printf "%s\\n" "unexpected args: $*" >&2',
-      "  exit 11",
-      "fi",
-      `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(mockAgentPath)}`,
-      "",
-    ].join("\n"),
-    mjs: [
-      'import { spawnSync } from "node:child_process";',
-      "const args = process.argv.slice(2);",
-      'if (args[0] !== "agent" || args[1] !== "stdio") {',
-      '  process.stderr.write(`unexpected args: ${args.join(" ")}\\n`);',
-      "  process.exit(11);",
-      "}",
-      `const result = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(mockAgentPath)}], {`,
-      '  stdio: "inherit",',
-      `  env: { ...process.env, ...${JSON.stringify(env)} },`,
-      "});",
-      "process.exit(result.status ?? 1);",
-      "",
-    ].join("\n"),
+    env,
+    source: execScriptSource({
+      scriptPath: mockAgentPath,
+      expectedArgs: ["agent", "stdio"],
+    }),
   });
 }
 
@@ -76,7 +50,7 @@ function withFakeAcpGrok<A, E, R>(
         NodeFS.rmSync(tempDir, { recursive: true, force: true });
       }),
     );
-    const binaryPath = yield* Effect.promise(() => makeAcpGrokWrapper(tempDir, env));
+    const binaryPath = makeAcpGrokWrapper(tempDir, env);
     const config = decodeGrokSettings({ binaryPath });
     const textGeneration = yield* makeGrokTextGeneration(config);
     return yield* effectFn(textGeneration);

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  EventId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -146,11 +147,12 @@ it.layer(NodeServices.layer)("settling an orchestrator", (it) => {
             parentThreadId: "thread-orchestrator",
             activities: [
               {
-                id: "activity-1",
-                threadId: ThreadId.make("thread-review"),
+                id: EventId.make("activity-1"),
                 turnId: null,
                 sequence: 1,
                 kind: "approval.requested",
+                tone: "approval",
+                summary: "Approval requested",
                 payload: { requestId: "request-1" },
                 createdAt: NOW,
               },

@@ -158,9 +158,6 @@ it.effect("clones a looked-up repository into the requested destination", () =>
     const parent = yield* fs.makeTempDirectoryScoped({
       prefix: "t3-source-control-clone-parent-",
     });
-    // Joined natively rather than with a literal "/": the service normalises
-    // the destination it is given, so a forward slash comes back as a
-    // backslash on Windows and the comparison below fails on separators alone.
     const destinationPath = path.join(parent, "t3code");
     const cloneCalls: Array<{ cwd: string; args: ReadonlyArray<string> }> = [];
 

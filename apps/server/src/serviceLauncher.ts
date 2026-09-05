@@ -70,13 +70,7 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
-/**
- * Flushes a file's contents to disk. Opened read/write rather than read-only
- * because Windows backs `sync()` with `FlushFileBuffers`, which requires write
- * access on the handle and fails with `EPERM` otherwise; POSIX allows fsync on
- * any open descriptor, so `"r+"` is equivalent there. Every caller has just
- * written the file, so it exists and is writable.
- */
+// Opened read-write: Windows refuses to flush a handle without write access.
 async function syncFile(filePath: string): Promise<void> {
   const handle = await NodeFSP.open(filePath, "r+");
   try {
@@ -86,25 +80,16 @@ async function syncFile(filePath: string): Promise<void> {
   }
 }
 
-/**
- * Flushes a directory entry so a completed rename survives a crash. That is a
- * POSIX guarantee with no Windows equivalent: `FlushFileBuffers` rejects
- * directory handles, so Node surfaces `EPERM` and every state write through
- * here fails. NTFS journals the metadata of a replacing rename anyway, so
- * skipping the flush there loses nothing. Filesystems that cannot flush a
- * directory report `EINVAL`/`ENOTSUP`; treat those the same rather than fail a
- * write that already landed. Any other error is real and propagates.
- */
+// Flushes a directory entry so a rename into it survives power loss. Windows
+// has no directory fsync: the handle opens but sync fails with EPERM, and
+// NTFS journals the rename on its own.
 async function syncDirectory(directory: string): Promise<void> {
   let handle: NodeFSP.FileHandle | undefined;
   try {
     handle = await NodeFSP.open(directory, "r");
     await handle.sync();
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    if (code !== "EPERM" && code !== "EINVAL" && code !== "ENOTSUP" && code !== "EISDIR") {
-      throw error;
-    }
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
   } finally {
     await handle?.close().catch(() => undefined);
   }

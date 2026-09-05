@@ -75,9 +75,10 @@ export default mergeConfig(
       },
     },
     test: {
-      // Resolves the Windows 8.3 short form of TEMP before any test runs. See
-      // the file for why the suite cannot compare paths without it.
-      setupFiles: ["./test/setupWindowsTempPath.ts"],
+      // Appended to the root setup, which mergeConfig concatenates. The
+      // Windows one resolves the 8.3 short form of TEMP before any test runs;
+      // see the file for why the suite cannot compare paths without it.
+      setupFiles: ["./test/setupWindowsTempPath.ts", "./src/testUtils/gitConfig.setup.ts"],
       // The server suite exercises sqlite, git, temp worktrees, and orchestration
       // runtimes heavily. Running files in parallel introduces load-sensitive flakes.
       fileParallelism: false,

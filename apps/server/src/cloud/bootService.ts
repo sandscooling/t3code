@@ -577,22 +577,16 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         yield* fs.makeDirectory(directory, { recursive: true });
         const tempPath = yield* fs.makeTempFileScoped({ directory, prefix: ".service-write-" });
         yield* fs.writeFileString(tempPath, contents, { mode: 0o600 });
-        // Opened read/write rather than read-only: Windows backs `sync` with
-        // FlushFileBuffers, which needs write access on the handle and fails
-        // with EPERM otherwise. POSIX allows fsync on any open descriptor, so
-        // "r+" is equivalent there.
+        // Opened read-write: Windows refuses to flush a handle without write access.
         yield* (yield* fs.open(tempPath, { flag: "r+" })).sync;
         yield* fs.rename(tempPath, filePath);
-        // Flushing the directory entry makes the rename survive a crash. That
-        // is a POSIX guarantee not every filesystem can honour: Windows rejects
-        // directory handles outright, and filesystems that cannot flush one
-        // report EINVAL or ENOTSUP. The rename has already landed by this
-        // point, so a refused flush costs durability rather than correctness
-        // and must not fail the install. Anything else still propagates.
-        yield* Effect.gen(function* () {
-          const handle = yield* fs.open(directory, { flag: "r" });
-          yield* handle.sync;
-        }).pipe(Effect.catchIf(isUnflushableDirectory, () => Effect.void));
+        // Windows has no directory fsync (EPERM); NTFS journals the rename.
+        yield* (yield* fs.open(directory, { flag: "r" })).sync.pipe(
+          Effect.catchIf(
+            (error) => (error.reason.cause as NodeJS.ErrnoException | undefined)?.code === "EPERM",
+            () => Effect.void,
+          ),
+        );
       }),
     ).pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
   const plan: BootServicePlan = {

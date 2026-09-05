@@ -65,15 +65,15 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     const platform = yield* HostProcessPlatform;
     return yield* Effect.acquireRelease(
       Effect.sync(() => NodeFS.openSync(filePath, "r")),
+      // Without a /proc or /dev/fd path to reopen, the reader consumes the fd
+      // itself (autoClose), so on Windows it is already closed here.
       (fd) =>
         Effect.sync(() => {
-          // Windows has no `/proc/self/fd` or `/dev/fd` for `resolveFdPath` to
-          // duplicate through, so `readBootstrapEnvelope` streams this
-          // descriptor directly with `autoClose` and owns it. Closing here
-          // would race that close and surface EBADF as an uncaught exception.
-          // Same reasoning as the helper in bootstrap.test.ts.
-          if (platform === "win32") return;
-          NodeFS.closeSync(fd);
+          try {
+            NodeFS.closeSync(fd);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EBADF") throw error;
+          }
         }),
     );
   });
@@ -295,17 +295,15 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
 
   it.effect("uses bootstrap envelope values as fallbacks when flags and env are absent", () =>
     Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      // resolveBaseDir resolves whatever the envelope carries, which on Windows
-      // turns a rooted POSIX path into a drive-qualified one. Resolving here
-      // keeps the fixture and the derived expectations on the same spelling;
-      // it is a no-op on platforms where the literal is already absolute.
-      const baseDir = NodePath.resolve("/tmp/t3-bootstrap-home");
+      const { join, resolve } = yield* Path.Path;
+      // The resolver absolutises the configured home, so the expectation must
+      // carry the host's drive on Windows.
+      const baseDir = resolve("/tmp/t3-bootstrap-home");
       const fd = yield* openBootstrapFd(
         makeDesktopBootstrap({
           port: 4888,
           host: "127.0.0.2",
-          t3Home: baseDir,
+          t3Home: "/tmp/t3-bootstrap-home",
           noBrowser: true,
           desktopBootstrapToken: "desktop-token",
           desktopTelemetryFd: 4,

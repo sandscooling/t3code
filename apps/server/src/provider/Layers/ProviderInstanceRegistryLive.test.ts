@@ -27,6 +27,7 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Path from "effect/Path";
 import {
   type ClaudeSettings,
   type CodexSettings,
@@ -217,10 +218,10 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
       expect(personalSnapshot.instanceId).toBe(personalId);
       expect(personalSnapshot.driver).toBe(codexDriverKind);
       expect(personalSnapshot.enabled).toBe(false);
+      // The layout resolves the configured home through the host Path.
+      const path = yield* Path.Path;
       expect(personalSnapshot.continuation?.groupKey).toBe(
-        // The drivers resolve homePath to an absolute path, which on Windows
-        // gains a drive letter, so the key is built the same way here.
-        `codex:home:${NodePath.resolve("/home/julius/.codex_personal")}`,
+        `codex:home:${path.resolve("/home/julius/.codex_personal")}`,
       );
 
       const workSnapshot = yield* work!.snapshot.getSnapshot;
@@ -228,7 +229,7 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
       expect(workSnapshot.driver).toBe(codexDriverKind);
       expect(workSnapshot.enabled).toBe(false);
       expect(workSnapshot.continuation?.groupKey).toBe(
-        `codex:home:${NodePath.resolve("/home/julius/.codex")}`,
+        `codex:home:${path.resolve("/home/julius/.codex")}`,
       );
 
       // Nothing goes to the unavailable bucket — both drivers are registered.
@@ -459,7 +460,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       expect(codexSnapshot.driver).toBe(codexDriverKind);
       expect(codexSnapshot.enabled).toBe(false);
       expect(codexSnapshot.continuation?.groupKey).toBe(
-        `codex:home:${NodePath.resolve("/home/julius/.codex")}`,
+        `codex:home:${(yield* Path.Path).resolve("/home/julius/.codex")}`,
       );
 
       const claudeSnapshot = yield* claude!.snapshot.getSnapshot;
@@ -467,7 +468,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       expect(claudeSnapshot.driver).toBe(claudeDriverKind);
       expect(claudeSnapshot.enabled).toBe(false);
       expect(claudeSnapshot.continuation?.groupKey).toBe(
-        `claude:home:${NodePath.resolve("/home/julius/.claude-work")}`,
+        `claude:home:${(yield* Path.Path).resolve("/home/julius/.claude-work")}`,
       );
 
       const cursorSnapshot = yield* cursor!.snapshot.getSnapshot;

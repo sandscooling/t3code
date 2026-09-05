@@ -338,6 +338,91 @@ function resolvePullRequestHeadIdentity(pr: PullRequestInfo): PullRequestHeadIde
   };
 }
 
+export interface BranchHeadSelectorPlanInput {
+  /** The checked-out branch name. */
+  readonly localBranch: string;
+  /** `refs/remotes/<remote>/<branch>` for the tracked upstream, when there is one. */
+  readonly upstreamRef: string | null;
+  /** The remote the branch tracks, or null when it tracks nothing. */
+  readonly remoteName: string | null;
+  /** `owner/repo` for the branch's remote, when the host could name it. */
+  readonly headRepositoryNameWithOwner: string | null;
+  /** Owner login for the branch's remote. */
+  readonly headOwnerLogin: string | null;
+  /** `owner/repo` for `origin`, which is what makes the head a fork or not. */
+  readonly originRepositoryNameWithOwner: string | null;
+}
+
+export interface BranchHeadSelectorPlan {
+  readonly headBranch: string;
+  readonly isCrossRepository: boolean;
+  /** Probed in order; the first selector that returns a matching PR wins. */
+  readonly headSelectors: ReadonlyArray<string>;
+  readonly preferredHeadSelector: string;
+}
+
+/**
+ * Decides which `--head` selectors to probe for a branch, and in what order.
+ *
+ * Split out of the resolver so the ordering is testable without a repository:
+ * every input here is something the resolver reads from git first, and the
+ * decision itself touches nothing. A fork branch must probe `owner:branch`
+ * before the bare branch name, or a same-repo pull request that happens to
+ * share the branch name is adopted instead of the fork's own.
+ */
+export function planBranchHeadSelectors(
+  input: BranchHeadSelectorPlanInput,
+): BranchHeadSelectorPlan {
+  const headBranchFromUpstream = input.upstreamRef
+    ? extractBranchNameFromRemoteRef(input.upstreamRef, { remoteName: input.remoteName })
+    : "";
+  const headBranch = headBranchFromUpstream.length > 0 ? headBranchFromUpstream : input.localBranch;
+  const shouldProbeLocalBranchSelector =
+    headBranchFromUpstream.length === 0 || headBranch === input.localBranch;
+
+  const isCrossRepository =
+    input.headRepositoryNameWithOwner !== null && input.originRepositoryNameWithOwner !== null
+      ? input.headRepositoryNameWithOwner.toLowerCase() !==
+        input.originRepositoryNameWithOwner.toLowerCase()
+      : input.remoteName !== null &&
+        input.remoteName !== "origin" &&
+        input.headRepositoryNameWithOwner !== null;
+
+  const ownerHeadSelector =
+    input.headOwnerLogin && headBranch.length > 0 ? `${input.headOwnerLogin}:${headBranch}` : null;
+  const remoteAliasHeadSelector =
+    input.remoteName && headBranch.length > 0 ? `${input.remoteName}:${headBranch}` : null;
+  const shouldProbeRemoteOwnedSelectors =
+    isCrossRepository || (input.remoteName !== null && input.remoteName !== "origin");
+
+  const headSelectors: string[] = [];
+  if (isCrossRepository && shouldProbeRemoteOwnedSelectors) {
+    appendUnique(headSelectors, ownerHeadSelector);
+    appendUnique(
+      headSelectors,
+      remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
+    );
+  }
+  if (shouldProbeLocalBranchSelector) {
+    appendUnique(headSelectors, input.localBranch);
+  }
+  appendUnique(headSelectors, headBranch !== input.localBranch ? headBranch : null);
+  if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
+    appendUnique(headSelectors, ownerHeadSelector);
+    appendUnique(
+      headSelectors,
+      remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
+    );
+  }
+
+  return {
+    headBranch,
+    isCrossRepository,
+    headSelectors,
+    preferredHeadSelector: ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
+  };
+}
+
 export function matchesBranchHeadContext(
   pr: PullRequestInfo,
   headContext: Pick<
@@ -1287,13 +1372,6 @@ export const make = Effect.gen(function* () {
     const remoteName =
       details.remoteName ??
       (yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`));
-    const headBranchFromUpstream = details.upstreamRef
-      ? extractBranchNameFromRemoteRef(details.upstreamRef, { remoteName })
-      : "";
-    const headBranch = headBranchFromUpstream.length > 0 ? headBranchFromUpstream : details.branch;
-    const shouldProbeLocalBranchSelector =
-      headBranchFromUpstream.length === 0 || headBranch === details.branch;
-
     const [remoteRepository, originRepository] = yield* Effect.all(
       [
         resolveRemoteRepositoryContext(cwd, remoteName),
@@ -1302,50 +1380,22 @@ export const make = Effect.gen(function* () {
       { concurrency: "unbounded" },
     );
 
-    const isCrossRepository =
-      remoteRepository.repositoryNameWithOwner !== null &&
-      originRepository.repositoryNameWithOwner !== null
-        ? remoteRepository.repositoryNameWithOwner.toLowerCase() !==
-          originRepository.repositoryNameWithOwner.toLowerCase()
-        : remoteName !== null &&
-          remoteName !== "origin" &&
-          remoteRepository.repositoryNameWithOwner !== null;
-
-    const ownerHeadSelector =
-      remoteRepository.ownerLogin && headBranch.length > 0
-        ? `${remoteRepository.ownerLogin}:${headBranch}`
-        : null;
-    const remoteAliasHeadSelector =
-      remoteName && headBranch.length > 0 ? `${remoteName}:${headBranch}` : null;
-    const shouldProbeRemoteOwnedSelectors =
-      isCrossRepository || (remoteName !== null && remoteName !== "origin");
-
-    const headSelectors: string[] = [];
-    if (isCrossRepository && shouldProbeRemoteOwnedSelectors) {
-      appendUnique(headSelectors, ownerHeadSelector);
-      appendUnique(
-        headSelectors,
-        remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
-      );
-    }
-    if (shouldProbeLocalBranchSelector) {
-      appendUnique(headSelectors, details.branch);
-    }
-    appendUnique(headSelectors, headBranch !== details.branch ? headBranch : null);
-    if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
-      appendUnique(headSelectors, ownerHeadSelector);
-      appendUnique(
-        headSelectors,
-        remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
-      );
-    }
+    // Every git read is done; the ordering itself is pure. See
+    // planBranchHeadSelectors.
+    const plan = planBranchHeadSelectors({
+      localBranch: details.branch,
+      upstreamRef: details.upstreamRef,
+      remoteName,
+      headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
+      headOwnerLogin: remoteRepository.ownerLogin,
+      originRepositoryNameWithOwner: originRepository.repositoryNameWithOwner,
+    });
 
     return {
       localBranch: details.branch,
-      headBranch,
-      headSelectors,
-      preferredHeadSelector:
-        ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
+      headBranch: plan.headBranch,
+      headSelectors: plan.headSelectors,
+      preferredHeadSelector: plan.preferredHeadSelector,
       remoteName,
       headRemoteUrlKey:
         remoteRepository.remoteUrlKey ??
@@ -1353,7 +1403,7 @@ export const make = Effect.gen(function* () {
       targetRemoteUrlKey: originRepository.remoteUrlKey,
       headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
       headRepositoryOwnerLogin: remoteRepository.ownerLogin,
-      isCrossRepository,
+      isCrossRepository: plan.isCrossRepository,
     } satisfies BranchHeadContext;
   });
 

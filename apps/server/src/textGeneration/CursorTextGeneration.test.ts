@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelSelection } from "@t3tools/shared/model";
 import { expect } from "vite-plus/test";
 
@@ -20,51 +21,25 @@ import * as ServerConfig from "../config.ts";
 import { writeFakeScript } from "../testUtils/fakeExecutable.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeCursorTextGeneration } from "./CursorTextGeneration.ts";
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
-
+import { execScriptSource, writeFakeCli } from "../testUtils/fakeCli.ts";
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../scripts/acp-mock-agent.ts");
 
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
 const CursorTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3code-cursor-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
-function makeAcpAgentWrapper(dir: string, env: Record<string, string>): Promise<string> {
-  return writeFakeScript({
+function makeAcpAgentWrapper(dir: string, env: Record<string, string>): string {
+  return writeFakeCli({
     directory: NodePath.join(dir, "bin"),
     name: "agent",
-platform: HOST_PLATFORM,
-    sh: [
-      "#!/bin/sh",
-      ...Object.entries(env).map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`),
-      'if [ "$1" != "acp" ]; then',
-      '  printf "%s\\n" "unexpected args: $*" >&2',
-      "  exit 11",
-      "fi",
-      `exec node ${JSON.stringify(mockAgentPath)}`,
-      "",
-    ].join("\n"),
-    mjs: [
-      'import { spawnSync } from "node:child_process";',
-      "const args = process.argv.slice(2);",
-      'if (args[0] !== "acp") {',
-      '  process.stderr.write(`unexpected args: ${args.join(" ")}\\n`);',
-      "  process.exit(11);",
-      "}",
-      `const result = spawnSync(process.execPath, [${JSON.stringify(mockAgentPath)}], {`,
-      '  stdio: "inherit",',
-      `  env: { ...process.env, ...${JSON.stringify(env)} },`,
-      "});",
-      "process.exit(result.status ?? 1);",
-      "",
-    ].join("\n"),
+    env,
+    source: execScriptSource({
+      scriptPath: mockAgentPath,
+      expectedArgs: ["acp"],
+    }),
   });
 }
 
@@ -79,7 +54,7 @@ function withFakeAcpAgent<A, E, R>(
         NodeFS.rmSync(tempDir, { recursive: true, force: true });
       }),
     );
-    const agentPath = yield* Effect.promise(() => makeAcpAgentWrapper(tempDir, env));
+    const agentPath = makeAcpAgentWrapper(tempDir, env);
     const config = decodeCursorSettings({ binaryPath: agentPath });
     const textGeneration = yield* makeCursorTextGeneration(config);
     return yield* effectFn(textGeneration);
@@ -250,49 +225,46 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGeneration", (it) => {
     ),
   );
 
-  it.effect("closes the ACP child process after text generation completes", () => {
-    // Windows reaches the agent through a `.cmd`, which `resolveSpawnCommand`
-    // runs under `cmd.exe`, so the agent is a grandchild rather than the direct
-    // child. Nothing in the tree is killed by process id here and there is no
-    // tree kill anywhere in the server, so the agent outlives the close and the
-    // exit log never appears. Real provider CLIs installed from npm are `.cmd`
-    // shims too, so this shape is not an artefact of the fake.
-    if (HOST_PLATFORM === "win32") return Effect.void;
+  // Closing the runtime on Windows is taskkill /F, which never lets the mock
+  // agent reach its exit handler, so there is no exit log to assert on.
+  it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+    "closes the ACP child process after text generation completes",
+    () => {
+      const exitLogDir = NodeFS.mkdtempSync(
+        NodePath.join(NodeOS.tmpdir(), "t3code-cursor-text-exit-log-"),
+      );
+      const exitLogPath = NodePath.join(exitLogDir, "exit.log");
 
-    const exitLogDir = NodeFS.mkdtempSync(
-      NodePath.join(NodeOS.tmpdir(), "t3code-cursor-text-exit-log-"),
-    );
-    const exitLogPath = NodePath.join(exitLogDir, "exit.log");
+      return withFakeAcpAgent(
+        {
+          T3_ACP_EXIT_LOG_PATH: exitLogPath,
+          T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
+            subject: "Close runtime after generation",
+            body: "",
+          }),
+        },
+        (textGeneration) =>
+          Effect.gen(function* () {
+            const generated = yield* textGeneration.generateCommitMessage({
+              cwd: process.cwd(),
+              branch: "feature/cursor-runtime-close",
+              stagedSummary: "M apps/server/src/textGeneration/CursorTextGeneration.ts",
+              stagedPatch:
+                "diff --git a/apps/server/src/textGeneration/CursorTextGeneration.ts b/apps/server/src/textGeneration/CursorTextGeneration.ts",
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("cursor"),
+                model: "composer-2",
+              },
+            });
 
-    return withFakeAcpAgent(
-      {
-        T3_ACP_EXIT_LOG_PATH: exitLogPath,
-        T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
-          subject: "Close runtime after generation",
-          body: "",
-        }),
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateCommitMessage({
-            cwd: process.cwd(),
-            branch: "feature/cursor-runtime-close",
-            stagedSummary: "M apps/server/src/textGeneration/CursorTextGeneration.ts",
-            stagedPatch:
-              "diff --git a/apps/server/src/textGeneration/CursorTextGeneration.ts b/apps/server/src/textGeneration/CursorTextGeneration.ts",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("cursor"),
-              model: "composer-2",
-            },
-          });
+            expect(generated.subject).toBe("Close runtime after generation");
 
-          expect(generated.subject).toBe("Close runtime after generation");
+            const exitLog = yield* waitForFileContent(exitLogPath);
+            expect(exitLog).toContain("exit:0");
 
-          const exitLog = yield* waitForFileContent(exitLogPath);
-          expect(exitLog).toContain("exit:0");
-
-          NodeFS.rmSync(exitLogDir, { recursive: true, force: true });
-        }),
-    );
-  });
+            NodeFS.rmSync(exitLogDir, { recursive: true, force: true });
+          }),
+      );
+    },
+  );
 });
