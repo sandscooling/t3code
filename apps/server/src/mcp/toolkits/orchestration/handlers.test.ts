@@ -14,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/unstable/ai";
 
+import { OrchestrationThreadSettleBlockedError } from "../../../orchestration/Errors.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -94,18 +95,34 @@ class RefusedByTest extends Data.TaggedError("RefusedByTest")<{ readonly message
 function makeHarness(threads: ReadonlyArray<OrchestrationThreadShell>) {
   const dispatched: Array<OrchestrationCommand> = [];
   const failing = new Set<OrchestrationCommand["type"]>();
+  // Command types the decider would refuse as "still needs attention", which
+  // the tools report differently from a generic dispatch failure.
+  const blocking = new Set<OrchestrationCommand["type"]>();
   const engine = {
     dispatch: (command: OrchestrationCommand) =>
-      Effect.suspend(() => {
-        dispatched.push(command);
-        if (failing.has(command.type)) {
-          failing.delete(command.type);
-          return Effect.fail(
-            new RefusedByTest({ message: `dispatch of ${command.type} refused by test` }),
-          );
-        }
-        return Effect.succeed({ sequence: dispatched.length });
-      }),
+      Effect.suspend(
+        (): Effect.Effect<
+          { sequence: number },
+          RefusedByTest | OrchestrationThreadSettleBlockedError
+        > => {
+          dispatched.push(command);
+          if (failing.has(command.type)) {
+            failing.delete(command.type);
+            return Effect.fail(
+              new RefusedByTest({ message: `dispatch of ${command.type} refused by test` }),
+            );
+          }
+          if (blocking.has(command.type)) {
+            blocking.delete(command.type);
+            return Effect.fail(
+              new OrchestrationThreadSettleBlockedError({
+                threadId: (command as { threadId: ThreadId }).threadId,
+              }),
+            );
+          }
+          return Effect.succeed({ sequence: dispatched.length });
+        },
+      ),
   } as unknown as OrchestrationEngineShape;
   const query = {
     getThreadShellById: (threadId: ThreadId) =>
@@ -125,7 +142,7 @@ function makeHarness(threads: ReadonlyArray<OrchestrationThreadShell>) {
     Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, query)),
     Layer.provideMerge(NodeServices.layer),
   );
-  return { dispatched, failing, layer };
+  return { dispatched, failing, blocking, layer };
 }
 
 const callTool = (
@@ -355,6 +372,67 @@ it.effect("wakes a prose-titled session by the threadId session_list reports", (
         type: "thread.turn.start",
         threadId: "thread-prose",
       });
+    }),
+  ),
+);
+
+it.effect("settles a finished session by name and by threadId", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const byName = yield* callTool("session_settle", { name: "T-1234-review" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(byName.isError).toBe(false);
+      expect(byName.structuredContent).toEqual({
+        threadId: "thread-review",
+        name: "T-1234-review",
+      });
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.settle",
+        threadId: "thread-review",
+      });
+      expect(String(harness.dispatched[0]?.commandId)).toMatch(
+        /^server:orchestration-thread-settle:/,
+      );
+
+      const byId = yield* callTool("session_settle", { name: "thread-dev" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(byId.isError).toBe(false);
+      expect(harness.dispatched[1]).toMatchObject({
+        type: "thread.settle",
+        threadId: "thread-dev",
+      });
+    }),
+  ),
+);
+
+it.effect("refuses to settle the caller, which is running by definition", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const result = yield* callTool("session_settle", { name: "orchestrator" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(result.isError).toBe(true);
+      expect(errorText(result)).toContain("settle-blocked");
+      expect(harness.dispatched).toHaveLength(0);
+    }),
+  ),
+);
+
+it.effect("reports the server's settle refusal as settle-blocked, not a dispatch failure", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      harness.blocking.add("thread.settle");
+      const result = yield* callTool("session_settle", { name: "T-1234-dev" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(result.isError).toBe(true);
+      expect(errorText(result)).toContain("settle-blocked");
+      expect(errorText(result)).not.toContain("dispatch-failed");
     }),
   ),
 );

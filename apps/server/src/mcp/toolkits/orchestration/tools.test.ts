@@ -43,4 +43,5 @@ it("marks only session_list as read-only", () => {
   expect(readonly("session_list")).toBe(true);
   expect(readonly("session_spawn")).toBe(false);
   expect(readonly("session_wake")).toBe(false);
+  expect(readonly("session_settle")).toBe(false);
 });

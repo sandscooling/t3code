@@ -52,6 +52,9 @@ export class OrchestrationThreadSettleBlockedError extends Schema.TaggedErrorCla
   }
 }
 
+/** The decider's "this thread still needs attention" refusal of a settle. */
+export const isOrchestrationThreadSettleBlocked = Schema.is(OrchestrationThreadSettleBlockedError);
+
 export const OrchestrationCommandRejection = Schema.Union([
   OrchestrationCommandInvariantError,
   OrchestrationThreadSettleBlockedError,

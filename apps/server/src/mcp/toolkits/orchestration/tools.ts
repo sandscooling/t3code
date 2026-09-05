@@ -2,6 +2,8 @@ import {
   OrchestrationToolError,
   SessionListInput,
   SessionListResult,
+  SessionSettleInput,
+  SessionSettleResult,
   SessionSpawnInput,
   SessionSpawnResult,
   SessionWakeInput,
@@ -63,8 +65,24 @@ export const SessionWakeTool = Tool.make("session_wake", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, true);
 
+export const SessionSettleTool = Tool.make("session_settle", {
+  description:
+    "Settle a finished session in this project by name, or by the threadId session_list reports, clearing it out of the inbox. Any sessions it spawned settle with it. Settling again is harmless. Fails while that session is running, waiting on the user, or holding a queued turn; stop it or answer it first. You cannot settle yourself, because your own turn is running.",
+  parameters: SessionSettleInput,
+  success: SessionSettleResult,
+  failure: OrchestrationToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Settle a session")
+  .annotate(Tool.Readonly, false)
+  // Reversible: the user unsettles the row, and any message re-opens it.
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionListTool,
   SessionWakeTool,
+  SessionSettleTool,
 );

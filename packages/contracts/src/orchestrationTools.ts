@@ -3,8 +3,8 @@ import * as Schema from "effect/Schema";
 import { OrchestrationSessionStatus } from "./orchestration.ts";
 
 /**
- * Contracts for the `session_*` MCP tools an agent uses to start, list, and
- * wake other sessions in its own project. Sessions are real threads, so they
+ * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
+ * and settle other sessions in its own project. Sessions are real threads, so they
  * show in the sidebar, checkpoint on their own, and outlive the turn that
  * created them. What the sessions are for (tickets, roles, review) is the
  * calling agent's business; nothing here knows about it.
@@ -85,12 +85,28 @@ export const SessionWakeResult = Schema.Struct({
 });
 export type SessionWakeResult = typeof SessionWakeResult.Type;
 
+export const SessionSettleInput = Schema.Struct({
+  name: SessionName.annotate({
+    description:
+      "Title of an existing session in this project to settle, or the threadId session_list reports for it. Use the threadId when the title has spaces.",
+  }),
+});
+export type SessionSettleInput = typeof SessionSettleInput.Type;
+
+export const SessionSettleResult = Schema.Struct({
+  threadId: Schema.String,
+  name: Schema.String,
+});
+export type SessionSettleResult = typeof SessionSettleResult.Type;
+
 export const OrchestrationToolErrorReason = Schema.Literals([
   "capability-unavailable",
   "invalid-name",
   "thread-not-found",
   "ambiguous-name",
   "already-exists",
+  /** The target session still needs attention, so the server refused to settle it. */
+  "settle-blocked",
   "dispatch-failed",
 ]);
 export type OrchestrationToolErrorReason = typeof OrchestrationToolErrorReason.Type;

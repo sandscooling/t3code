@@ -1,6 +1,6 @@
 # Agent orchestration
 
-An agent can start, list, and wake other sessions in its own project, so one session can
+An agent can start, list, wake, and settle other sessions in its own project, so one session can
 coordinate a set of workers as real threads rather than hidden subagents. Each worker shows in
 the sidebar, keeps its own history and checkpoints, and outlives the turn that started it.
 
@@ -10,7 +10,7 @@ the tools it was given.
 
 ## The tools
 
-With the setting on, every agent session gets three tools:
+With the setting on, every agent session gets four tools:
 
 - **session_spawn** starts a new session in the same project, titled with the name you give it,
   filed under a group, and kicked off with an opening message. It runs in the project directory
@@ -20,6 +20,11 @@ With the setting on, every agent session gets three tools:
   running process behind it. Archived sessions are not included.
 - **session_wake** sends a message to an existing session by name. If that session's process had
   stopped, this brings it back.
+- **session_settle** settles a finished session by name, clearing it out of the inbox the same way
+  the settle button does, and settling anything that session started. A session that is still
+  running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
+  cannot hide work you still need to see. A session cannot settle itself, because its own turn is
+  running while it asks.
 
 Names and groups use letters, digits, dots, underscores, and hyphens only, so a ticket id such
 as `T-1234` works well as a group and `T-1234-dev` as a name.

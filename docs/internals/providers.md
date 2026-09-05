@@ -97,11 +97,14 @@ credential, no server attached. Each toolkit begins by requiring its capability,
 credential cannot spawn sessions.
 
 The orchestration toolkit ([handlers](../../apps/server/src/mcp/toolkits/orchestration/handlers.ts))
-exposes `session_spawn`, `session_list`, and `session_wake`. They act only within the calling
+exposes `session_spawn`, `session_list`, `session_wake`, and `session_settle`. They act only within the calling
 thread's project, read the projection through `ProjectionSnapshotQuery`, and dispatch ordinary
 commands with `server:orchestration-*` command ids. Spawn is `thread.create` followed by
 `thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.
-Wake is a bare `thread.turn.start`, which respawns a stopped provider process.
+Wake is a bare `thread.turn.start`, which respawns a stopped provider process. Settle is a bare
+`thread.settle`, so the decider keeps sole ownership of settle eligibility; its refusal comes back
+as the distinct `settle-blocked` reason rather than a generic dispatch failure. A caller cannot
+settle itself, because its own turn is running while the tool call is in flight.
 
 A spawned thread records both a `group` and the caller as its `parentThreadId`. The spawner stays
 ungrouped, since one orchestrator drives many tickets, but it is the parent, which is what lets the

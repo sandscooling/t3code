@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { isOrchestrationThreadSettleBlocked } from "../../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -85,6 +86,35 @@ const startTurn = (thread: OrchestrationThreadShell, text: string) =>
         createdAt,
       })
       .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
+  });
+
+/**
+ * Finds the one open sibling a tool was pointed at. A threadId from
+ * session_list is accepted in place of a name. It is unique, so an id hit wins
+ * outright and is never ambiguous, and it is the only handle on a session
+ * whose prose title could never pass the session name pattern.
+ */
+const resolveSession = (
+  siblings: ReadonlyArray<OrchestrationThreadShell>,
+  name: string,
+): Effect.Effect<OrchestrationThreadShell, OrchestrationToolError> =>
+  Effect.gen(function* () {
+    const byId = siblings.find((thread) => thread.id === name);
+    const matches = byId ? [byId] : siblings.filter((thread) => thread.title === name);
+    if (matches.length === 0) {
+      return yield* toolError(
+        "thread-not-found",
+        `no open session has the name or threadId ${name}`,
+      );
+    }
+    const target = matches[0];
+    if (matches.length > 1 || target === undefined) {
+      return yield* toolError(
+        "ambiguous-name",
+        `${matches.length} open sessions are named ${name}; rename all but one`,
+      );
+    }
+    return target;
   });
 
 const requireMessage = (message: string) =>
@@ -176,26 +206,39 @@ const handlers = {
     Effect.gen(function* () {
       yield* requireMessage(input.message);
       const { siblings } = yield* requireScope;
-      // A threadId from session_list is accepted in place of a name. It is
-      // unique, so an id hit wins outright and is never ambiguous, and it is
-      // the only handle on a session whose prose title could never pass the
-      // session name pattern.
-      const byId = siblings.find((thread) => thread.id === input.name);
-      const matches = byId ? [byId] : siblings.filter((thread) => thread.title === input.name);
-      if (matches.length === 0) {
-        return yield* toolError(
-          "thread-not-found",
-          `no open session has the name or threadId ${input.name}`,
-        );
-      }
-      const target = matches[0];
-      if (matches.length > 1 || target === undefined) {
-        return yield* toolError(
-          "ambiguous-name",
-          `${matches.length} open sessions are named ${input.name}; rename all but one`,
-        );
-      }
+      const target = yield* resolveSession(siblings, input.name);
       yield* startTurn(target, input.message);
+      return { threadId: target.id, name: target.title };
+    }),
+
+  session_settle: (input) =>
+    Effect.gen(function* () {
+      const { caller, siblings } = yield* requireScope;
+      const target = yield* resolveSession(siblings, input.name);
+      // The decider refuses to settle a running thread, and the caller is
+      // running by definition while its tool call is in flight. Saying so here
+      // beats a dispatch round trip that can only ever be refused.
+      if (target.id === caller.id) {
+        return yield* toolError(
+          "settle-blocked",
+          "a session cannot settle itself while its own turn is running; ask the user, or have the session that spawned it settle it",
+        );
+      }
+      const engine = yield* OrchestrationEngineService;
+      const commandId = yield* serverCommandId("thread-settle");
+      yield* engine.dispatch({ type: "thread.settle", commandId, threadId: target.id }).pipe(
+        Effect.mapError((error) =>
+          // The server owns settle eligibility, so its refusal is a distinct
+          // answer: the session still needs attention, and a retry after it
+          // stops or is answered will work.
+          isOrchestrationThreadSettleBlocked(error)
+            ? toolError(
+                "settle-blocked",
+                `session ${target.title} is still running, waiting on the user, or holding a queued turn`,
+              )
+            : toolError("dispatch-failed", describe(error)),
+        ),
+      );
       return { threadId: target.id, name: target.title };
     }),
 } satisfies Parameters<typeof OrchestrationToolkit.toLayer>[0];
