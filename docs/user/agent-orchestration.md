@@ -37,8 +37,16 @@ thread you title that way yourself. A single long-lived orchestrator works well 
 
 ## What to expect in the sidebar
 
-Sessions that share a group appear together under a header showing the group name and how many
-of its sessions are live. Each grouped session carries a small dot, green while a process is
+The orchestrator holds everything it started. Its card carries a live count and a chevron:
+click the chevron to show or hide the sessions below it, and the whole nest travels with the
+newest session in it, so work in progress stays near the top of the list. Inside the nest the
+order is the order the orchestrator started them, which reads as the pipeline it is, and it
+holds still while the run proceeds. Sessions that share a group appear together under a header
+showing the group name and how many of its sessions are live, oldest ticket first. Each grouped session carries a small dot, green while a process is
 behind it and muted once it has stopped. Stopping a session with the stop button ends its
 process; it stays in the list and can be woken by the orchestrator or by sending it a message
 yourself.
+
+Settling the orchestrator settles the sessions it started, so one click clears the whole ticket
+from the inbox. A session that is still running, or that is waiting on an answer from you, is
+left where it is rather than hidden.

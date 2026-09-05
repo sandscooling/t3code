@@ -151,12 +151,13 @@ import {
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
-  groupActiveThreadsForSidebar,
+  buildSidebarActiveEntries,
   isSidebarThreadLive,
   sortThreadsForSidebar,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
+  type SidebarGroupEntry,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -780,9 +781,24 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   );
 });
 
+/**
+ * Present only on an orchestrator card: the roster it drives, and the control
+ * that shows or hides that roster.
+ */
+type SidebarRowNest = {
+  readonly expanded: boolean;
+  readonly liveCount: number;
+  readonly threadCount: number;
+  readonly onToggle: () => void;
+};
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
+  // How far the row is nested: 0 top level, 1 under an orchestrator, 2 under
+  // a group inside one. Indentation is the only thing depth changes.
+  depth?: 0 | 1 | 2;
+  nest?: SidebarRowNest | undefined;
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -866,6 +882,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     [thread.environmentId, thread.id],
   );
   const threadKey = scopedThreadKey(threadRef);
+  // One step per level, on the list item rather than the row surface, so the
+  // hover and route highlights still start at the row's own left edge.
+  const nestIndentClassName = props.depth === 2 ? "pl-6" : props.depth === 1 ? "pl-3" : undefined;
   const { leaseLiveStatus, rowRef } = useSidebarRowSubscriptionLease(props.isActive);
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
@@ -1332,6 +1351,41 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <GlobeIcon className={cn("size-3.5", browserStatus.pulse && "animate-status-pulse")} />
     </span>
   ) : null;
+  // The orchestrator's roster control. It reads the same as a group header
+  // (live count, then a chevron) so both kinds of nest open the same way, and
+  // it swallows the click so opening the roster never opens the thread.
+  const nest = props.nest;
+  const nestToggle = nest ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-expanded={nest.expanded}
+            aria-label={nest.expanded ? "Hide spawned sessions" : "Show spawned sessions"}
+            data-testid={`sidebar-nest-toggle-${thread.id}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              nest.onToggle();
+            }}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm bg-transparent text-muted-foreground/60 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        }
+      >
+        <span className="tabular-nums">
+          {nest.liveCount}/{nest.threadCount}
+        </span>
+        <ChevronDownIcon
+          aria-hidden
+          className={cn("size-3 transition-transform", nest.expanded && "rotate-180")}
+        />
+      </TooltipTrigger>
+      <TooltipPopup>
+        {nest.expanded ? "Hide spawned sessions" : "Show spawned sessions"}
+      </TooltipPopup>
+    </Tooltip>
+  ) : null;
   // Grouped rows are a roster, so say whether a process is behind each one.
   const liveDot =
     thread.group != null ? (
@@ -1394,7 +1448,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     return (
       <li
         data-thread-item
-        className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]"
+        className={cn(
+          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]",
+          nestIndentClassName,
+        )}
       >
         <Tooltip>
           <TooltipTrigger
@@ -1560,6 +1617,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]",
         sortable?.isDragging && "z-20 opacity-80",
+        nestIndentClassName,
       )}
     >
       <Tooltip disabled={snoozeMenuOpen}>
@@ -1749,6 +1807,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
+              {nestToggle}
               {terminalStatusIcon}
               {browserStatusIcon}
               {liveDot}
@@ -2373,9 +2432,15 @@ export default function Sidebar() {
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
       activeThreads: sortThreadsForSidebar(active),
-      activeEntries: groupActiveThreadsForSidebar(sortThreadsForSidebar(active), (thread) => ({
+      activeEntries: buildSidebarActiveEntries(sortThreadsForSidebar(active), (thread) => ({
+        id: `${thread.environmentId}:${thread.id}`,
+        // A parent always lives in the same environment as the session it
+        // spawned, so scoping it with the child's environment is exact.
+        parentThreadId:
+          thread.parentThreadId == null ? null : `${thread.environmentId}:${thread.parentThreadId}`,
         group: thread.group ?? null,
         live: isSidebarThreadLive(thread.session),
+        createdAt: thread.createdAt,
       })),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
@@ -4007,6 +4072,8 @@ export default function Sidebar() {
                     thread: EnvironmentThreadShell,
                     section: "pinned" | "active" | "snoozed" | "settled",
                     sortable?: SortablePinnedRowBag,
+                    depth: 0 | 1 | 2 = 0,
+                    nest?: SidebarRowNest,
                   ) => {
                     const threadKey = scopedThreadKey(
                       scopeThreadRef(thread.environmentId, thread.id),
@@ -4028,6 +4095,8 @@ export default function Sidebar() {
                         key={`${threadKey}:${rowVariant}`}
                         thread={thread}
                         variant={rowVariant}
+                        depth={depth}
+                        nest={nest}
                         // Snoozed rows wake, settled rows un-settle, and cards settle.
                         variantAction={
                           section === "snoozed"
@@ -4187,19 +4256,19 @@ export default function Sidebar() {
                       />,
                     );
                   }
-                  for (const entry of activeEntries) {
-                    if (entry.kind === "thread") {
-                      items.push(renderThreadRow(entry.thread, "active"));
-                      continue;
-                    }
-                    // A group header sits where its newest member would
-                    // have; the live count is the roster at a glance.
+                  // A group header sits where its newest member would
+                  // have; the live count is the roster at a glance. Depth 1
+                  // is a ticket inside an orchestrator's nest.
+                  const pushGroupEntry = (
+                    entry: SidebarGroupEntry<EnvironmentThreadShell>,
+                    depth: 0 | 1,
+                  ) => {
                     const expanded = groupCollapsed[entry.group] !== true;
                     items.push(
                       <li
-                        key={`group-header:${entry.group}`}
+                        key={`group-header:${depth}:${entry.group}`}
                         data-thread-selection-safe
-                        className="list-none"
+                        className={cn("list-none", depth === 1 && "pl-3")}
                       >
                         <button
                           type="button"
@@ -4225,10 +4294,40 @@ export default function Sidebar() {
                         </button>
                       </li>,
                     );
-                    if (expanded) {
-                      for (const thread of entry.threads) {
-                        items.push(renderThreadRow(thread, "active"));
+                    if (!expanded) return;
+                    for (const thread of entry.threads) {
+                      items.push(renderThreadRow(thread, "active", undefined, depth === 1 ? 2 : 1));
+                    }
+                  };
+                  for (const entry of activeEntries) {
+                    if (entry.kind === "thread") {
+                      items.push(renderThreadRow(entry.thread, "active"));
+                      continue;
+                    }
+                    if (entry.kind === "group") {
+                      pushGroupEntry(entry, 0);
+                      continue;
+                    }
+                    // The orchestrator keeps its own full card and carries the
+                    // roster it drives, so collapsing the nest never hides the
+                    // row the user actually tracks.
+                    const nestKey = `orchestrator:${entry.key}`;
+                    const nestExpanded = groupCollapsed[nestKey] !== true;
+                    items.push(
+                      renderThreadRow(entry.thread, "active", undefined, 0, {
+                        expanded: nestExpanded,
+                        liveCount: entry.liveCount,
+                        threadCount: entry.threadCount,
+                        onToggle: () => toggleGroupCollapsed(nestKey),
+                      }),
+                    );
+                    if (!nestExpanded) continue;
+                    for (const child of entry.entries) {
+                      if (child.kind === "thread") {
+                        items.push(renderThreadRow(child.thread, "active", undefined, 1));
+                        continue;
                       }
+                      pushGroupEntry(child, 1);
                     }
                   }
                   // Snoozed shelf: between the inbox and Settled — out of the

@@ -639,14 +639,34 @@ export function sortThreadsForSidebar<
   );
 }
 
+export type SidebarThreadEntry<T> = { readonly kind: "thread"; readonly thread: T };
+
+export type SidebarGroupEntry<T> = {
+  readonly kind: "group";
+  readonly group: string;
+  readonly threads: readonly T[];
+  readonly liveCount: number;
+};
+
+/**
+ * A session that spawned others, holding the roster it drives. Nesting stops
+ * here: descendants of a descendant fold into the same orchestrator, so the
+ * sidebar is never deeper than orchestrator, group, session.
+ */
+export type SidebarOrchestratorEntry<T> = {
+  readonly kind: "orchestrator";
+  readonly thread: T;
+  /** Collapse key, the orchestrator's own scoped id. */
+  readonly key: string;
+  readonly entries: ReadonlyArray<SidebarGroupEntry<T> | SidebarThreadEntry<T>>;
+  readonly liveCount: number;
+  readonly threadCount: number;
+};
+
 export type SidebarActiveEntry<T> =
-  | { readonly kind: "thread"; readonly thread: T }
-  | {
-      readonly kind: "group";
-      readonly group: string;
-      readonly threads: readonly T[];
-      readonly liveCount: number;
-    };
+  | SidebarThreadEntry<T>
+  | SidebarGroupEntry<T>
+  | SidebarOrchestratorEntry<T>;
 
 /** A session with a provider process behind it, as opposed to a stopped one. */
 export function isSidebarThreadLive(
@@ -664,8 +684,8 @@ export function isSidebarThreadLive(
 export function groupActiveThreadsForSidebar<T>(
   threads: readonly T[],
   read: (thread: T) => { readonly group: string | null; readonly live: boolean },
-): SidebarActiveEntry<T>[] {
-  const entries: SidebarActiveEntry<T>[] = [];
+): Array<SidebarThreadEntry<T> | SidebarGroupEntry<T>> {
+  const entries: Array<SidebarThreadEntry<T> | SidebarGroupEntry<T>> = [];
   const indexByGroup = new Map<string, number>();
   for (const thread of threads) {
     const { group, live } = read(thread);
@@ -686,6 +706,141 @@ export function groupActiveThreadsForSidebar<T>(
       liveCount: existing.liveCount + (live ? 1 : 0),
     };
   }
+  return entries;
+}
+
+export type SidebarActiveThreadRead = {
+  /** Scoped id: environment plus thread, since the sidebar spans environments. */
+  readonly id: string;
+  /** Scoped id of the session that spawned this one, or null. */
+  readonly parentThreadId: string | null;
+  readonly group: string | null;
+  readonly live: boolean;
+  /** Orders a roster in spawn order; ignored outside a nest. */
+  readonly createdAt: string;
+};
+
+// Resolves the topmost ancestor still present in the list. A parent that has
+// settled or fell outside the project filter is simply absent, and its
+// children become roots of their own rather than disappearing.
+function rootThreadId(id: string, parentById: ReadonlyMap<string, string | null>): string {
+  const seen = new Set<string>([id]);
+  let current = id;
+  for (;;) {
+    const parent = parentById.get(current) ?? null;
+    if (parent === null || !parentById.has(parent) || seen.has(parent)) return current;
+    seen.add(parent);
+    current = parent;
+  }
+}
+
+/**
+ * Folds the active list into the two levels the sidebar renders: an
+ * orchestrator holding the sessions it spawned (themselves folded by group),
+ * and everything else grouped exactly as before. An orchestrator sits where
+ * its newest member would, so a nest whose sessions are working stays at the
+ * top instead of sinking to the driver's own creation slot.
+ */
+export function buildSidebarActiveEntries<T>(
+  threads: readonly T[],
+  read: (thread: T) => SidebarActiveThreadRead,
+): SidebarActiveEntry<T>[] {
+  const info = new Map<string, SidebarActiveThreadRead>();
+  const parentById = new Map<string, string | null>();
+  for (const thread of threads) {
+    const value = read(thread);
+    info.set(value.id, value);
+    parentById.set(value.id, value.parentThreadId);
+  }
+
+  // Only a root with at least one descendant is an orchestrator; a lone
+  // session that happens to have spawned nothing stays an ordinary row.
+  const rootById = new Map<string, string>();
+  const memberCountByRoot = new Map<string, number>();
+  for (const id of parentById.keys()) {
+    const root = rootThreadId(id, parentById);
+    rootById.set(id, root);
+    memberCountByRoot.set(root, (memberCountByRoot.get(root) ?? 0) + 1);
+  }
+
+  const entries: SidebarActiveEntry<T>[] = [];
+  const indexByGroup = new Map<string, number>();
+  const indexByOrchestrator = new Map<string, number>();
+  const membersByOrchestrator = new Map<string, T[]>();
+
+  for (const thread of threads) {
+    const value = read(thread);
+    const root = rootById.get(value.id) ?? value.id;
+    const isNested = (memberCountByRoot.get(root) ?? 0) > 1 && info.has(root);
+    if (isNested) {
+      const members = membersByOrchestrator.get(root);
+      if (members === undefined) {
+        membersByOrchestrator.set(root, [thread]);
+        indexByOrchestrator.set(root, entries.length);
+        // Placeholder; filled once every member is known.
+        entries.push({ kind: "thread", thread });
+      } else {
+        members.push(thread);
+      }
+      continue;
+    }
+    if (value.group === null) {
+      entries.push({ kind: "thread", thread });
+      continue;
+    }
+    const index = indexByGroup.get(value.group);
+    const existing = index === undefined ? undefined : entries[index];
+    if (index === undefined || existing?.kind !== "group") {
+      indexByGroup.set(value.group, entries.length);
+      entries.push({
+        kind: "group",
+        group: value.group,
+        threads: [thread],
+        liveCount: value.live ? 1 : 0,
+      });
+      continue;
+    }
+    entries[index] = {
+      ...existing,
+      threads: [...existing.threads, thread],
+      liveCount: existing.liveCount + (value.live ? 1 : 0),
+    };
+  }
+
+  for (const [root, members] of membersByOrchestrator) {
+    const index = indexByOrchestrator.get(root);
+    if (index === undefined) continue;
+    // The root is always one of its own members, but falling back to the
+    // first member keeps every session on screen even if that ever changes.
+    const driver = members.find((member) => read(member).id === root) ?? members[0];
+    if (driver === undefined) continue;
+    // A roster reads as a pipeline, so it runs in spawn order rather than the
+    // newest-first sort the rest of the list uses. The nest as a whole still
+    // holds its newest member's slot, so working sessions stay near the top;
+    // only the rows inside it hold still while the run proceeds.
+    const children = members
+      .filter((member) => member !== driver)
+      .toSorted((left, right) => {
+        const leftAt = Date.parse(read(left).createdAt);
+        const rightAt = Date.parse(read(right).createdAt);
+        return (
+          (Number.isFinite(leftAt) ? leftAt : 0) - (Number.isFinite(rightAt) ? rightAt : 0) ||
+          read(left).id.localeCompare(read(right).id)
+        );
+      });
+    entries[index] = {
+      kind: "orchestrator",
+      thread: driver,
+      key: root,
+      entries: groupActiveThreadsForSidebar(children, (child) => {
+        const value = read(child);
+        return { group: value.group, live: value.live };
+      }),
+      liveCount: children.filter((child) => read(child).live).length,
+      threadCount: children.length,
+    };
+  }
+
   return entries;
 }
 

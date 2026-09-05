@@ -472,6 +472,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           group_key AS "group",
+          parent_thread_id AS "parentThreadId",
           linked_pull_request_json AS "linkedPullRequest",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
@@ -511,6 +512,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           group_key AS "group",
+          parent_thread_id AS "parentThreadId",
           linked_pull_request_json AS "linkedPullRequest",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
@@ -552,6 +554,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           group_key AS "group",
+          parent_thread_id AS "parentThreadId",
           linked_pull_request_json AS "linkedPullRequest",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
@@ -1015,6 +1018,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           group_key AS "group",
+          parent_thread_id AS "parentThreadId",
           linked_pull_request_json AS "linkedPullRequest",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
@@ -1947,6 +1951,7 @@ pending_approval_requests AS (
                 branch: row.branch,
                 worktreePath: row.worktreePath,
                 group: row.group ?? null,
+                parentThreadId: row.parentThreadId ?? null,
                 ...(row.linkedPullRequest === null
                   ? {}
                   : { linkedPullRequest: row.linkedPullRequest }),
@@ -2161,6 +2166,7 @@ pending_approval_requests AS (
                   branch: row.branch,
                   worktreePath: row.worktreePath,
                   group: row.group ?? null,
+                  parentThreadId: row.parentThreadId ?? null,
                   ...(row.linkedPullRequest === null
                     ? {}
                     : { linkedPullRequest: row.linkedPullRequest }),
@@ -2302,6 +2308,7 @@ pending_approval_requests AS (
                       branch: row.branch,
                       worktreePath: row.worktreePath,
                       group: row.group ?? null,
+                      parentThreadId: row.parentThreadId ?? null,
                       ...(row.linkedPullRequest === null
                         ? {}
                         : { linkedPullRequest: row.linkedPullRequest }),
@@ -2451,6 +2458,7 @@ pending_approval_requests AS (
                 branch: row.branch,
                 worktreePath: row.worktreePath,
                 group: row.group ?? null,
+                parentThreadId: row.parentThreadId ?? null,
                 ...(row.linkedPullRequest === null
                   ? {}
                   : { linkedPullRequest: row.linkedPullRequest }),
@@ -2746,6 +2754,7 @@ pending_approval_requests AS (
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
         group: threadRow.value.group ?? null,
+        parentThreadId: threadRow.value.parentThreadId ?? null,
         ...(threadRow.value.linkedPullRequest === null
           ? {}
           : { linkedPullRequest: threadRow.value.linkedPullRequest }),
@@ -2985,6 +2994,7 @@ pending_approval_requests AS (
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
         group: threadRow.value.group ?? null,
+        parentThreadId: threadRow.value.parentThreadId ?? null,
         ...(threadRow.value.linkedPullRequest === null
           ? {}
           : { linkedPullRequest: threadRow.value.linkedPullRequest }),

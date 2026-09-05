@@ -494,6 +494,10 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // The orchestrator session that spawned this one, so the sidebar can nest a
+  // roster under its driver. Optional so payloads from pre-parent servers
+  // still decode; null on every hand-made thread.
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
@@ -573,6 +577,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // The orchestrator session that spawned this one, so the sidebar can nest a
+  // roster under its driver. Optional so payloads from pre-parent servers
+  // still decode; null on every hand-made thread.
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
@@ -802,6 +810,10 @@ const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // The orchestrator session that spawned this one, so the sidebar can nest a
+  // roster under its driver. Optional so payloads from pre-parent servers
+  // still decode; null on every hand-made thread.
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   createdAt: IsoDateTime,
 });
 
@@ -1274,6 +1286,10 @@ export const ThreadCreatedPayload = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // The orchestrator session that spawned this one, so the sidebar can nest a
+  // roster under its driver. Optional so payloads from pre-parent servers
+  // still decode; null on every hand-made thread.
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

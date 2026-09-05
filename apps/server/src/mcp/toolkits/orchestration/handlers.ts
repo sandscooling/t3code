@@ -106,7 +106,9 @@ const handlers = {
       const engine = yield* OrchestrationEngineService;
 
       // The caller stays out of the group on purpose: one orchestrator drives
-      // many tickets, and groups are the tickets, not the driver.
+      // many tickets, and groups are the tickets, not the driver. It is the
+      // parent instead, which is what lets the sidebar nest each ticket's
+      // group under the session that started it.
       const threadId = ThreadId.make(yield* randomId);
       const createdAt = yield* nowIso;
       yield* engine
@@ -122,6 +124,7 @@ const handlers = {
           branch: null,
           worktreePath: null,
           group: input.group,
+          parentThreadId: caller.id,
           createdAt,
         })
         .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
@@ -131,6 +134,7 @@ const handlers = {
         id: threadId,
         title: input.name,
         group: input.group,
+        parentThreadId: caller.id,
       };
       yield* startTurn(created, input.message).pipe(
         // A thread that never got its first turn is a draft nobody asked for.

@@ -64,6 +64,7 @@ import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
 // an id upstream later reuses would mask upstream's migration silently. Renumber
 // this to (highest upstream id + 1) on every sync that adds upstream migrations.
 import Migration0048 from "./Migrations/048_ProjectionThreadsGroupKey.ts";
+import Migration0049 from "./Migrations/049_ProjectionThreadsParentThreadId.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -124,6 +125,7 @@ export const migrationEntries = [
   [46, "RepairAutomaticSettlementTimestamps", Migration0046],
   [47, "ProjectionProjectIcon", Migration0047],
   [48, "ProjectionThreadsGroupKey", Migration0048],
+  [49, "ProjectionThreadsParentThreadId", Migration0049],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

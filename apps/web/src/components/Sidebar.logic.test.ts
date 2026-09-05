@@ -35,6 +35,7 @@ import {
   pinOrderKeyBetween,
   planPinnedReorder,
   sortPinnedThreadsForSidebar,
+  buildSidebarActiveEntries,
   groupActiveThreadsForSidebar,
   isSidebarThreadLive,
   sortThreadsForSidebar,
@@ -1847,5 +1848,149 @@ describe("sortLogicalProjectsForSidebar", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("buildSidebarActiveEntries", () => {
+  // Spawn order is the creation stamp; tests pass it explicitly so a case
+  // can spawn out of the order it lists rows in.
+  const entry = (input: {
+    id: string;
+    parent?: string | null;
+    group?: string | null;
+    createdAt?: string;
+    status?: "ready" | "running" | "starting" | "stopped" | "error";
+  }) => ({
+    id: input.id,
+    parentThreadId: input.parent ?? null,
+    group: input.group ?? null,
+    createdAt: input.createdAt ?? "2026-01-01T00:00:00.000Z",
+    session: input.status === undefined ? null : { status: input.status },
+  });
+  const read = (thread: ReturnType<typeof entry>) => ({
+    id: thread.id,
+    parentThreadId: thread.parentThreadId,
+    group: thread.group,
+    live: isSidebarThreadLive(thread.session),
+    createdAt: thread.createdAt,
+  });
+
+  it("nests spawned sessions under their orchestrator, grouped by ticket", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "tests", parent: "boss", group: "T-1", createdAt: "2026-01-01T00:02:00.000Z" }),
+        entry({ id: "dev", parent: "boss", group: "T-1", createdAt: "2026-01-01T00:01:00.000Z" }),
+        entry({ id: "loose" }),
+        entry({ id: "boss" }),
+      ],
+      read,
+    );
+    expect(entries.map((item) => item.kind)).toEqual(["orchestrator", "thread"]);
+    const nest = entries[0];
+    expect(nest?.kind).toBe("orchestrator");
+    if (nest?.kind !== "orchestrator") return;
+    expect(nest.thread.id).toBe("boss");
+    expect(nest.threadCount).toBe(2);
+    expect(nest.entries).toHaveLength(1);
+    const group = nest.entries[0];
+    expect(group?.kind).toBe("group");
+    if (group?.kind === "group") {
+      expect(group.group).toBe("T-1");
+      expect(group.threads.map((thread) => thread.id)).toEqual(["dev", "tests"]);
+    }
+  });
+
+  it("runs a roster in spawn order, not the newest-first list order", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "tests", parent: "boss", createdAt: "2026-01-01T00:04:00.000Z" }),
+        entry({ id: "review", parent: "boss", createdAt: "2026-01-01T00:03:00.000Z" }),
+        entry({ id: "dev", parent: "boss", createdAt: "2026-01-01T00:02:00.000Z" }),
+        entry({ id: "create", parent: "boss", createdAt: "2026-01-01T00:01:00.000Z" }),
+        entry({ id: "boss", createdAt: "2026-01-01T00:00:00.000Z" }),
+      ],
+      read,
+    );
+    const nest = entries[0];
+    if (nest?.kind !== "orchestrator") throw new Error("expected an orchestrator entry");
+    expect(
+      nest.entries.map((item) => (item.kind === "thread" ? item.thread.id : item.group)),
+    ).toEqual(["create", "dev", "review", "tests"]);
+  });
+
+  it("orders tickets inside a nest by their first session", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "b-dev", parent: "boss", group: "T-2", createdAt: "2026-01-01T00:03:00.000Z" }),
+        entry({ id: "a-dev", parent: "boss", group: "T-1", createdAt: "2026-01-01T00:01:00.000Z" }),
+        entry({ id: "a-qa", parent: "boss", group: "T-1", createdAt: "2026-01-01T00:02:00.000Z" }),
+        entry({ id: "boss", createdAt: "2026-01-01T00:00:00.000Z" }),
+      ],
+      read,
+    );
+    const nest = entries[0];
+    if (nest?.kind !== "orchestrator") throw new Error("expected an orchestrator entry");
+    expect(
+      nest.entries.map((item) => (item.kind === "group" ? item.group : item.thread.id)),
+    ).toEqual(["T-1", "T-2"]);
+  });
+
+  it("holds the slot of its newest member, not the orchestrator's own", () => {
+    const entries = buildSidebarActiveEntries(
+      [entry({ id: "dev", parent: "boss" }), entry({ id: "loose" }), entry({ id: "boss" })],
+      read,
+    );
+    expect(entries[0]?.kind).toBe("orchestrator");
+    expect(entries[1]?.kind).toBe("thread");
+  });
+
+  it("counts only the roster's live sessions, not the orchestrator's", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "boss", status: "running" }),
+        entry({ id: "a", parent: "boss", status: "ready" }),
+        entry({ id: "b", parent: "boss", status: "stopped" }),
+      ],
+      read,
+    );
+    const nest = entries[0];
+    if (nest?.kind !== "orchestrator") throw new Error("expected an orchestrator entry");
+    expect(nest.liveCount).toBe(1);
+    expect(nest.threadCount).toBe(2);
+  });
+
+  it("folds a grandchild into the same nest rather than a third level", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "boss" }),
+        entry({ id: "dev", parent: "boss" }),
+        entry({ id: "helper", parent: "dev" }),
+      ],
+      read,
+    );
+    const nest = entries[0];
+    if (nest?.kind !== "orchestrator") throw new Error("expected an orchestrator entry");
+    expect(nest.threadCount).toBe(2);
+    expect(nest.entries.every((item) => item.kind === "thread")).toBe(true);
+  });
+
+  it("keeps orphaned sessions visible when their orchestrator is absent", () => {
+    const entries = buildSidebarActiveEntries(
+      [
+        entry({ id: "tests", parent: "gone", group: "T-1" }),
+        entry({ id: "dev", parent: "gone", group: "T-1" }),
+      ],
+      read,
+    );
+    expect(entries.map((item) => item.kind)).toEqual(["group"]);
+    const group = entries[0];
+    if (group?.kind === "group") {
+      expect(group.threads.map((thread) => thread.id)).toEqual(["tests", "dev"]);
+    }
+  });
+
+  it("leaves a session that spawned nothing as an ordinary row", () => {
+    const entries = buildSidebarActiveEntries([entry({ id: "solo" })], read);
+    expect(entries.map((item) => item.kind)).toEqual(["thread"]);
   });
 });

@@ -625,6 +625,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
             group: event.payload.group ?? null,
+            parentThreadId: event.payload.parentThreadId ?? null,
             linkedPullRequest: null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,

@@ -359,6 +359,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           branch: command.branch,
           worktreePath: command.worktreePath,
           group: command.group ?? null,
+          parentThreadId: command.parentThreadId ?? null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -521,6 +522,56 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             updatedAt: occurredAt,
           },
         });
+      }
+      // Settling an orchestrator settles the roster it spawned: the driver is
+      // the only row the user tracks, so leaving its sessions behind in the
+      // inbox is the "one-way door" this cascade closes. Only an explicit
+      // settle cascades; automatic settlement already reaches each child on
+      // its own idle clock. A child that is running, blocked on the user, or
+      // holding a queued turn is left alone rather than hidden.
+      if (command.type === "thread.settle") {
+        for (const child of readModel.threads) {
+          if (child.parentThreadId !== command.threadId) continue;
+          if (child.archivedAt !== null || child.deletedAt !== null) continue;
+          if (child.settledOverride === "settled") continue;
+          if (child.session?.status === "starting" || child.session?.status === "running") continue;
+          if (hasOpenBlockingRequest(child)) continue;
+          if (hasQueuedTurnStartForThread(child, occurredAt)) continue;
+          companionEvents.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: child.id,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.settled" as const,
+            payload: { threadId: child.id, settledAt: occurredAt, updatedAt: occurredAt },
+          });
+          if (child.pinnedAt != null) {
+            companionEvents.push({
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: child.id,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "thread.unpinned" as const,
+              payload: { threadId: child.id, updatedAt: occurredAt },
+            });
+          }
+          if (child.snoozedUntil != null) {
+            companionEvents.push({
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: child.id,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "thread.unsnoozed" as const,
+              payload: { threadId: child.id, reason: "user", updatedAt: occurredAt },
+            });
+          }
+        }
       }
       return companionEvents.length > 0 ? [settledEvent, ...companionEvents] : settledEvent;
     }

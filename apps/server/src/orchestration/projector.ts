@@ -327,6 +327,7 @@ export function projectEvent(
             branch: payload.branch,
             worktreePath: payload.worktreePath,
             group: payload.group ?? null,
+            parentThreadId: payload.parentThreadId ?? null,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
