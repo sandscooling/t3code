@@ -39,7 +39,7 @@ export const SessionSpawnTool = Tool.make("session_spawn", {
 
 export const SessionListTool = Tool.make("session_list", {
   description:
-    "List the open sessions in this project with their threadId, group and live status. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on.",
+    "List the open sessions in this project with their threadId, group and live status. Settled sessions are finished work and are left out, so this is what is still in flight, not the whole roster. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on.",
   parameters: SessionListInput,
   success: SessionListResult,
   failure: OrchestrationToolError,

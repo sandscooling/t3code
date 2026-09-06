@@ -17,7 +17,8 @@ With the setting on, every agent session gets four tools:
   on the current checkout and inherits the calling session's model and permission mode. The name
   must be unique among the project's open sessions.
 - **session_list** lists the project's open sessions with their group and whether each has a
-  running process behind it. Archived sessions are not included.
+  running process behind it. Settled and archived sessions are not included, so a group's list
+  empties as its sessions finish and the agent driving them sees only what is still in flight.
 - **session_wake** sends a message to an existing session by name. If that session's process had
   stopped, this brings it back.
 - **session_settle** settles a finished session by name, clearing it out of the inbox the same way

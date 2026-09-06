@@ -58,6 +58,7 @@ function shell(input: {
   readonly group?: string | null;
   readonly archivedAt?: string | null;
   readonly status?: "running" | "ready" | "stopped";
+  readonly settled?: boolean;
 }): OrchestrationThreadShell {
   return {
     id: ThreadId.make(input.id),
@@ -73,8 +74,8 @@ function shell(input: {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: input.archivedAt ?? null,
-    settledOverride: null,
-    settledAt: null,
+    settledOverride: input.settled === true ? "settled" : null,
+    settledAt: input.settled === true ? "2026-01-03T00:00:00.000Z" : null,
     snoozedUntil: null,
     snoozedAt: null,
     pinnedAt: null,
@@ -372,6 +373,70 @@ it.effect("wakes a prose-titled session by the threadId session_list reports", (
         type: "thread.turn.start",
         threadId: "thread-prose",
       });
+    }),
+  ),
+);
+
+it.effect("leaves settled sessions out of the list, so a group empties as it finishes", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        ...baseThreads,
+        shell({ id: "thread-done", title: "T-1234-tests-2", group: "T-1234", settled: true }),
+      ]);
+      const result = yield* callTool("session_list", { group: "T-1234" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(result.isError).toBe(false);
+      const { sessions } = result.structuredContent as {
+        sessions: ReadonlyArray<{ name: string }>;
+      };
+      // Without this an orchestrator polling its group reads the settled row
+      // as still running and settles it again on every pass.
+      expect(sessions.map((session) => session.name)).toEqual(["T-1234-dev", "T-1234-review"]);
+    }),
+  ),
+);
+
+it.effect("keeps the caller's own row even if the caller is settled", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        shell({ id: "thread-orchestrator", title: "orchestrator", settled: true }),
+        shell({ id: "thread-dev", title: "T-1234-dev", group: "T-1234", settled: true }),
+      ]);
+      const result = yield* callTool("session_list", {}).pipe(Effect.provide(harness.layer));
+      expect(result.structuredContent).toEqual({
+        sessions: [
+          {
+            threadId: "thread-orchestrator",
+            name: "orchestrator",
+            group: null,
+            status: "stopped",
+            self: true,
+          },
+        ],
+      });
+    }),
+  ),
+);
+
+it.effect("says a settled session is holding a name that spawn cannot reuse", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        ...baseThreads,
+        shell({ id: "thread-done", title: "T-1234-docs", group: "T-1234", settled: true }),
+      ]);
+      const result = yield* callTool("session_spawn", {
+        name: "T-1234-docs",
+        group: "T-1234",
+        message: "go",
+      }).pipe(Effect.provide(harness.layer));
+      expect(result.isError).toBe(true);
+      expect(errorText(result)).toContain("already-exists");
+      expect(errorText(result)).toContain("settled session");
+      expect(harness.dispatched).toHaveLength(0);
     }),
   ),
 );

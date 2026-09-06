@@ -127,10 +127,16 @@ const handlers = {
     Effect.gen(function* () {
       yield* requireMessage(input.message);
       const { caller, siblings } = yield* requireScope;
-      if (siblings.some((thread) => thread.title === input.name)) {
+      const clash = siblings.find((thread) => thread.title === input.name);
+      if (clash !== undefined) {
+        // A settled session keeps its name, so say which kind of session is
+        // holding it: session_list no longer shows the settled one, and
+        // "already exists" about an invisible session reads as a bug.
         return yield* toolError(
           "already-exists",
-          `an open session named ${input.name} already exists; use session_wake`,
+          clash.settledOverride === "settled"
+            ? `a settled session named ${input.name} still holds that name; session_wake reopens it, or archive it to free the name`
+            : `an open session named ${input.name} already exists; use session_wake`,
         );
       }
       const engine = yield* OrchestrationEngineService;
@@ -188,6 +194,12 @@ const handlers = {
       const { caller, siblings } = yield* requireScope;
       const group = input?.group;
       const sessions = siblings
+        // A settled session is finished work, out of the user's inbox, and
+        // listing it beside the open ones reads as "still running": an
+        // orchestrator polling its group settles the same sessions again on
+        // every pass. The caller's own row stays regardless, since it is the
+        // only place a session reads its own threadId.
+        .filter((thread) => thread.id === caller.id || thread.settledOverride !== "settled")
         .filter((thread) => group === undefined || thread.group === group)
         .map((thread) => ({
           threadId: thread.id,

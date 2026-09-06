@@ -120,7 +120,9 @@ exposes `session_spawn`, `session_list`, `session_wake`, and `session_settle`. T
 thread's project, read the projection through `ProjectionSnapshotQuery`, and dispatch ordinary
 commands with `server:orchestration-*` command ids. Spawn is `thread.create` followed by
 `thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.
-Wake is a bare `thread.turn.start`, which respawns a stopped provider process. Settle is a bare
+Wake is a bare `thread.turn.start`, which respawns a stopped provider process. `session_list` also hides settled sessions, since a settled row reads as running to an agent
+polling its roster and it settles the same sessions on every pass. They stay reachable by name
+for `session_wake` and still hold their name against `session_spawn`. Settle is a bare
 `thread.settle`, so the decider keeps sole ownership of settle eligibility; its refusal comes back
 as the distinct `settle-blocked` reason rather than a generic dispatch failure. A caller cannot
 settle itself, because its own turn is running while the tool call is in flight.

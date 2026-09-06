@@ -45,7 +45,7 @@ export const SessionListInput = Schema.Struct({
   group: Schema.optional(
     SessionName.annotate({
       description:
-        "Only list sessions in this group. Omit to list every open session in the project.",
+        "Only list sessions in this group. Omit to list every open session in the project. Settled sessions never appear either way.",
     }),
   ),
 });
