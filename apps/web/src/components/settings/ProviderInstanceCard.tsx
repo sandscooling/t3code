@@ -1,10 +1,11 @@
 "use client";
 
+import { Spinner } from "~/components/ui/spinner";
+
 import {
   ArrowUpCircleIcon,
   CopyIcon,
   DownloadIcon,
-  LoaderIcon,
   LockIcon,
   LockOpenIcon,
   PlusIcon,
@@ -739,7 +740,7 @@ export function ProviderInstanceCard({
                     disabled={isUpdating}
                     onClick={onRunUpdate}
                   >
-                    {isUpdating ? <LoaderIcon className="animate-spin" /> : <DownloadIcon />}
+                    {isUpdating ? <Spinner /> : <DownloadIcon />}
                     {isUpdating ? "Updating" : "Update now"}
                   </Button>
                 ) : null}
@@ -800,14 +801,12 @@ export function ProviderInstanceCard({
 
   return (
     <>
-      <SettingsSection
-        title={displayName}
-        description={editorStatusNode}
-        icon={titleIconNode}
-        headerAction={editorHeaderAction}
-      >
+      <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
         <SettingsRow
           title="Display name"
+          status={
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">{editorStatusNode}</div>
+          }
           control={
             <div
               inert={readOnly}

@@ -101,40 +101,6 @@ const McpAuthMiddlewareLive = HttpRouter.middleware<{
   provides: McpInvocationContext.McpInvocationContext;
 }>()(makeMcpAuthMiddleware).layer;
 
-interface PreviewSnapshotErrorDetail {
-  readonly message?: string;
-  readonly remoteTag?: string;
-  readonly remoteDetailKind?: string;
-  readonly tabId?: string;
-  readonly timeoutMs?: number;
-}
-
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0;
-
-/**
- * Bounded diagnostics describing why a snapshot failed.
- *
- * Remote message text and detail payloads stay out on purpose - they carry page
- * content from the browsed site. Everything kept here is either generated
- * locally from the typed error's own fields or one of the structural remote
- * descriptors the contract already exposes for exactly this purpose, so the
- * agent learns which failure it hit without the renderer's strings riding along.
- */
-const previewSnapshotErrorDetail = (error: unknown): PreviewSnapshotErrorDetail => {
-  if (typeof error !== "object" || error === null) return {};
-  const source = error as Record<string, unknown>;
-  return {
-    ...(isNonEmptyString(source.message) ? { message: source.message } : {}),
-    ...(isNonEmptyString(source.remoteTag) ? { remoteTag: source.remoteTag } : {}),
-    ...(isNonEmptyString(source.remoteDetailKind)
-      ? { remoteDetailKind: source.remoteDetailKind }
-      : {}),
-    ...(isNonEmptyString(source.tabId) ? { tabId: source.tabId } : {}),
-    ...(typeof source.timeoutMs === "number" ? { timeoutMs: source.timeoutMs } : {}),
-  };
-};
-
 const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
   if (Cause.hasInterrupts(cause) || cause.reasons.some(Cause.isDieReason)) {
     return Effect.failCause(cause).pipe(Effect.orDie);
@@ -148,7 +114,6 @@ const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
     typeof firstFailure._tag === "string"
       ? firstFailure._tag
       : "PreviewSnapshotError";
-  const detail = previewSnapshotErrorDetail(firstFailure);
   const result = new McpSchema.CallToolResult({
     isError: true,
     structuredContent: {
@@ -156,16 +121,14 @@ const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
         _tag: errorTag,
         operation: "snapshot",
         failureCount: failures.length,
-        ...detail,
       },
     },
-    content: [{ type: "text", text: detail.message ?? "Preview snapshot failed." }],
+    content: [{ type: "text", text: "Preview snapshot failed." }],
   });
   return Effect.logWarning("preview snapshot failed", {
     operation: "snapshot",
     errorTag,
     failureCount: failures.length,
-    ...detail,
   }).pipe(Effect.as(result));
 };
 
@@ -239,7 +202,10 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                     // is worth roughly twice what it looks like. The text block
                     // stays regardless: the spec asks for it alongside
                     // structuredContent for clients that ignore the latter.
-                    ...(requested.has("screenshot")
+                    // Upstream's includeImage answers the image alone, so it
+                    // composes with the section filter rather than replacing it:
+                    // either one dropping the screenshot drops it.
+                    ...(requested.has("screenshot") && payload?.includeImage !== false
                       ? [
                           {
                             type: "image" as const,

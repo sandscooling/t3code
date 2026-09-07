@@ -77,11 +77,12 @@ const handlers = {
     invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
   preview_set_appearance: (input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
-  // `include` is answered on this side, so it is stripped before the call
-  // reaches the desktop. That keeps the IPC payload identical to what every
-  // released host already accepts, which matters because hosts are versioned
-  // independently of the server.
-  preview_snapshot: ({ include: _include, ...target } = {}) =>
+  // Output selection is MCP-only: the browser still produces a complete
+  // snapshot, and both knobs are answered on this side, so they are stripped
+  // before the call reaches the desktop. That keeps the IPC payload identical
+  // to what every released host already accepts, which matters because hosts
+  // are versioned independently of the server.
+  preview_snapshot: ({ include: _include, includeImage: _includeImage, ...target } = {}) =>
     invokeTargeted<PreviewAutomationSnapshot>("snapshot", target),
   preview_click: (input) =>
     invokeTargeted<void>("click", input, input.timeoutMs).pipe(Effect.as({})),

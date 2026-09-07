@@ -18,7 +18,7 @@ interface PendingUserInputPanelProps {
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
-  onDismiss: () => void;
+  onDismiss: (requestId: ApprovalRequestId) => void;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -63,7 +63,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
-  onDismiss: () => void;
+  onDismiss: (requestId: ApprovalRequestId) => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
@@ -96,17 +96,20 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // means "get me out of here", not "keep this question". `defaultPrevented` leaves
   // Escape to whatever already handled it (an open menu, a dialog).
   useEffect(() => {
-    if (isResponding) return;
+    // Escape only dismisses what the close button would: a question the agent
+    // marked dismissible. Anything else still needs an answer.
+    if (isResponding || !prompt.dismissible) return;
+    const requestId = prompt.requestId;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (event.defaultPrevented) return;
       event.preventDefault();
-      onDismissRef.current();
+      onDismissRef.current(requestId);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isResponding]);
+  }, [isResponding, prompt.dismissible, prompt.requestId]);
 
   useEffect(() => {
     if (!activeQuestion || activeQuestion.multiSelect || !optimisticSingleSelect) {
@@ -231,20 +234,28 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             </span>
           ) : null}
           <ComposerBanner.ToggleIcon expanded={!isCollapsed} />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ComposerBanner.Dismiss
-                  className="relative z-10"
-                  onClick={onDismiss}
-                  disabled={isResponding}
-                  aria-label="Dismiss question"
-                  data-pending-user-input-dismiss="true"
-                />
-              }
+          {prompt.dismissible ? (
+            // Sits inside the trigger button, so stop the click from toggling
+            // the disclosure. Dismiss closes the question without a reply.
+            <ComposerBanner.Dismiss
+              render={<span role="button" tabIndex={0} />}
+              aria-label="Dismiss question without answering"
+              title="Dismiss question without answering"
+              disabled={isResponding}
+              data-pending-user-input-dismiss
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onDismiss(prompt.requestId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                onDismiss(prompt.requestId);
+              }}
             />
-            <TooltipPopup side="top">Dismiss question (Esc)</TooltipPopup>
-          </Tooltip>
+          ) : null}
         </ComposerBanner.Actions>
       </ComposerBanner.Row>
       <CollapsiblePanel>

@@ -98,6 +98,7 @@ export function applyThreadDetailEvent(
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
           group: event.payload.group ?? null,
+          branchPullRequest: null,
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -105,6 +106,7 @@ export function applyThreadDetailEvent(
           settledOverride: null,
           settledAt: null,
           unsettledAt: null,
+          activeOrderKey: null,
           snoozedUntil: null,
           snoozedAt: null,
           deletedAt: null,
@@ -144,6 +146,7 @@ export function applyThreadDetailEvent(
           settledOverride: "settled",
           settledAt: event.payload.settledAt,
           unsettledAt: null,
+          activeOrderKey: null,
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -241,6 +244,12 @@ export function applyThreadDetailEvent(
           ...(event.payload.group !== undefined ? { group: event.payload.group } : {}),
           ...(event.payload.linkedPullRequest !== undefined
             ? { linkedPullRequest: event.payload.linkedPullRequest }
+            : {}),
+          ...(event.payload.branchPullRequest !== undefined
+            ? { branchPullRequest: event.payload.branchPullRequest }
+            : {}),
+          ...(event.payload.activeOrderKey !== undefined
+            ? { activeOrderKey: event.payload.activeOrderKey }
             : {}),
           updatedAt: event.payload.updatedAt,
         },
