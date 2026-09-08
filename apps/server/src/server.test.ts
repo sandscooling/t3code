@@ -152,6 +152,7 @@ import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriver from "./vcs/VcsDriver.ts";
+import * as AttentionBus from "./attention/AttentionBus.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -899,7 +900,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.sourceControlRepositoryService,
         }),
       ),
-      Layer.provideMerge(vcsStatusBroadcasterLayer),
+      Layer.provideMerge(Layer.mergeAll(vcsStatusBroadcasterLayer, AttentionBus.layer)),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),

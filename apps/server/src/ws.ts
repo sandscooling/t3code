@@ -121,6 +121,7 @@ import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
+import * as AttentionBus from "./attention/AttentionBus.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
@@ -517,6 +518,7 @@ const makeWsRpcLayer = (
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const attentionBus = yield* AttentionBus.AttentionBus;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -2466,6 +2468,13 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "workspace" },
           ),
+        // Fork-only. Every client attached to this server hears every ping: the
+        // point is to reach whichever surface the user is near, and a ping
+        // names the session that sent it so the client can say who is asking.
+        [WS_METHODS.subscribeAttention]: () =>
+          observeRpcStream(WS_METHODS.subscribeAttention, attentionBus.subscribe(), {
+            "rpc.aggregate": "attention",
+          }),
         [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeVcsStatus,

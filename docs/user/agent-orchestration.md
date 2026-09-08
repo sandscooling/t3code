@@ -1,6 +1,7 @@
 # Agent orchestration
 
-An agent can start, list, wake, and settle other sessions in its own project, so one session can
+An agent can start, list, wake, and settle other sessions in its own project, and ring you when it
+needs you, so one session can
 coordinate a set of workers as real threads rather than hidden subagents. Each worker shows in
 the sidebar, keeps its own history and checkpoints, and outlives the turn that started it.
 
@@ -10,7 +11,7 @@ the tools it was given.
 
 ## The tools
 
-With the setting on, every agent session gets four tools:
+With the setting on, every agent session gets five tools:
 
 - **session_spawn** starts a new session in the same project, titled with the name you give it,
   filed under a group, and kicked off with an opening message. It runs in the project directory
@@ -21,6 +22,11 @@ With the setting on, every agent session gets four tools:
   empties as its sessions finish and the agent driving them sees only what is still in flight.
 - **session_wake** sends a message to an existing session by name. If that session's process had
   stopped, this brings it back.
+- **session_notify** rings you: a sound, a toast, and a desktop notification on every client
+  attached to this server. It is for when an agent needs an answer and you may be away from the
+  screen. The tool reports how many clients heard it, so an agent told nobody was connected can
+  say so instead of waiting. Sub-agents can report to one orchestrator and let that orchestrator
+  do the ringing, which is the difference between this and a hook: a hook fires for every agent.
 - **session_settle** settles a finished session by name, clearing it out of the inbox the same way
   the settle button does, and settling anything that session started. A session that is still
   running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
@@ -56,3 +62,22 @@ yourself.
 Settling the orchestrator settles the sessions it started, so one click clears the whole ticket
 from the inbox. A session that is still running, or that is waiting on an answer from you, is
 left where it is rather than hidden.
+
+## Being rung
+
+**Agent attention alerts** in Settings under Integrations controls this, next to Agent
+orchestration. Turn it off and pings are dropped server side, so an agent cannot ring a
+device you silenced from another one.
+
+**Ping sound** picks the sound a ping plays when the agent does not name one: Chime, Ping,
+Alert, or Knock. Choosing one plays it, and the Play button repeats it. An agent can override
+the choice per call, so an orchestrator can keep Knock for routine questions and Alert for the
+one that blocks a release.
+
+A ping older than two minutes never rings. Clients re-attach their subscription when a
+connection drops, and a sound for a question you answered an hour ago teaches you to ignore
+the sound.
+
+Browsers only allow sound after you have interacted with the page, so a tab you have never
+clicked in may show the toast without the tone. The desktop notification does not depend on
+that, and the Play button in Settings is enough to unblock the tone for the rest of the session.

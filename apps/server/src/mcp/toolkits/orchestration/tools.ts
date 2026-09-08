@@ -1,5 +1,7 @@
 import {
   OrchestrationToolError,
+  SessionNotifyInput,
+  SessionNotifyResult,
   SessionListInput,
   SessionListResult,
   SessionSettleInput,
@@ -12,6 +14,8 @@ import {
 import * as Crypto from "effect/Crypto";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
+import * as AttentionBus from "../../../attention/AttentionBus.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -80,9 +84,25 @@ export const SessionSettleTool = Tool.make("session_settle", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+export const SessionNotifyTool = Tool.make("session_notify", {
+  description:
+    "Ring the user in person: play a sound and raise a notification on every client attached to this server. For when you need an answer and the user may be away from the screen. Say what you need in one line; the message is what they read. Reports how many clients heard it, and zero means nobody was connected. Use it sparingly, since it interrupts a person rather than an agent.",
+  parameters: SessionNotifyInput,
+  success: SessionNotifyResult,
+  failure: OrchestrationToolError,
+  dependencies: [...dependencies, AttentionBus.AttentionBus, ServerSettings.ServerSettingsService],
+})
+  .annotate(Tool.Title, "Notify the user")
+  .annotate(Tool.Readonly, false)
+  // Nothing is written and nothing is undone: it makes a noise.
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, true);
+
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionListTool,
   SessionWakeTool,
   SessionSettleTool,
+  SessionNotifyTool,
 );

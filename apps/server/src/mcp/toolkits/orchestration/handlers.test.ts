@@ -11,10 +11,14 @@ import {
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { McpSchema, McpServer } from "effect/unstable/ai";
 
+import * as AttentionBus from "../../../attention/AttentionBus.ts";
 import { OrchestrationThreadSettleBlockedError } from "../../../orchestration/Errors.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -95,7 +99,13 @@ class RefusedByTest extends Data.TaggedError("RefusedByTest")<{ readonly message
  * Stub engine that records what was dispatched and can be told to fail a
  * given command type once.
  */
-function makeHarness(threads: ReadonlyArray<OrchestrationThreadShell>) {
+function makeHarness(
+  threads: ReadonlyArray<OrchestrationThreadShell>,
+  settings?: {
+    readonly enableAgentAttentionAlerts?: boolean;
+    readonly agentAttentionSound?: "chime" | "ping" | "alert" | "knock";
+  },
+) {
   const dispatched: Array<OrchestrationCommand> = [];
   const failing = new Set<OrchestrationCommand["type"]>();
   // Command types the decider would refuse as "still needs attention", which
@@ -139,10 +149,14 @@ function makeHarness(threads: ReadonlyArray<OrchestrationThreadShell>) {
       }),
   } as unknown as ProjectionSnapshotQueryShape;
 
+  // A real bus rather than a mock: what the tool reports is the listener count,
+  // and only the bus knows it.
   const layer = McpHttpServer.OrchestrationToolkitRegistrationLive.pipe(
     Layer.provideMerge(McpServer.McpServer.layer),
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engine)),
     Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, query)),
+    Layer.provideMerge(AttentionBus.layer),
+    Layer.provideMerge(ServerSettings.layerTest(settings ?? {})),
     Layer.provideMerge(NodeServices.layer),
   );
   return { dispatched, failing, blocking, layer };
@@ -440,6 +454,71 @@ it.effect("says a settled session is holding a name that spawn cannot reuse", ()
       expect(errorText(result)).toContain("settled session");
       expect(harness.dispatched).toHaveLength(0);
     }),
+  ),
+);
+
+it.effect("rings every listener with the user's default sound", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const bus = yield* AttentionBus.AttentionBus;
+      const heard = yield* Effect.forkChild(Stream.runHead(bus.subscribe()));
+      // The subscription attaches asynchronously; publishing before it does
+      // would report a listener count of zero and lose the ping.
+      yield* Effect.yieldNow;
+
+      const result = yield* callTool("session_notify", {
+        message: "Ticket 15.8.5 needs a decision on the migration order",
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toEqual({ delivered: 1, sound: "chime" });
+      const ping = yield* Fiber.join(heard);
+      expect(Option.getOrNull(ping)).toEqual({
+        threadId: "thread-orchestrator",
+        threadTitle: "orchestrator",
+        message: "Ticket 15.8.5 needs a decision on the migration order",
+        sound: "chime",
+        requestedAt: expect.any(String),
+      });
+    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
+  ),
+);
+
+it.effect("lets the caller pick a sound, and reports that nobody heard it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      // No subscriber on purpose: an agent told nobody heard it can say so
+      // instead of assuming the user was rung.
+      const result = yield* callTool("session_notify", { message: "Need you", sound: "alert" });
+      expect(result.structuredContent).toEqual({ delivered: 0, sound: "alert" });
+    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
+  ),
+);
+
+it.effect("drops the ping when the user turned attention alerts off", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const bus = yield* AttentionBus.AttentionBus;
+      const heard = yield* Effect.forkChild(Stream.runHead(bus.subscribe()));
+      yield* Effect.yieldNow;
+
+      const result = yield* callTool("session_notify", { message: "Need you", sound: "alert" });
+
+      // Succeeds rather than fails: a failure reads to an agent as "retry",
+      // and the user's answer is "not wanted", not "try again".
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toEqual({ delivered: 0, sound: "alert" });
+      yield* Fiber.interrupt(heard);
+    }).pipe(Effect.provide(makeHarness(baseThreads, { enableAgentAttentionAlerts: false }).layer)),
+  ),
+);
+
+it.effect("refuses an empty message before it reaches the bus", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const result = yield* callTool("session_notify", { message: "   " }).pipe(Effect.flip);
+      expect(result._tag).toBe("InvalidParams");
+    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
   ),
 );
 

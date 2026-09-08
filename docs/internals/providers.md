@@ -118,7 +118,8 @@ credential, no server attached. Each toolkit begins by requiring its capability,
 credential cannot spawn sessions.
 
 The orchestration toolkit ([handlers](../../apps/server/src/mcp/toolkits/orchestration/handlers.ts))
-exposes `session_spawn`, `session_list`, `session_wake`, and `session_settle`. They act only within the calling
+exposes `session_spawn`, `session_list`, `session_wake`, `session_settle`, and `session_notify`.
+The first four act only within the calling
 thread's project, read the projection through `ProjectionSnapshotQuery`, and dispatch ordinary
 commands with `server:orchestration-*` command ids. Spawn is `thread.create` followed by
 `thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.
@@ -135,3 +136,13 @@ sidebar nest a run under its driver and settle the whole roster at once. For any
 matches `SESSION_NAME_PATTERN` the command reactor passes `peerName` in `ProviderSessionStartInput`;
 the Claude adapter forwards it as `CLAUDE_CODE_SESSION_NAME` on a per-session copy of the
 environment, so the CLI registers under that name across restarts. Other adapters ignore `peerName`.
+
+`session_notify` is the one tool that leaves the orchestration model entirely. It publishes to
+[AttentionBus](../../apps/server/src/attention/AttentionBus.ts), an in-memory PubSub that the
+`subscribeAttention` WebSocket stream fans out to every attached client, and writes nothing. A
+ping is a doorbell rather than history: the reason the agent rang is already in its thread, and
+an event-sourced ping would ring again on the next reconnect replay. Both transports read the
+same bus instance, which is why it is provided in the runtime core layer rather than beside the
+MCP server. Staleness is the client's problem to solve, and
+[shouldRingAttentionPing](../../packages/client-runtime/src/state/attention.ts) is where it is
+solved: same-ping and freshness guards, since the subscription re-attaches on reconnect.

@@ -2,6 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { SettledPreviewReaper } from "./browser/SettledPreviewReaper";
+import { AttentionAlertHost } from "./components/AttentionAlertHost";
 import { PreviewAutomationHosts } from "./components/preview/PreviewAutomationHosts";
 import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
 import { AppAtomRegistryProvider } from "./rpc/atomRegistry";
@@ -20,6 +21,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
       <ElectronBrowserHost />
       <QuitHoldOverlay />
       <SettledPreviewReaper />
+      <AttentionAlertHost />
     </AppAtomRegistryProvider>
   );
 }

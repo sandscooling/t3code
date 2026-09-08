@@ -27,6 +27,7 @@ import * as ElectronMenu from "./electron/ElectronMenu.ts";
 import * as ElectronPowerMonitor from "./electron/ElectronPowerMonitor.ts";
 import * as ElectronProtocol from "./electron/ElectronProtocol.ts";
 import * as ElectronSafeStorage from "./electron/ElectronSafeStorage.ts";
+import * as ElectronNotification from "./electron/ElectronNotification.ts";
 import * as ElectronShell from "./electron/ElectronShell.ts";
 import * as ElectronTheme from "./electron/ElectronTheme.ts";
 import * as ElectronUpdater from "./electron/ElectronUpdater.ts";
@@ -130,6 +131,10 @@ const electronLayer = Layer.mergeAll(
   ElectronUpdater.layer,
   ElectronWindow.layer,
   DesktopIpc.layer(Electron.ipcMain),
+).pipe(
+  // Notifications reveal the window they came from, so this one is built on top
+  // of the window service rather than beside it.
+  Layer.merge(ElectronNotification.layer.pipe(Layer.provide(ElectronWindow.layer))),
 );
 
 const desktopFoundationLayer = Layer.mergeAll(

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  DEFAULT_ATTENTION_SOUND,
   MessageId,
   OrchestrationToolError,
   ThreadId,
@@ -10,6 +11,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import * as AttentionBus from "../../../attention/AttentionBus.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { isOrchestrationThreadSettleBlocked } from "../../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -252,6 +255,40 @@ const handlers = {
         ),
       );
       return { threadId: target.id, name: target.title };
+    }),
+  session_notify: (input) =>
+    Effect.gen(function* () {
+      const { caller } = yield* requireScope;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      // Muting is server-authoritative, like every other agent grant: a user
+      // who silenced pings from one device must not be rung from another. The
+      // call still succeeds, and reports that nobody was reached, because a
+      // failure would read to the agent as "retry" rather than "not wanted".
+      const resolved = yield* settings.getSettings.pipe(
+        Effect.map((value) => ({
+          enabled: value.enableAgentAttentionAlerts,
+          sound: input.sound ?? value.agentAttentionSound,
+        })),
+        Effect.catch((cause) =>
+          Effect.logWarning("could not read settings for an attention ping; ringing anyway", {
+            cause,
+          }).pipe(
+            Effect.as({ enabled: true, sound: input.sound ?? DEFAULT_ATTENTION_SOUND } as const),
+          ),
+        ),
+      );
+      if (!resolved.enabled) {
+        return { delivered: 0, sound: resolved.sound };
+      }
+      const bus = yield* AttentionBus.AttentionBus;
+      const delivered = yield* bus.publish({
+        threadId: caller.id,
+        threadTitle: caller.title,
+        message: input.message,
+        sound: resolved.sound,
+        requestedAt: yield* nowIso,
+      });
+      return { delivered, sound: resolved.sound };
     }),
 } satisfies Parameters<typeof OrchestrationToolkit.toLayer>[0];
 
