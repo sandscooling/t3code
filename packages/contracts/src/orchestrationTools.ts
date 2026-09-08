@@ -111,7 +111,7 @@ export const OrchestrationToolErrorReason = Schema.Literals([
 ]);
 export type OrchestrationToolErrorReason = typeof OrchestrationToolErrorReason.Type;
 
-export class OrchestrationToolError extends Schema.TaggedErrorClass<OrchestrationToolError>()(
+export class OrchestrationToolError extends Schema.TaggedError<OrchestrationToolError>()(
   "OrchestrationToolError",
   {
     reason: OrchestrationToolErrorReason,

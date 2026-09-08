@@ -137,6 +137,10 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
     >
       <div className={cn("relative flex flex-col-reverse", hasStack && stackExpanded && "z-50")}>
         <div
+          // Keyed on the attached banner so a swap replays the entry transition,
+          // which upstream added for the single-banner case. Each pinned banner
+          // carries its own transition inside the column below.
+          key={attachedItem.id}
           className="relative z-10 flex flex-col-reverse"
           onPointerDownCapture={() => {
             setStackExpanded(false);
@@ -177,7 +181,7 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
         {hasStack ? (
           <div
             ref={noticesRef}
-            className={cn("relative z-20", stackExpanded && "min-h-3")}
+            className="relative z-20 min-h-3"
             onPointerEnter={(event) => {
               if (event.pointerType === "touch") return;
               if (document.activeElement === peekRef.current) {
