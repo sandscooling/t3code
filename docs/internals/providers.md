@@ -146,3 +146,11 @@ same bus instance, which is why it is provided in the runtime core layer rather 
 MCP server. Staleness is the client's problem to solve, and
 [shouldRingAttentionPing](../../packages/client-runtime/src/state/attention.ts) is where it is
 solved: same-ping and freshness guards, since the subscription re-attaches on reconnect.
+
+A custom sound file is served through the asset route, as its own `attention-sound` resource
+rather than the existing `media-file` one: that route serves images, video and documents, and
+widening its mime map would widen every other caller with it. The resource carries the path the
+same way `media-file` does and the server refuses anything whose extension is not in the audio
+list, so the boundary is the extension check plus the device and inode identity baked into the
+token. The path lives in server settings rather than client settings, which is what lets a
+phone play a file only the host machine has.
