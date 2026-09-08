@@ -39,7 +39,13 @@ Merged in locally at the pinned commit shown. **Both are now closed upstream wit
 | [#4989](https://github.com/pingdotgg/t3code/pull/4989) | `22a00728c` | **Closed upstream on 2026-08-28 without merging, and kept anyway.** Mermaid diagrams rendered in chat markdown, with pan and zoom. Upstream shipped no rival, so nothing here is duplicated work: `mermaid` is still a fork-only dependency of `apps/web` and `MermaidDiagram.tsx` is still fork-only code.                                                                                                                                                  |
 | [#5114](https://github.com/pingdotgg/t3code/pull/5114) | `b9f2090dd` | **Half of it, and closed upstream.** Its markdown renderer was dropped on 2026-08-22 for upstream's own, below, and the pull request itself was closed without merging. What is still carried is the work log half: a generated or changed image gets its own activity row, and the server keeps the structured `savedPath` so that row still resolves when the human-readable detail is truncated past the path. Nothing upstream replaces it, so it stays. |
 
-Upstream base: `c2cfe59ac` (17 commits past `f8b4c464b`, itself 140 past `94cc8152f`; all merged 2026-09-05).
+Upstream base: `eb1150636` (v0.0.40, merged 2026-09-08). It is 74 commits past `8b2838e0e`, which was 151 past `c2cfe59ac`, itself 17 past `f8b4c464b` and 140 past `94cc8152f`.
+
+**The 2026-09-08 sync took 74 upstream commits and dropped nothing.** Eight conflicted files, one hunk each, and every one of them additive rather than a tie-break. Upstream's new 36px sidebar row size sits next to the fork's nest indent, and upstream's remount key sits on the fork's pinned banner column. The interesting one is question answers: [#9871](https://github.com/pingdotgg/t3code/pull/9871) lets you attach files to an answer and shows those files back in the work log, keyed on a new `user-input.answer-submitted` activity that is only written when attachments exist. The fork's block reads the answer _text_ off `user-input.resolved`, which every answer writes. Two activity kinds, so the two rows never contend, and reading this as a tie-break would have thrown away the half upstream does not cover.
+
+**The toolchain moved under the fork and broke two things the merge could not see.** TypeScript went to 7.0.2 ([#10663](https://github.com/pingdotgg/t3code/pull/10663)) and Effect to rc.112 ([#10652](https://github.com/pingdotgg/t3code/pull/10652)). `Schema.TaggedErrorClass` no longer exists, so the orchestration tool error moved to `Schema.TaggedError`, which is what every upstream error class already used. `McpServerClient` grew `clientCapabilities` and `clientInfo`, so the fork's orchestration handler test had to fill them. Both were typecheck errors, not merge conflicts, which is the argument for running the typecheck across all six workspaces before believing a clean merge.
+
+**No migration moved.** Upstream's highest is still 049, so the fork's 050 and 051 stay where they are and the installed database needs no surgery this time. The only change to `Migrations.ts` was upstream's Knip wave making `migrationEntries` and `makeMigrationLoader` private, which cost the fork nothing.
 
 **The third sync of 2026-09-05 was the cleanest one on record: 17 upstream commits, zero conflicted files, nothing dropped.** It is the first time the dry run came back with an empty conflict list, and the rule fired as written: friction decides, so a clean merge gets taken rather than replayed. What arrived is five mobile timeline fixes (expanded tool groups no longer clip, subagent lifecycle rows fold into one batch per spawn, work rows only expand when the body adds something, the working pill's spacing evens out, and the live tool shimmer comes back with a Thinking row), two web provider header fixes, and image sizing done properly end to end: the server now reports image dimensions with its signed asset URLs, so both web and mobile can size a chat image's frame before its bytes arrive instead of reflowing when they land.
 
@@ -172,9 +178,10 @@ It was merged too, and every conflict in it was additive. Five files and eight h
 ### Windows test suite
 
 Upstream CI runs Ubuntu and macOS only, so the server suite had never been
-green on Windows: it failed 30 files and 116 tests here. It now passes in full.
-Most of that was the suite rather than the product, and those fixes are Windows
-branches that leave the POSIX path untouched.
+green on Windows: it failed 30 files and 116 tests here. The fixes below closed
+all of that. Most of it was the suite rather than the product, and each fix is
+a Windows branch that leaves the POSIX path untouched. New upstream work keeps
+reopening the gap, so see the note below for what is failing today.
 
 | Change                                                                                                                                                                                                                                                                               | Commit                                |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
@@ -185,6 +192,8 @@ branches that leave the POSIX path untouched.
 | Give upstream's new Grok CLI fake the same `.cmd` form. #9154 added `writeFakeGrokCli`, which writes a `#!/bin/sh` script, and four probe tests failed here on the spawn. It now goes through the fork's `writeFakeScript` and supplies the equivalent Node source                   | `11593ecb5`                           |
 | Route the favicon assertions v0.0.33 added through the separator helper `e07ae425a` left in that file, which they were written without                                                                                                                                               | `ed1720e4f`                           |
 | Keep the Claude probe's fake workspace outside the scoped temp directory. The fake CLI stays alive on a timer with that directory as its cwd, so Windows holds a lock the scoped cleanup cannot break, and the whole test failed with EBUSY after every assertion had already passed | `77f147c3e`                           |
+
+**The suite is no longer green on Windows, and none of it is the fork's doing.** Seven upstream provider tests now fail here on a drive letter: `providerMaintenance.test.ts` builds an expected `C:\...` path while the code under test returns the same path without its drive, and `userInputAttachments.test.ts` fails the same way. Neither file has been touched by this fork or by the sync that surfaced them. Three web files under `apps/web/src/terminal/ghostty` stopped loading at all, because the new Vite+ refuses a `.wasm?inline` import without an `assetsInclude` entry; that is a build configuration gap in upstream's own terminal, not a test failure. Everything else passes: 4450 web tests, 1807 server tests, 779 mobile and desktop tests. `ProviderRuntimeIngestion.test.ts` also times out when the server suite runs at full concurrency on this machine and passes alone, so read a timeout there as machine load rather than a defect.
 
 One of these has since gone back to upstream's version. The logs-directory
 assertion in `server.test.ts` was widened here to match either separator;
