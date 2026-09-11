@@ -194,7 +194,10 @@ function makeHarness(
     getShellSnapshot: () =>
       Effect.succeed({
         snapshotSequence: 1,
-        projects: [],
+        projects: [
+          { id: projectId, title: "t3code", workspaceRoot: "C:/source/t3code" },
+          { id: otherProjectId, title: "fleet", workspaceRoot: "C:/source/fleet" },
+        ],
         threads,
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
@@ -270,6 +273,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             threadId: "thread-orchestrator",
             name: "orchestrator",
             group: null,
+            projectId: "project-1",
+            project: "t3code",
             status: "running",
             self: true,
           },
@@ -277,6 +282,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             threadId: "thread-dev",
             name: "T-1234-dev",
             group: "T-1234",
+            projectId: "project-1",
+            project: "t3code",
             status: "ready",
             self: false,
           },
@@ -284,6 +291,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             threadId: "thread-review",
             name: "T-1234-review",
             group: "T-1234",
+            projectId: "project-1",
+            project: "t3code",
             status: "stopped",
             self: false,
           },
@@ -604,6 +613,8 @@ it.effect("keeps the caller's own row even if the caller is settled", () =>
             threadId: "thread-orchestrator",
             name: "orchestrator",
             group: null,
+            projectId: "project-1",
+            project: "t3code",
             status: "stopped",
             self: true,
           },
@@ -759,17 +770,102 @@ it.effect("reports the server's settle refusal as settle-blocked, not a dispatch
   ),
 );
 
-it.effect("does not reach a threadId in another project", () =>
+it.effect("reaches another project's session by threadId, while a name stays in the caller's", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const harness = makeHarness(baseThreads);
-      const missing = yield* callTool("session_wake", {
+      const byId = yield* callTool("session_wake", {
         name: "thread-elsewhere",
         message: "hi",
       }).pipe(Effect.provide(harness.layer));
-      expect(missing.isError).toBe(true);
-      expect(errorText(missing)).toContain("thread-not-found");
-      expect(harness.dispatched).toHaveLength(0);
+      expect(byId.isError).toBe(false);
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.turn.start",
+        threadId: "thread-elsewhere",
+      });
+
+      // Both projects hold a T-1234-dev; a bare name must never pick the other one.
+      const byName = yield* callTool("session_wake", { name: "T-1234-dev", message: "hi" }).pipe(
+        Effect.provide(harness.layer),
+      );
+      expect(byName.structuredContent).toEqual({ threadId: "thread-dev", name: "T-1234-dev" });
     }),
+  ),
+);
+
+it.effect("spawns into another project, checking the name against that project", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const clash = yield* callTool("session_spawn", {
+        name: "T-1234-dev",
+        group: "T-1234",
+        message: "go",
+        project: "fleet",
+      }).pipe(Effect.provide(harness.layer));
+      expect(clash.isError).toBe(true);
+      expect(errorText(clash)).toContain("already-exists");
+      expect(harness.dispatched).toHaveLength(0);
+
+      // Taken in the caller's project, free in fleet, which is named by path here.
+      const spawned = yield* callTool("session_spawn", {
+        name: "T-1234-review",
+        group: "T-1234",
+        message: "go",
+        project: "C:/source/fleet",
+      }).pipe(Effect.provide(harness.layer));
+      expect(spawned.isError).toBe(false);
+      expect(spawned.structuredContent).toMatchObject({ projectId: "project-2" });
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.create",
+        projectId: "project-2",
+        parentThreadId: "thread-orchestrator",
+      });
+
+      const missing = yield* callTool("session_spawn", {
+        name: "T-1234-docs",
+        group: "T-1234",
+        message: "go",
+        project: "nowhere",
+      }).pipe(Effect.provide(harness.layer));
+      expect(missing.isError).toBe(true);
+      expect(errorText(missing)).toContain("project-not-found");
+      expect(errorText(missing)).toContain("t3code, fleet");
+    }),
+  ),
+);
+
+it.effect("lists the projects, then sessions in one other project or in all of them", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const projects = yield* callTool("session_projects", {});
+      expect(projects.structuredContent).toEqual({
+        projects: [
+          { projectId: "project-1", name: "t3code", path: "C:/source/t3code", current: true },
+          { projectId: "project-2", name: "fleet", path: "C:/source/fleet", current: false },
+        ],
+      });
+      const matched = yield* callTool("session_projects", { match: "FLE" });
+      expect(matched.structuredContent).toMatchObject({ projects: [{ projectId: "project-2" }] });
+      expect((matched.structuredContent as { projects: unknown[] }).projects).toHaveLength(1);
+
+      const ids = (result: { readonly structuredContent?: unknown }) =>
+        (
+          result.structuredContent as { sessions: ReadonlyArray<{ threadId: string }> }
+        ).sessions.map((session) => session.threadId);
+      const fleet = yield* callTool("session_list", { project: "fleet" });
+      expect(ids(fleet)).toEqual(["thread-elsewhere"]);
+      expect(fleet.structuredContent).toMatchObject({
+        sessions: [{ projectId: "project-2", project: "fleet", self: false }],
+      });
+
+      const all = yield* callTool("session_list", { project: "*" });
+      expect(ids(all)).toEqual([
+        "thread-orchestrator",
+        "thread-dev",
+        "thread-review",
+        "thread-elsewhere",
+      ]);
+    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
   ),
 );

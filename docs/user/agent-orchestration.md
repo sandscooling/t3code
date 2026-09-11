@@ -1,7 +1,7 @@
 # Agent orchestration
 
-An agent can start, list, wake, and settle other sessions in its own project, and ring you when it
-needs you, so one session can
+An agent can start, list, wake, and settle other sessions in any project on its server, and ring
+you when it needs you, so one session can
 coordinate a set of workers as real threads rather than hidden subagents. Each worker shows in
 the sidebar, keeps its own history and checkpoints, and outlives the turn that started it.
 
@@ -11,34 +11,43 @@ the tools it was given.
 
 ## The tools
 
-With the setting on, every agent session gets six tools:
+With the setting on, every agent session gets seven tools:
 
-- **session_spawn** starts a new session in the same project, titled with the name you give it,
-  filed under a group, and kicked off with an opening message. It runs in the project directory
-  on the current checkout and inherits the calling session's permission mode. It also inherits the
+- **session_spawn** starts a new session, titled with the name you give it, filed under a group,
+  and kicked off with an opening message. It starts in the caller's project unless the agent names
+  another, so one long-lived orchestrator can run work in all of your projects. It runs in that
+  project's directory on its current checkout and inherits the calling session's permission mode. It also inherits the
   caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
-  session. The name must be unique among the project's open sessions.
+  session. The name must be unique among that project's open sessions.
 - **session_models** lists the providers and models a spawned session can use, with each model's
   options such as reasoning effort. Only providers that are enabled and installed appear.
-- **session_list** lists the project's open sessions with their group and whether each has a
-  running process behind it. Settled and archived sessions are not included, so a group's list
-  empties as its sessions finish and the agent driving them sees only what is still in flight.
-- **session_wake** sends a message to an existing session by name. If that session's process had
-  stopped, this brings it back.
+- **session_projects** lists the projects on this server that the other tools can reach.
+- **session_list** lists open sessions with their project, their group, and whether each has a
+  running process behind it: the caller's own project by default, or another project, or all of
+  them. Settled and archived sessions are not included, so a group's list empties as its sessions
+  finish and the agent driving them sees only what is still in flight.
+- **session_wake** sends a message to an existing session. If that session's process had stopped,
+  this brings it back.
 - **session_notify** rings you: a sound, a toast, and a desktop notification on every client
   attached to this server. It is for when an agent needs an answer and you may be away from the
   screen. The tool reports how many clients heard it, so an agent told nobody was connected can
   say so instead of waiting. Sub-agents can report to one orchestrator and let that orchestrator
   do the ringing, which is the difference between this and a hook: a hook fires for every agent.
-- **session_settle** settles a finished session by name, clearing it out of the inbox the same way
-  the settle button does, and settling anything that session started. A session that is still
+- **session_settle** settles a finished session, clearing it out of the inbox the same way the
+  settle button does, and settling anything that session started, in any project. A session that is still
   running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
   cannot hide work you still need to see. A session cannot settle itself, because its own turn is
   running while it asks.
 
 Names and groups use letters, digits, dots, underscores, and hyphens only, so a ticket id such
 as `T-1234` works well as a group and `T-1234-dev` as a name.
+
+A name reaches sessions in the agent's own project only, since two projects can each have a
+session with the same name. Sessions in other projects are reached by the id `session_list`
+reports, and a session learns its own id the same way, which is how a worker in one project
+reports back to an orchestrator in another. A spawned session shows in the sidebar under the
+project it runs in.
 
 ## What stays stable
 

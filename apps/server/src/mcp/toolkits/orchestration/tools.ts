@@ -6,6 +6,8 @@ import {
   SessionListResult,
   SessionModelsInput,
   SessionModelsResult,
+  SessionProjectsInput,
+  SessionProjectsResult,
   SessionSettleInput,
   SessionSettleResult,
   SessionSpawnInput,
@@ -32,7 +34,7 @@ const dependencies = [
 
 export const SessionSpawnTool = Tool.make("session_spawn", {
   description:
-    "Start a new agent session in this project as its own thread, titled `name`, filed under `group`, and kicked off with `message`. The session runs in the project directory on the current checkout and inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Reports what the session runs on. Fails if an open session already has that name.",
+    "Start a new agent session as its own thread, titled `name`, filed under `group`, and kicked off with `message`. It starts in your own project, or in the one `project` names from session_projects. The session runs in that project's directory on its current checkout and inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Reports what the session runs on. Fails if an open session already has that name.",
   parameters: SessionSpawnInput,
   success: SessionSpawnResult,
   failure: OrchestrationToolError,
@@ -58,9 +60,23 @@ export const SessionModelsTool = Tool.make("session_models", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+export const SessionProjectsTool = Tool.make("session_projects", {
+  description:
+    "List the projects on this server that session_spawn and session_list can reach, with their projectId, name and path. The project with `current: true` is the one you run in. Pass a project's name, projectId, or path as `project` to session_spawn or session_list.",
+  parameters: SessionProjectsInput,
+  success: SessionProjectsResult,
+  failure: OrchestrationToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "List projects")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const SessionListTool = Tool.make("session_list", {
   description:
-    "List the open sessions in this project with their threadId, group and live status. Settled sessions are finished work and are left out, so this is what is still in flight, not the whole roster. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on.",
+    "List the open sessions in your own project with their threadId, group, project and live status, or pass `project` to list another project, or `*` for all of them. Settled sessions are finished work and are left out, so this is what is still in flight, not the whole roster. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on, from any project.",
   parameters: SessionListInput,
   success: SessionListResult,
   failure: OrchestrationToolError,
@@ -74,7 +90,7 @@ export const SessionListTool = Tool.make("session_list", {
 
 export const SessionWakeTool = Tool.make("session_wake", {
   description:
-    "Send a message to an existing session in this project by name, or by the threadId session_list reports, starting a turn on it. A stopped session gets its provider process back under the same name. Use the threadId to reach a session whose title has spaces. Fails if no open session matches, or more than one shares that name.",
+    "Send a message to an existing session, starting a turn on it: by name in your own project, or by the threadId session_list reports in any project. A stopped session gets its provider process back under the same name. Use the threadId for a session in another project, or one whose title has spaces. Fails if no open session matches, or more than one shares that name.",
   parameters: SessionWakeInput,
   success: SessionWakeResult,
   failure: OrchestrationToolError,
@@ -88,7 +104,7 @@ export const SessionWakeTool = Tool.make("session_wake", {
 
 export const SessionSettleTool = Tool.make("session_settle", {
   description:
-    "Settle a finished session in this project by name, or by the threadId session_list reports, clearing it out of the inbox. Any sessions it spawned settle with it. Settling again is harmless. Fails while that session is running, waiting on the user, or holding a queued turn; stop it or answer it first. You cannot settle yourself, because your own turn is running.",
+    "Settle a finished session, clearing it out of the inbox: by name in your own project, or by the threadId session_list reports in any project. Any sessions it spawned settle with it. Settling again is harmless. Fails while that session is running, waiting on the user, or holding a queued turn; stop it or answer it first. You cannot settle yourself, because your own turn is running.",
   parameters: SessionSettleInput,
   success: SessionSettleResult,
   failure: OrchestrationToolError,
@@ -119,6 +135,7 @@ export const SessionNotifyTool = Tool.make("session_notify", {
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionModelsTool,
+  SessionProjectsTool,
   SessionListTool,
   SessionWakeTool,
   SessionSettleTool,

@@ -1,4 +1,5 @@
 import {
+  ALL_PROJECTS,
   CommandId,
   DEFAULT_ATTENTION_SOUND,
   isProviderAvailable,
@@ -6,6 +7,7 @@ import {
   OrchestrationToolError,
   ThreadId,
   type ModelSelection,
+  type OrchestrationProjectShell,
   type OrchestrationThreadShell,
   type ProviderOptionDescriptor,
   type ServerProvider,
@@ -40,10 +42,10 @@ const describe = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
- * Resolves who is calling and which sessions they can see: every open thread
- * in the caller's own project. A tool never reaches across projects, and
- * archived threads are invisible to it, so a name freed by archiving can be
- * reused.
+ * Resolves who is calling and what the tools can reach: every project on this
+ * server and every open thread in them, so one orchestrator can drive work
+ * across projects. Archived threads are invisible, so a name freed by
+ * archiving can be reused.
  */
 const requireScope = Effect.gen(function* () {
   const invocation = yield* McpInvocationContext.requireMcpCapability("orchestration").pipe(
@@ -59,11 +61,35 @@ const requireScope = Effect.gen(function* () {
   const snapshot = yield* query
     .getShellSnapshot()
     .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
-  const siblings = snapshot.threads.filter(
-    (thread) => thread.projectId === caller.value.projectId && thread.archivedAt == null,
-  );
-  return { caller: caller.value, siblings };
+  const threads = snapshot.threads.filter((thread) => thread.archivedAt == null);
+  return { caller: caller.value, threads, projects: snapshot.projects };
 });
+
+/** Finds a project by the projectId, name, or path session_projects reports. */
+const resolveProject = (
+  projects: ReadonlyArray<OrchestrationProjectShell>,
+  ref: string,
+): Effect.Effect<OrchestrationProjectShell, OrchestrationToolError> =>
+  Effect.gen(function* () {
+    const byId = projects.find((project) => project.id === ref);
+    const matches = byId
+      ? [byId]
+      : projects.filter((project) => project.title === ref || project.workspaceRoot === ref);
+    const target = matches[0];
+    if (target === undefined) {
+      return yield* toolError(
+        "project-not-found",
+        `no project is named ${ref}; session_projects lists ${projects.map((project) => project.title).join(", ")}`,
+      );
+    }
+    if (matches.length > 1) {
+      return yield* toolError(
+        "ambiguous-name",
+        `${matches.length} projects are named ${ref}; pass the projectId from session_projects`,
+      );
+    }
+    return target;
+  });
 
 const serverCommandId = (tag: string) =>
   Effect.gen(function* () {
@@ -104,22 +130,27 @@ const startTurn = (thread: OrchestrationThreadShell, text: string) =>
   });
 
 /**
- * Finds the one open sibling a tool was pointed at. A threadId from
- * session_list is accepted in place of a name. It is unique, so an id hit wins
- * outright and is never ambiguous, and it is the only handle on a session
- * whose prose title could never pass the session name pattern.
+ * Finds the one open session a tool was pointed at. A threadId from
+ * session_list reaches any project. It is unique, so an id hit wins outright
+ * and is never ambiguous, and it is the only handle on a session whose prose
+ * title could never pass the session name pattern. A name only resolves in
+ * the caller's own project: names are unique per project, so the same name in
+ * another project must never be the one a bare name picks.
  */
 const resolveSession = (
-  siblings: ReadonlyArray<OrchestrationThreadShell>,
+  threads: ReadonlyArray<OrchestrationThreadShell>,
+  caller: OrchestrationThreadShell,
   name: string,
 ): Effect.Effect<OrchestrationThreadShell, OrchestrationToolError> =>
   Effect.gen(function* () {
-    const byId = siblings.find((thread) => thread.id === name);
-    const matches = byId ? [byId] : siblings.filter((thread) => thread.title === name);
+    const byId = threads.find((thread) => thread.id === name);
+    const matches = byId
+      ? [byId]
+      : threads.filter((thread) => thread.projectId === caller.projectId && thread.title === name);
     if (matches.length === 0) {
       return yield* toolError(
         "thread-not-found",
-        `no open session has the name or threadId ${name}`,
+        `no open session has the threadId ${name}, and none in your project has that name`,
       );
     }
     const target = matches[0];
@@ -244,8 +275,14 @@ const handlers = {
   session_spawn: (input) =>
     Effect.gen(function* () {
       yield* requireMessage(input.message);
-      const { caller, siblings } = yield* requireScope;
-      const clash = siblings.find((thread) => thread.title === input.name);
+      const { caller, threads, projects } = yield* requireScope;
+      const projectId =
+        input.project === undefined
+          ? caller.projectId
+          : (yield* resolveProject(projects, input.project)).id;
+      const clash = threads.find(
+        (thread) => thread.projectId === projectId && thread.title === input.name,
+      );
       if (clash !== undefined) {
         // A settled session keeps its name, so say which kind of session is
         // holding it: session_list no longer shows the settled one, and
@@ -271,7 +308,7 @@ const handlers = {
           type: "thread.create",
           commandId: yield* serverCommandId("thread-create"),
           threadId,
-          projectId: caller.projectId,
+          projectId,
           title: input.name,
           modelSelection,
           runtimeMode: caller.runtimeMode,
@@ -287,6 +324,7 @@ const handlers = {
       const created: OrchestrationThreadShell = {
         ...caller,
         id: threadId,
+        projectId,
         title: input.name,
         modelSelection,
         group: input.group,
@@ -310,6 +348,7 @@ const handlers = {
         threadId,
         name: input.name,
         group: input.group,
+        projectId,
         instanceId: modelSelection.instanceId,
         model: modelSelection.model,
         options: modelSelection.options ?? [],
@@ -342,11 +381,43 @@ const handlers = {
       };
     }),
 
+  session_projects: (input) =>
+    Effect.gen(function* () {
+      const { caller, projects } = yield* requireScope;
+      const match = input?.match?.toLowerCase();
+      return {
+        projects: projects
+          .filter(
+            (project) =>
+              match === undefined ||
+              project.title.toLowerCase().includes(match) ||
+              project.workspaceRoot.toLowerCase().includes(match),
+          )
+          .map((project) => ({
+            projectId: project.id,
+            name: project.title,
+            path: project.workspaceRoot,
+            current: project.id === caller.projectId,
+          })),
+      };
+    }),
+
   session_list: (input) =>
     Effect.gen(function* () {
-      const { caller, siblings } = yield* requireScope;
+      const { caller, threads, projects } = yield* requireScope;
       const group = input?.group;
-      const sessions = siblings
+      const scope = input?.project;
+      // Own project by default: an orchestrator polling its group should not
+      // pay for every other project's roster unless it asks for one.
+      const projectId =
+        scope === undefined
+          ? caller.projectId
+          : scope === ALL_PROJECTS
+            ? null
+            : (yield* resolveProject(projects, scope)).id;
+      const projectNames = new Map(projects.map((project) => [project.id, project.title]));
+      const sessions = threads
+        .filter((thread) => projectId === null || thread.projectId === projectId)
         // A settled session is finished work, out of the user's inbox, and
         // listing it beside the open ones reads as "still running": an
         // orchestrator polling its group settles the same sessions again on
@@ -358,6 +429,8 @@ const handlers = {
           threadId: thread.id,
           name: thread.title,
           group: thread.group ?? null,
+          projectId: thread.projectId,
+          project: projectNames.get(thread.projectId) ?? thread.projectId,
           status: thread.session?.status ?? ("stopped" as const),
           // Marks the caller's own row, which is the only way a session learns
           // its own threadId and can therefore hand another session a reply
@@ -370,16 +443,16 @@ const handlers = {
   session_wake: (input) =>
     Effect.gen(function* () {
       yield* requireMessage(input.message);
-      const { siblings } = yield* requireScope;
-      const target = yield* resolveSession(siblings, input.name);
+      const { caller, threads } = yield* requireScope;
+      const target = yield* resolveSession(threads, caller, input.name);
       yield* startTurn(target, input.message);
       return { threadId: target.id, name: target.title };
     }),
 
   session_settle: (input) =>
     Effect.gen(function* () {
-      const { caller, siblings } = yield* requireScope;
-      const target = yield* resolveSession(siblings, input.name);
+      const { caller, threads } = yield* requireScope;
+      const target = yield* resolveSession(threads, caller, input.name);
       // The decider refuses to settle a running thread, and the caller is
       // running by definition while its tool call is in flight. Saying so here
       // beats a dispatch round trip that can only ever be refused.

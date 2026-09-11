@@ -118,13 +118,20 @@ credential, no server attached. Each toolkit begins by requiring its capability,
 credential cannot spawn sessions.
 
 The orchestration toolkit ([handlers](../../apps/server/src/mcp/toolkits/orchestration/handlers.ts))
-exposes `session_spawn`, `session_models`, `session_list`, `session_wake`, `session_settle`, and
-`session_notify`. Spawn copies the caller's `modelSelection` unless it is given a provider, model,
-or options, and those are checked against `ProviderRegistry` before `thread.create`: nothing
-downstream validates a selection, so a bad slug would otherwise surface only as a provider failure
-on a thread that already exists. The session tools act only within the calling
-thread's project, read the projection through `ProjectionSnapshotQuery`, and dispatch ordinary
-commands with `server:orchestration-*` command ids. Spawn is `thread.create` followed by
+exposes `session_spawn`, `session_models`, `session_projects`, `session_list`, `session_wake`,
+`session_settle`, and `session_notify`. Spawn copies the caller's `modelSelection` unless it is
+given a provider, model, or options, and those are checked against `ProviderRegistry` before
+`thread.create`: nothing downstream validates a selection, so a bad slug would otherwise surface
+only as a provider failure on a thread that already exists. The session tools read the projection
+through `ProjectionSnapshotQuery` and dispatch ordinary commands with `server:orchestration-*`
+command ids.
+
+They reach every project on the server, so one orchestrator can drive several, but a bare name
+resolves only in the caller's own project and anything further is addressed by threadId. Names are
+unique per project, not per server, and the Claude peer registry is machine-wide, so the same
+name can exist in two projects; a threadId is the only address that cannot pick the wrong one.
+`session_list` defaults to the caller's project for the same reason it hides settled rows: an
+orchestrator polls it. Spawn is `thread.create` followed by
 `thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.
 Wake is a bare `thread.turn.start`, which respawns a stopped provider process. `session_list` also hides settled sessions, since a settled row reads as running to an agent
 polling its roster and it settles the same sessions on every pass. They stay reachable by name
