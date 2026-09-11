@@ -118,8 +118,11 @@ credential, no server attached. Each toolkit begins by requiring its capability,
 credential cannot spawn sessions.
 
 The orchestration toolkit ([handlers](../../apps/server/src/mcp/toolkits/orchestration/handlers.ts))
-exposes `session_spawn`, `session_list`, `session_wake`, `session_settle`, and `session_notify`.
-The first four act only within the calling
+exposes `session_spawn`, `session_models`, `session_list`, `session_wake`, `session_settle`, and
+`session_notify`. Spawn copies the caller's `modelSelection` unless it is given a provider, model,
+or options, and those are checked against `ProviderRegistry` before `thread.create`: nothing
+downstream validates a selection, so a bad slug would otherwise surface only as a provider failure
+on a thread that already exists. The session tools act only within the calling
 thread's project, read the projection through `ProjectionSnapshotQuery`, and dispatch ordinary
 commands with `server:orchestration-*` command ids. Spawn is `thread.create` followed by
 `thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.

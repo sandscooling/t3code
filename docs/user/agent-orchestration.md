@@ -11,12 +11,16 @@ the tools it was given.
 
 ## The tools
 
-With the setting on, every agent session gets five tools:
+With the setting on, every agent session gets six tools:
 
 - **session_spawn** starts a new session in the same project, titled with the name you give it,
   filed under a group, and kicked off with an opening message. It runs in the project directory
-  on the current checkout and inherits the calling session's model and permission mode. The name
-  must be unique among the project's open sessions.
+  on the current checkout and inherits the calling session's permission mode. It also inherits the
+  caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
+  can run one prompt on several models side by side, or hand a review to Codex from a Claude
+  session. The name must be unique among the project's open sessions.
+- **session_models** lists the providers and models a spawned session can use, with each model's
+  options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_list** lists the project's open sessions with their group and whether each has a
   running process behind it. Settled and archived sessions are not included, so a group's list
   empties as its sessions finish and the agent driving them sees only what is still in flight.

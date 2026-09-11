@@ -4,6 +4,8 @@ import {
   SessionNotifyResult,
   SessionListInput,
   SessionListResult,
+  SessionModelsInput,
+  SessionModelsResult,
   SessionSettleInput,
   SessionSettleResult,
   SessionSpawnInput,
@@ -18,6 +20,7 @@ import * as AttentionBus from "../../../attention/AttentionBus.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderRegistry } from "../../../provider/Services/ProviderRegistry.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const dependencies = [
@@ -29,17 +32,31 @@ const dependencies = [
 
 export const SessionSpawnTool = Tool.make("session_spawn", {
   description:
-    "Start a new agent session in this project as its own thread, titled `name`, filed under `group`, and kicked off with `message`. The session runs in the project directory on the current checkout and inherits this session's model and permission mode. Fails if an open session already has that name.",
+    "Start a new agent session in this project as its own thread, titled `name`, filed under `group`, and kicked off with `message`. The session runs in the project directory on the current checkout and inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Reports what the session runs on. Fails if an open session already has that name.",
   parameters: SessionSpawnInput,
   success: SessionSpawnResult,
   failure: OrchestrationToolError,
-  dependencies,
+  dependencies: [...dependencies, ProviderRegistry],
 })
   .annotate(Tool.Title, "Spawn a session")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, true);
+
+export const SessionModelsTool = Tool.make("session_models", {
+  description:
+    "List the providers and models session_spawn can start a session on: each usable provider instance with its models, and each model's options such as reasoning effort with their allowed values and default. The provider with `current: true` is the one you run on. Pass `instanceId` to list one provider only.",
+  parameters: SessionModelsInput,
+  success: SessionModelsResult,
+  failure: OrchestrationToolError,
+  dependencies: [...dependencies, ProviderRegistry],
+})
+  .annotate(Tool.Title, "List models")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
 
 export const SessionListTool = Tool.make("session_list", {
   description:
@@ -101,6 +118,7 @@ export const SessionNotifyTool = Tool.make("session_notify", {
 
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
+  SessionModelsTool,
   SessionListTool,
   SessionWakeTool,
   SessionSettleTool,

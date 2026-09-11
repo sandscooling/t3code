@@ -1,11 +1,22 @@
 import {
   CommandId,
   DEFAULT_ATTENTION_SOUND,
+  isProviderAvailable,
   MessageId,
   OrchestrationToolError,
   ThreadId,
+  type ModelSelection,
   type OrchestrationThreadShell,
+  type ProviderOptionDescriptor,
+  type ServerProvider,
+  type SessionModelOption,
+  type SessionSpawnInput,
 } from "@t3tools/contracts";
+import {
+  createModelSelection,
+  getProviderOptionCurrentValue,
+  resolveSelectableModel,
+} from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -16,6 +27,7 @@ import * as ServerSettings from "../../../serverSettings.ts";
 import { isOrchestrationThreadSettleBlocked } from "../../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderRegistry } from "../../../provider/Services/ProviderRegistry.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { OrchestrationToolkit } from "./tools.ts";
 
@@ -125,6 +137,109 @@ const requireMessage = (message: string) =>
     ? toolError("invalid-name", "message must not be empty")
     : Effect.void;
 
+/** Providers a spawned session can actually start on, the same bar the model picker uses. */
+const usableProviders = Effect.gen(function* () {
+  const registry = yield* ProviderRegistry;
+  const providers = yield* registry.getProviders;
+  return providers.filter(
+    (provider) => provider.enabled && provider.installed && isProviderAvailable(provider),
+  );
+});
+
+const describeOption = (descriptor: ProviderOptionDescriptor): SessionModelOption => {
+  const fallback = getProviderOptionCurrentValue(descriptor);
+  return {
+    id: descriptor.id,
+    label: descriptor.label,
+    type: descriptor.type,
+    ...(descriptor.type === "select"
+      ? { choices: descriptor.options.map((choice) => choice.id) }
+      : {}),
+    ...(fallback === undefined ? {} : { default: fallback }),
+  };
+};
+
+const modelOptionDescriptors = (model: ServerProvider["models"][number]) =>
+  model.capabilities?.optionDescriptors ?? [];
+
+/**
+ * Turns spawn's optional provider, model, and options into the selection the
+ * new thread runs on. Nothing asked for means an exact copy of the caller's.
+ * Everything asked for is checked against the provider registry here, because
+ * a bad slug would otherwise only fail inside the provider after the thread
+ * exists, leaving the orchestrator a broken session and no reason why.
+ */
+const resolveSpawnModel = (inherited: ModelSelection, input: SessionSpawnInput) =>
+  Effect.gen(function* () {
+    if (
+      input.instanceId === undefined &&
+      input.model === undefined &&
+      input.options === undefined
+    ) {
+      return inherited;
+    }
+    const providers = yield* usableProviders;
+    const instanceId = input.instanceId ?? inherited.instanceId;
+    const provider = providers.find((candidate) => candidate.instanceId === instanceId);
+    if (provider === undefined) {
+      return yield* toolError(
+        "invalid-model",
+        `no usable provider ${instanceId}; session_models lists ${providers.map((candidate) => candidate.instanceId).join(", ")}`,
+      );
+    }
+
+    const sameProvider = provider.instanceId === inherited.instanceId;
+    const requested =
+      input.model ??
+      (sameProvider
+        ? inherited.model
+        : (provider.models.find((model) => model.isDefault) ?? provider.models[0])?.slug);
+    const slug =
+      requested === undefined
+        ? null
+        : resolveSelectableModel(provider.driver, requested, provider.models);
+    const model = provider.models.find((candidate) => candidate.slug === slug);
+    if (model === undefined) {
+      return yield* toolError(
+        "invalid-model",
+        `${provider.instanceId} has no model ${requested ?? "(none listed)"}; call session_models with instanceId ${provider.instanceId} for its slugs`,
+      );
+    }
+
+    if (input.options === undefined) {
+      // The caller's options only mean something on the caller's own model.
+      const keepOptions = sameProvider && model.slug === inherited.model;
+      return createModelSelection(
+        provider.instanceId,
+        model.slug,
+        keepOptions ? inherited.options : undefined,
+      );
+    }
+    const descriptors = modelOptionDescriptors(model);
+    for (const option of input.options) {
+      const descriptor = descriptors.find((candidate) => candidate.id === option.id);
+      const valid =
+        descriptor?.type === "select"
+          ? descriptor.options.some((choice) => choice.id === option.value)
+          : descriptor?.type === "boolean" && typeof option.value === "boolean";
+      if (!valid) {
+        return yield* toolError(
+          "invalid-model",
+          `${model.slug} does not accept ${option.id}=${String(option.value)}; it takes ${
+            descriptors
+              .map((candidate) =>
+                candidate.type === "select"
+                  ? `${candidate.id}=${candidate.options.map((choice) => choice.id).join("|")}`
+                  : `${candidate.id}=true|false`,
+              )
+              .join(", ") || "no options"
+          }`,
+        );
+      }
+    }
+    return createModelSelection(provider.instanceId, model.slug, input.options);
+  });
+
 const handlers = {
   session_spawn: (input) =>
     Effect.gen(function* () {
@@ -142,6 +257,7 @@ const handlers = {
             : `an open session named ${input.name} already exists; use session_wake`,
         );
       }
+      const modelSelection = yield* resolveSpawnModel(caller.modelSelection, input);
       const engine = yield* OrchestrationEngineService;
 
       // The caller stays out of the group on purpose: one orchestrator drives
@@ -157,7 +273,7 @@ const handlers = {
           threadId,
           projectId: caller.projectId,
           title: input.name,
-          modelSelection: caller.modelSelection,
+          modelSelection,
           runtimeMode: caller.runtimeMode,
           interactionMode: caller.interactionMode,
           branch: null,
@@ -172,6 +288,7 @@ const handlers = {
         ...caller,
         id: threadId,
         title: input.name,
+        modelSelection,
         group: input.group,
         parentThreadId: caller.id,
       };
@@ -189,7 +306,40 @@ const handlers = {
         ),
       );
 
-      return { threadId, name: input.name, group: input.group };
+      return {
+        threadId,
+        name: input.name,
+        group: input.group,
+        instanceId: modelSelection.instanceId,
+        model: modelSelection.model,
+        options: modelSelection.options ?? [],
+      };
+    }),
+
+  session_models: (input) =>
+    Effect.gen(function* () {
+      const { caller } = yield* requireScope;
+      const providers = yield* usableProviders;
+      return {
+        providers: providers
+          .filter(
+            (provider) =>
+              input?.instanceId === undefined || provider.instanceId === input.instanceId,
+          )
+          .map((provider) => ({
+            instanceId: provider.instanceId,
+            driver: provider.driver,
+            displayName: provider.displayName ?? provider.instanceId,
+            status: provider.status,
+            current: provider.instanceId === caller.modelSelection.instanceId,
+            models: provider.models.map((model) => ({
+              slug: model.slug,
+              name: model.name,
+              isDefault: model.isDefault === true,
+              options: modelOptionDescriptors(model).map(describeOption),
+            })),
+          })),
+      };
     }),
 
   session_list: (input) =>

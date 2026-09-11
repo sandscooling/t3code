@@ -37,10 +37,11 @@ it("exports provider-compatible object schemas with described parameters", () =>
   }
 });
 
-it("marks only session_list as read-only", () => {
+it("marks only session_list and session_models as read-only", () => {
   const readonly = (name: keyof typeof OrchestrationToolkit.tools) =>
     Context.get(OrchestrationToolkit.tools[name].annotations, Tool.Readonly);
   expect(readonly("session_list")).toBe(true);
+  expect(readonly("session_models")).toBe(true);
   expect(readonly("session_spawn")).toBe(false);
   expect(readonly("session_wake")).toBe(false);
   expect(readonly("session_settle")).toBe(false);

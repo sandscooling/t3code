@@ -18,6 +18,12 @@ export const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const SessionName = Schema.String.check(Schema.isPattern(SESSION_NAME_PATTERN));
 
+const SessionModelOptionValue = Schema.Union([Schema.String, Schema.Boolean]);
+const SessionModelOptionSelection = Schema.Struct({
+  id: Schema.String,
+  value: SessionModelOptionValue,
+});
+
 export const SessionSpawnInput = Schema.Struct({
   name: SessionName.annotate({
     description:
@@ -31,6 +37,24 @@ export const SessionSpawnInput = Schema.Struct({
     description:
       "The opening message for the new session. It starts the session's first turn, so keep it to what the session should do first.",
   }),
+  instanceId: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Provider instance to run the session on, as session_models reports it (e.g. `codex`). Omit to use your own. A different provider with no `model` gets that provider's default model.",
+    }),
+  ),
+  model: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Model slug from session_models for the chosen provider. Omit to keep your own model, or the provider default when `instanceId` names a different provider.",
+    }),
+  ),
+  options: Schema.optional(
+    Schema.Array(SessionModelOptionSelection).annotate({
+      description:
+        "Model options such as reasoning effort, as `{ id, value }` pairs from the model's options in session_models. Options you leave out take the model's defaults. Omit entirely to keep your own options when the model is unchanged.",
+    }),
+  ),
 });
 export type SessionSpawnInput = typeof SessionSpawnInput.Type;
 
@@ -38,8 +62,54 @@ export const SessionSpawnResult = Schema.Struct({
   threadId: Schema.String,
   name: Schema.String,
   group: Schema.String,
+  /** What the session actually runs on, after defaults were filled in. */
+  instanceId: Schema.String,
+  model: Schema.String,
+  options: Schema.Array(SessionModelOptionSelection),
 });
 export type SessionSpawnResult = typeof SessionSpawnResult.Type;
+
+export const SessionModelsInput = Schema.Struct({
+  instanceId: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Only list this provider instance's models. Omit to list every usable provider; some carry hundreds of models.",
+    }),
+  ),
+});
+export type SessionModelsInput = typeof SessionModelsInput.Type;
+
+export const SessionModelOption = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  type: Schema.Literals(["select", "boolean"]),
+  /** Allowed values of a `select` option. */
+  choices: Schema.optional(Schema.Array(Schema.String)),
+  default: Schema.optional(SessionModelOptionValue),
+});
+export type SessionModelOption = typeof SessionModelOption.Type;
+
+export const SessionModelsResult = Schema.Struct({
+  providers: Schema.Array(
+    Schema.Struct({
+      instanceId: Schema.String,
+      driver: Schema.String,
+      displayName: Schema.String,
+      status: Schema.String,
+      /** True on the provider the calling session runs on. */
+      current: Schema.Boolean,
+      models: Schema.Array(
+        Schema.Struct({
+          slug: Schema.String,
+          name: Schema.String,
+          isDefault: Schema.Boolean,
+          options: Schema.Array(SessionModelOption),
+        }),
+      ),
+    }),
+  ),
+});
+export type SessionModelsResult = typeof SessionModelsResult.Type;
 
 export const SessionListInput = Schema.Struct({
   group: Schema.optional(
@@ -105,6 +175,8 @@ export const OrchestrationToolErrorReason = Schema.Literals([
   "thread-not-found",
   "ambiguous-name",
   "already-exists",
+  /** The provider, model, or option asked for is not one session_models offers. */
+  "invalid-model",
   /** The target session still needs attention, so the server refused to settle it. */
   "settle-blocked",
   "dispatch-failed",

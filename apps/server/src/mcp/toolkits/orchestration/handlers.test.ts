@@ -3,10 +3,12 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationThreadShell,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -27,6 +29,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { makeProviderRegistryLayer } from "../../../provider/testUtils/providerRegistryMock.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -93,6 +96,53 @@ function shell(input: {
   } as unknown as OrchestrationThreadShell;
 }
 
+const effortOption = (choices: ReadonlyArray<string>, fallback: string) => ({
+  id: "effort",
+  label: "Effort",
+  type: "select" as const,
+  options: choices.map((id) => ({
+    id,
+    label: id,
+    ...(id === fallback ? { isDefault: true } : {}),
+  })),
+});
+
+function provider(input: {
+  readonly instanceId: string;
+  readonly driver: string;
+  readonly enabled?: boolean;
+  readonly models: ReadonlyArray<{ readonly slug: string; readonly isDefault?: boolean }>;
+}): ServerProvider {
+  return {
+    instanceId: ProviderInstanceId.make(input.instanceId),
+    driver: ProviderDriverKind.make(input.driver),
+    enabled: input.enabled ?? true,
+    installed: true,
+    status: "ready",
+    models: input.models.map((model) => ({
+      slug: model.slug,
+      name: model.slug,
+      isCustom: false,
+      ...(model.isDefault ? { isDefault: true } : {}),
+      capabilities: { optionDescriptors: [effortOption(["low", "medium", "high"], "medium")] },
+    })),
+  } as unknown as ServerProvider;
+}
+
+const baseProviders = [
+  provider({
+    instanceId: "claudeAgent",
+    driver: "claudeAgent",
+    models: [{ slug: "claude-opus-5", isDefault: true }, { slug: "claude-sonnet-5" }],
+  }),
+  provider({
+    instanceId: "codex",
+    driver: "codex",
+    models: [{ slug: "gpt-5.5" }, { slug: "gpt-5.6", isDefault: true }],
+  }),
+  provider({ instanceId: "cursor", driver: "cursor", enabled: false, models: [{ slug: "auto" }] }),
+];
+
 class RefusedByTest extends Data.TaggedError("RefusedByTest")<{ readonly message: string }> {}
 
 /**
@@ -105,6 +155,7 @@ function makeHarness(
     readonly enableAgentAttentionAlerts?: boolean;
     readonly agentAttentionSound?: "chime" | "ping" | "alert" | "knock";
   },
+  providers: ReadonlyArray<ServerProvider> = baseProviders,
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
   const failing = new Set<OrchestrationCommand["type"]>();
@@ -155,6 +206,7 @@ function makeHarness(
     Layer.provideMerge(McpServer.McpServer.layer),
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engine)),
     Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, query)),
+    Layer.provideMerge(makeProviderRegistryLayer(providers)),
     Layer.provideMerge(AttentionBus.layer),
     Layer.provideMerge(ServerSettings.layerTest(settings ?? {})),
     Layer.provideMerge(NodeServices.layer),
@@ -270,6 +322,8 @@ it.effect("spawns by creating the thread and starting its turn, leaving the call
         branch: null,
         worktreePath: null,
         runtimeMode: "full-access",
+        // No model inputs: an exact copy of the caller's selection.
+        modelSelection: { instanceId: "claudeAgent", model: "claude-opus-5" },
       });
       expect(String(create?.commandId)).toMatch(/^server:orchestration-thread-create:/);
       // No titleSeed: the title must never be eligible for auto-replacement.
@@ -281,6 +335,128 @@ it.effect("spawns by creating the thread and starting its turn, leaving the call
         expect(turn.threadId).toBe(create.threadId);
       }
     }),
+  ),
+);
+
+it.effect("spawns on another provider with its default model when only instanceId is given", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const result = yield* callTool("session_spawn", {
+        name: "T-1234-review-codex",
+        group: "T-1234",
+        message: "Review the diff.",
+        instanceId: "codex",
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        instanceId: "codex",
+        model: "gpt-5.6",
+        options: [],
+      });
+      const [create, turn] = harness.dispatched;
+      // The first turn must run on the same selection the thread was created with,
+      // or the provider process starts on the caller's model instead.
+      expect(create).toMatchObject({ modelSelection: { instanceId: "codex", model: "gpt-5.6" } });
+      expect(turn).toMatchObject({ modelSelection: { instanceId: "codex", model: "gpt-5.6" } });
+    }),
+  ),
+);
+
+it.effect("spawns with a chosen model and effort, and refuses an effort the model lacks", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const refused = yield* callTool("session_spawn", {
+        name: "sonnet-max",
+        group: "bakeoff",
+        message: "go",
+        model: "claude-sonnet-5",
+        options: [{ id: "effort", value: "max" }],
+      }).pipe(Effect.provide(harness.layer));
+      expect(refused.isError).toBe(true);
+      expect(errorText(refused)).toContain("invalid-model");
+      expect(errorText(refused)).toContain("high");
+      expect(harness.dispatched).toHaveLength(0);
+
+      const accepted = yield* callTool("session_spawn", {
+        name: "sonnet-high",
+        group: "bakeoff",
+        message: "go",
+        model: "claude-sonnet-5",
+        options: [{ id: "effort", value: "high" }],
+      }).pipe(Effect.provide(harness.layer));
+      expect(accepted.isError).toBe(false);
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.create",
+        modelSelection: {
+          instanceId: "claudeAgent",
+          model: "claude-sonnet-5",
+          options: [{ id: "effort", value: "high" }],
+        },
+      });
+    }),
+  ),
+);
+
+it.effect("refuses a provider that is unknown or disabled, before touching the engine", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      for (const instanceId of ["gemini", "cursor"]) {
+        const result = yield* callTool("session_spawn", {
+          name: "T-1234-other",
+          group: "T-1234",
+          message: "go",
+          instanceId,
+        }).pipe(Effect.provide(harness.layer));
+        expect(result.isError).toBe(true);
+        expect(errorText(result)).toContain("invalid-model");
+        expect(errorText(result)).toContain("claudeAgent, codex");
+      }
+      expect(harness.dispatched).toHaveLength(0);
+    }),
+  ),
+);
+
+it.effect("lists usable providers with each model's options, marking the caller's", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const all = yield* callTool("session_models", {});
+      expect(all.isError).toBe(false);
+      const { providers } = all.structuredContent as {
+        providers: ReadonlyArray<{ instanceId: string; current: boolean }>;
+      };
+      expect(providers.map((entry) => [entry.instanceId, entry.current])).toEqual([
+        ["claudeAgent", true],
+        ["codex", false],
+      ]);
+
+      const codex = yield* callTool("session_models", { instanceId: "codex" });
+      expect(codex.structuredContent).toMatchObject({
+        providers: [
+          {
+            instanceId: "codex",
+            models: [
+              { slug: "gpt-5.5", isDefault: false },
+              {
+                slug: "gpt-5.6",
+                isDefault: true,
+                options: [
+                  {
+                    id: "effort",
+                    type: "select",
+                    choices: ["low", "medium", "high"],
+                    default: "medium",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
   ),
 );
 
