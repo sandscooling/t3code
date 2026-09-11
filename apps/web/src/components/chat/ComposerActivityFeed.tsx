@@ -1,6 +1,6 @@
 import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BotIcon, ListTodoIcon } from "lucide-react";
-import { memo, useId, type ComponentProps } from "react";
+import { memo, useId, type ComponentProps, type CSSProperties } from "react";
 
 import { AgentElapsed, isAgentTicking } from "~/components/AgentElapsed";
 import { cn } from "~/lib/utils";
@@ -61,6 +61,17 @@ export function resolveComposerActivityTab(
   if (tasks === null) return agents === null ? null : "agents";
   if (agents === null) return "tasks";
   return requested;
+}
+
+/**
+ * Rows the open drawer holds for whichever tab is showing.
+ *
+ * Zero when only one feed is live, since a lone feed has no other tab to match
+ * and should size to itself.
+ */
+export function composerActivityReservedRows({ agents, tasks }: ComposerActivityFeeds): number {
+  if (tasks === null || agents === null) return 0;
+  return Math.max(tasks.steps.length, composerAgentRows(agents).length);
 }
 
 function agentCountLabel(model: AgentPanelModel): string {
@@ -233,6 +244,7 @@ export const ComposerActivityContent = memo(function ComposerActivityContent({
   const panelId = useId();
   const activeTab = resolveComposerActivityTab(tab, { agents, tasks });
   if (activeTab === null) return null;
+  const reservedRows = composerActivityReservedRows({ agents, tasks });
 
   return (
     <div
@@ -273,7 +285,27 @@ export const ComposerActivityContent = memo(function ComposerActivityContent({
             </ComposerBanner.Body>
           ) : null}
           <ComposerBanner.Scroll data-composer-activity-scroll="true">
-            <div id={panelId} role={tasks && agents ? "tabpanel" : undefined}>
+            {/*
+             * Both feeds reserve the taller one's rows, so switching tabs does not
+             * resize the drawer. A single agent beside a long task list otherwise
+             * read as the panel collapsing. Rows are one line each, so the reserve
+             * is a row count rather than a measurement; the scroll cap still wins
+             * because this sits inside the viewport.
+             */}
+            <div
+              id={panelId}
+              role={tasks && agents ? "tabpanel" : undefined}
+              className={
+                reservedRows > 0
+                  ? "min-h-[calc(var(--composer-activity-rows)*(--spacing(5)+1px)-1px)]"
+                  : undefined
+              }
+              style={
+                reservedRows > 0
+                  ? ({ "--composer-activity-rows": reservedRows } as CSSProperties)
+                  : undefined
+              }
+            >
               {activeTab === "tasks" && tasks ? (
                 <ComposerTasksList progress={tasks.progress} steps={tasks.steps} />
               ) : null}
