@@ -61,12 +61,13 @@ import Migration0046 from "./Migrations/046_RepairAutomaticSettlementTimestamps.
 import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
+import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
 // Fork-only, and kept above every upstream migration on purpose: the runner skips any
 // id at or below the highest one already recorded, so a fork migration sitting on
 // an id upstream later reuses would mask upstream's migration silently. Renumber
 // these to (highest upstream id + 1) on every sync that adds upstream migrations.
-import Migration0050 from "./Migrations/050_ProjectionThreadsGroupKey.ts";
-import Migration0051 from "./Migrations/051_ProjectionThreadsParentThreadId.ts";
+import Migration0051 from "./Migrations/051_ProjectionThreadsGroupKey.ts";
+import Migration0052 from "./Migrations/052_ProjectionThreadsParentThreadId.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -128,8 +129,9 @@ const migrationEntries = [
   [47, "ProjectionProjectIcon", Migration0047],
   [48, "ProjectionThreadBranchPullRequest", Migration0048],
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
-  [50, "ProjectionThreadsGroupKey", Migration0050],
-  [51, "ProjectionThreadsParentThreadId", Migration0051],
+  [50, "ProjectionThreadPullRequests", Migration0050],
+  [51, "ProjectionThreadsGroupKey", Migration0051],
+  [52, "ProjectionThreadsParentThreadId", Migration0052],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -165,20 +165,29 @@ const handlers = {
     invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
   preview_set_appearance: (input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
-  // Output selection is MCP-only: the browser still produces a complete
-  // snapshot, and both knobs are answered on this side, so they are stripped
-  // before the call reaches the desktop. That keeps the IPC payload identical
-  // to what every released host already accepts, which matters because hosts
-  // are versioned independently of the server.
-  preview_snapshot: ({ include: _include, includeImage: _includeImage, ...target } = {}) =>
-    invokeTargeted<PreviewAutomationSnapshot>("snapshot", target),
+  preview_snapshot: (input) => {
+    // Output selection and saving are MCP-only: the browser still produces a
+    // complete snapshot, and every knob is answered on this side, so they are
+    // stripped before the call reaches the desktop. That keeps the IPC payload
+    // identical to what every released host already accepts, which matters
+    // because hosts are versioned independently of the server.
+    const {
+      include: _include,
+      includeImage: _includeImage,
+      save: _save,
+      ...operationInput
+    } = input ?? {};
+    return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
+  },
   preview_click: (input) =>
     invokeTargeted<void>("click", input, input.timeoutMs).pipe(Effect.as({})),
   preview_type: (input) => invokeTargeted<void>("type", input, input.timeoutMs).pipe(Effect.as({})),
   preview_press: (input) => invokeTargeted<void>("press", input).pipe(Effect.as({})),
   preview_scroll: (input) => invokeTargeted<void>("scroll", input).pipe(Effect.as({})),
   preview_evaluate: (input) =>
-    invokeTargeted<unknown>("evaluate", input).pipe(Effect.map((result) => result ?? null)),
+    invokeTargeted<unknown>("evaluate", input).pipe(
+      Effect.map((result) => ({ value: result ?? null })),
+    ),
   preview_wait_for: (input) =>
     invokeTargeted<void>("waitFor", input, input.timeoutMs).pipe(Effect.as({})),
   preview_recording_start: (input) =>

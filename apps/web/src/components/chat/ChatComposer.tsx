@@ -64,6 +64,7 @@ import {
   readFileAsDataUrl,
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
+  threadShellHasStarted,
 } from "../ChatView.logic";
 import {
   dataTransferHasComposerMention,
@@ -209,10 +210,11 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
-import { ContextWindowMeter } from "./ContextWindowMeter";
+import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
+  shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 import { RateLimitMeter } from "./RateLimitMeter";
 import {
@@ -879,7 +881,13 @@ import {
 } from "../../providerInstances";
 import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelSelection";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
-import { type ChatMessage, type SessionPhase, type Thread, videoMimeType } from "../../types";
+import {
+  type ChatMessage,
+  type SessionPhase,
+  type Thread,
+  type ThreadShell,
+  videoMimeType,
+} from "../../types";
 import {
   buildComposerPromptHistoryEntries,
   stepComposerPromptHistory,
@@ -1120,6 +1128,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   activeUsageLimits: ServerProviderUsageLimits | null;
   activeThreadProviderDisplayName: string | null;
@@ -1164,6 +1173,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
           compactDisabled={props.compactDisabled}
           compactDisabledReason={props.compactDisabledReason}
         />
+      ) : props.reserveContextWindowMeter ? (
+        <ContextWindowMeterPlaceholder />
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
@@ -1263,6 +1274,8 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThreadEnvironmentId: EnvironmentId | undefined;
   activeThread: Thread | undefined;
+  /** The routed server thread's shell, present before its detail loads. */
+  activeThreadShell: ThreadShell | null;
   /** Timeline messages including optimistic sends, for ArrowUp prompt recall. */
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   isServerThread: boolean;
@@ -1326,6 +1339,8 @@ export interface ChatComposerProps {
   // Provider / model
   lockedProvider: ProviderDriverKind | null;
   providerStatuses: ServerProvider[];
+  /** False until the environment's server config has arrived at least once. */
+  providerCatalogKnown: boolean;
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
 
@@ -1444,6 +1459,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     interactionMode: requestedInteractionMode,
     lockedProvider,
     providerStatuses,
+    providerCatalogKnown,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
     activeContextWindow,
@@ -1747,6 +1763,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // model picker always describe the same account.
   const activeUsageLimits = selectedProviderEntry?.snapshot.usageLimits ?? null;
   const noProviderAvailable = selectedProviderEntry === undefined;
+  // Before the catalog arrives, every thread resolves to "no provider". Send
+  // stays blocked either way; only the chrome waits, keeping the picker with
+  // the thread's own selection instead of swapping in the setup button and
+  // back once the catalog lands.
+  const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
+  const showProviderUnavailable = noProviderAvailable && !providerCatalogPending;
   const providerSetupInstanceId = noProviderAvailable
     ? (unavailableProviderInstanceId ??
       (lockedProvider === null
@@ -1932,6 +1954,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return formatProviderDisplayName(activeThreadModelSelection.instanceId);
   }, [providerStatuses, activeThreadModelSelection]);
+  const reserveContextWindowMeter = shouldReserveContextWindowMeter({
+    meterEnabled: settings.contextWindowMeterEnabled,
+    detailLoading: props.threadSyncPhase === "loading",
+    threadStarted: threadShellHasStarted(props.activeThreadShell),
+    providerReportsContextWindow: selectedProviderStatus
+      ? selectedProviderStatus.reportsContextWindow === true
+      : null,
+  });
 
   // ------------------------------------------------------------------
   // Composer-local state
@@ -3898,7 +3928,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isStashMenuOpen ||
     isDragOverComposer ||
     isPreparingWorktree ||
-    noProviderAvailable ||
+    showProviderUnavailable ||
     projectSelectionRequired ||
     environmentUnavailable !== null ||
     composerSubmissionError !== null ||
@@ -4145,7 +4175,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
-  const composerControls = noProviderAvailable ? (
+  const composerControls = showProviderUnavailable ? (
     <Button
       type="button"
       size="sm"
@@ -4173,9 +4203,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ) : null}
       <ProviderModelPicker
         isComposerOwned
-        compact={composerControlsCompact}
-        activeInstanceId={selectedInstanceId}
-        model={selectedModelForPickerWithCustomFallback}
+        disabled={providerCatalogPending}
+        activeInstanceId={
+          providerCatalogPending
+            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+            : selectedInstanceId
+        }
+        model={
+          providerCatalogPending
+            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+            : selectedModelForPickerWithCustomFallback
+        }
         lockedProvider={lockedProvider}
         lockedContinuationGroupKey={lockedContinuationGroupKey}
         instanceEntries={providerInstanceEntries}
@@ -5237,7 +5275,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       : activePendingProgress.customAnswer ||
                         "Type your own answer, or leave this blank to use the selected option"
                     : prompt.trim() ||
-                      (noProviderAvailable ? "Enable a provider in Settings" : "Ask anything...")}
+                      (showProviderUnavailable
+                        ? "Enable a provider in Settings"
+                        : "Ask anything...")}
                 </button>
                 {collapsedComposerImagePreviews}
                 <button
@@ -5696,7 +5736,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   "relative",
                   isComposerResting && "flex min-w-0 items-center gap-1",
                   isComposerResting &&
-                    (settings.contextWindowMeterEnabled && activeContextWindow
+                    ((settings.contextWindowMeterEnabled && activeContextWindow) ||
+                    reserveContextWindowMeter
                       ? "pr-28"
                       : showComposerAttachAction
                         ? "pr-20"
@@ -5750,7 +5791,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           ? "Add feedback to refine the plan, or leave this blank to implement it"
                           : projectSelectionRequired
                             ? "Choose a project above to start a thread"
-                            : noProviderAvailable
+                            : showProviderUnavailable
                               ? "Enable a provider in Settings to send a message"
                               : phase === "disconnected"
                                 ? DISCONNECTED_COMPOSER_PLACEHOLDER
@@ -5873,6 +5914,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     activeUsageLimits={activeUsageLimits}
                     activeThreadProviderDisplayName={activeThreadProviderDisplayName}

@@ -1,3 +1,4 @@
+import { GitPullRequestIcon } from "lucide-react";
 import {
   type AssistantCitation,
   type EnvironmentId,
@@ -96,6 +97,7 @@ import {
   MousePointerClickIcon,
   PaintbrushIcon,
   SearchIcon,
+  SmartphoneIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -1582,7 +1584,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           markdownCwd={ctx.markdownCwd}
         />
       </div>
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -1734,7 +1736,7 @@ function AssistantMessageMeta({
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
         alwaysVisible
           ? "opacity-100"
-          : "opacity-0 focus-within:opacity-100 group-hover/assistant:opacity-100",
+          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,
       )}
     >
@@ -2226,6 +2228,11 @@ function toolGroupSummaryIconName(
   kind: Extract<TimelineRow, { kind: "work-toggle" }>["summaryKind"],
 ): WorkEntryIconName {
   switch (kind) {
+    case "pull-request":
+    case "link-pr":
+    case "unlink-pr":
+    case "list-prs":
+      return "pull-request";
     case "read":
       return "eye";
     case "edit":
@@ -2234,6 +2241,8 @@ function toolGroupSummaryIconName(
       return "terminal";
     case "browser":
       return "browser";
+    case "device":
+      return "device";
     case "search":
       return "globe";
     case "code-search":
@@ -2795,6 +2804,7 @@ type WorkEntryIconName =
   | "check"
   | "circle-alert"
   | "computer"
+  | "device"
   | "eye"
   | "globe"
   | "hammer"
@@ -2802,6 +2812,7 @@ type WorkEntryIconName =
   | "search"
   | "square-pen"
   | "terminal"
+  | "pull-request"
   | "t3-code"
   | "wrench"
   | "x"
@@ -3006,6 +3017,8 @@ function ToolActivityImageIcon(props: {
 
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
+    case "pull-request":
+      return <GitPullRequestIcon className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":
@@ -3014,6 +3027,8 @@ function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className
       return <BrowserAppIcon className={className} />;
     case "computer":
       return <ComputerUseAppIcon className={className} />;
+    case "device":
+      return <SmartphoneIcon className={className} aria-hidden />;
     case "t3-code":
       return <T3Wordmark className={className} aria-hidden />;
     case "check":
@@ -3163,6 +3178,18 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
 }
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+/**
+ * Click handler for expanded row labels, which turn text selection back on.
+ * Only a click that ends a real selection is withheld from the row toggle, so
+ * an ordinary click on the label still bubbles and collapses the row it opened.
+ */
+const stopRowToggleWhileSelectingText = (e: MouseEvent<HTMLElement>) => {
+  const selection = e.currentTarget.ownerDocument.getSelection();
+  if (selection && !selection.isCollapsed) {
+    e.stopPropagation();
+  }
+};
 
 /**
  * A1 spawn CTA: one anchored row per workflow run (or per-turn direct-spawn
@@ -3322,7 +3349,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           workspaceRoot,
         })
       : null;
-  const commandMatchesVisibleLabel = workEntry.command?.trim() === previewText.trim();
   const canExpand =
     // A submitted answer renders below the row rather than inside its fold,
     // so an answered question never counts as expandable content.
@@ -3330,8 +3356,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     ((showFailedIndicator && previewText.trim().length > 0) ||
       (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) ||
       Boolean(
-        (!commandMatchesVisibleLabel &&
-          (workEntryRawCommand(workEntry) || workEntry.command?.trim())) ||
+        workEntryRawCommand(workEntry) ||
+        workEntry.command?.trim() ||
         workEntry.detail?.trim() ||
         workEntry.changedFiles?.length ||
         viewedImage,
@@ -3412,12 +3438,10 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               <span
                 className={cn(
                   "min-w-0 flex-1",
-                  expanded || (commandMatchesVisibleLabel && !canExpand)
-                    ? "whitespace-pre-wrap break-words select-text"
-                    : "truncate",
+                  expanded ? "whitespace-pre-wrap break-words select-text" : "truncate",
                   headingClass,
                 )}
-                onClick={expanded ? stopRowToggle : undefined}
+                onClick={expanded ? stopRowToggleWhileSelectingText : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
               >
                 {previewText}

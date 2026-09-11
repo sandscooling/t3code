@@ -35,6 +35,7 @@ function makeThread(input: {
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    pullRequests: [],
     parentThreadId: input.parentThreadId == null ? null : ThreadId.make(input.parentThreadId),
     latestTurn: null,
     createdAt: NOW,

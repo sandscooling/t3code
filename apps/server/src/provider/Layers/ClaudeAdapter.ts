@@ -4721,9 +4721,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         supportedDialogKinds: ["resume_return"],
         // A copy, never a mutation: claudeEnvironment is shared by every
         // session of this adapter and may be process.env itself.
-        env: input.peerName
-          ? { ...claudeEnvironment, CLAUDE_CODE_SESSION_NAME: input.peerName }
-          : claudeEnvironment,
+        env: McpProviderSession.withAgentDeviceEnvironment(
+          input.peerName
+            ? { ...claudeEnvironment, CLAUDE_CODE_SESSION_NAME: input.peerName }
+            : claudeEnvironment,
+          mcpSession,
+        ),
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession

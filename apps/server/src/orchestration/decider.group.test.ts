@@ -41,6 +41,7 @@ function makeReadModel(input: { readonly withThread: boolean }): OrchestrationRe
             branch: null,
             worktreePath: null,
             group: null,
+            pullRequests: [],
             latestTurn: null,
             createdAt: NOW,
             updatedAt: NOW,

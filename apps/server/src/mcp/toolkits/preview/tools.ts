@@ -114,7 +114,7 @@ const PreviewSetAppearanceTool = safeBrowserTool(
 export const PreviewSnapshotTool = readonlyBrowserTool(
   Tool.make("preview_snapshot", {
     description:
-      'Inspect a page before interacting. Pass tabId to inspect a specific tab; omit it to use this agent session\'s current tab. Returns page state, semantic elements, diagnostics, action history, and a PNG screenshot. A full snapshot is large: pass include to request only the sections you need, for example include: ["screenshot", "interactiveElements"] to see the page and what is clickable on it. Set includeImage=false to drop the image alone.',
+      'Inspect a page before interacting. Pass tabId to inspect a specific tab; omit it to use this agent session\'s current tab. Returns page state, semantic elements, diagnostics, action history, and a PNG screenshot. A full snapshot is large: pass include to request only the sections you need, for example include: ["screenshot", "interactiveElements"] to see the page and what is clickable on it. Set includeImage=false to drop the image alone. Set save=true to also write the PNG to disk and get screenshotPath back; embed that path in your reply as ![alt](screenshotPath) so the user sees it. This is the only way to show the user a screenshot; the image in the tool result is not saved anywhere.',
     // The section filter and includeImage answer different widths of the same
     // question, so both are offered: include picks sections, includeImage drops
     // the PNG whatever the sections asked for.
@@ -124,6 +124,12 @@ export const PreviewSnapshotTool = readonlyBrowserTool(
         Schema.Boolean.annotate({
           description:
             "Include the PNG image in the tool response. Defaults to true. Set false for text-only output.",
+        }),
+      ),
+      save: Schema.optional(
+        Schema.Boolean.annotate({
+          description:
+            "Write the screenshot PNG to disk and return its absolute path as screenshotPath. Defaults to false.",
         }),
       ),
     }),
@@ -177,12 +183,23 @@ const PreviewScrollTool = safeBrowserTool(
   }).annotate(Tool.Title, "Scroll preview page"),
 );
 
+/**
+ * MCP `structuredContent` must be a JSON object, and Claude Code rejects the
+ * whole result when it is not. Wrapping keeps arrays, strings, numbers, and
+ * null valid instead of failing only for non-object expressions.
+ */
+export const PreviewEvaluateResult = Schema.Struct({
+  value: Schema.Unknown.annotate({
+    description: "The JSON-serializable value the expression produced, or null.",
+  }),
+}).annotate({ description: "The evaluated expression result." });
+
 const PreviewEvaluateTool = browserTool(
   Tool.make("preview_evaluate", {
     description:
-      "Evaluate JavaScript in the tab selected by tabId, or this agent session's current tab when omitted. Returns a serializable result up to 64 KB; the expression may mutate page state.",
+      "Evaluate JavaScript in the tab selected by tabId, or this agent session's current tab when omitted. Returns {value} with a serializable result up to 64 KB; the expression may mutate page state.",
     parameters: PreviewAutomationEvaluateInput,
-    success: Schema.Unknown,
+    success: PreviewEvaluateResult,
     failure: PreviewAutomationError,
     dependencies,
   }).annotate(Tool.Title, "Evaluate JavaScript in preview"),

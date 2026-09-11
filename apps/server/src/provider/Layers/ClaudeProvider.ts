@@ -57,6 +57,7 @@ const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabili
 const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
+  reportsContextWindow: true,
 } as const;
 /**
  * The CLI's zero-state output style. Selecting it means "do not pass
