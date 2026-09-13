@@ -39,6 +39,8 @@ import {
   getWindowFullscreenState,
   openExternal,
   openSystemSettings,
+  checkSystemPermission,
+  pasteAsText,
   probeRemoteEditors,
   pickFolder,
   pickAttentionSound,
@@ -126,6 +128,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(showAttentionNotification);
   yield* ipc.handle(pickAttentionSound);
+  yield* ipc.handle(checkSystemPermission);
+  yield* ipc.handle(pasteAsText);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);

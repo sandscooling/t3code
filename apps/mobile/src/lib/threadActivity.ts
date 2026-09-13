@@ -1,4 +1,5 @@
 import * as Option from "effect/Option";
+import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
 import * as Schema from "effect/Schema";
 import {
   requestKindFromRequestType,
@@ -263,6 +264,10 @@ export function isContextCompactionActivityGroup(
   );
 }
 
+function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
+}
+
 function normalizeDraftAnswer(value: string | undefined): string | null {
   if (typeof value !== "string") {
     return null;
@@ -404,9 +409,8 @@ function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
-  const userInputHeaders = collectUserInputQuestionHeaders(ordered);
   const entries: DerivedWorkLogEntry[] = [];
-  for (const activity of ordered) {
+  for (const activity of foldUserInputActivities(ordered)) {
     if (activity.tone !== "error" && isWorktreeSetupActivity(activity.kind)) continue;
     if (activity.kind === "tool.started") continue;
     // Like web: an agent's task.started row anchors its batch. It has a fixed
@@ -422,7 +426,7 @@ function deriveWorkLogEntries(
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
-    entries.push(toDerivedWorkLogEntry(activity, userInputHeaders));
+    entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);
 }
@@ -452,65 +456,7 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
 
 const decodeQuestionAttachmentAnswer = Schema.decodeUnknownOption(UserInputAttachmentAnswerPayload);
 
-/**
- * Question headers from `user-input.requested`, keyed by request id then question
- * id. `user-input.resolved` only carries the answers map, whose keys are question
- * ids (the full question text for Claude), so the short header has to come from
- * the matching request.
- */
-function collectUserInputQuestionHeaders(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): Map<string, Map<string, string>> {
-  const headersByRequestId = new Map<string, Map<string, string>>();
-  for (const activity of activities) {
-    if (activity.kind !== "user-input.requested") continue;
-    const payload = asRecord(activity.payload);
-    const requestId = asTrimmedString(payload?.requestId);
-    if (!requestId || !Array.isArray(payload?.questions)) continue;
-    const headersByQuestionId = new Map<string, string>();
-    for (const entry of payload.questions) {
-      const question = asRecord(entry);
-      const questionId = asTrimmedString(question?.id);
-      const header = asTrimmedString(question?.header);
-      if (questionId && header) {
-        headersByQuestionId.set(questionId, header);
-      }
-    }
-    if (headersByQuestionId.size > 0) {
-      headersByRequestId.set(requestId, headersByQuestionId);
-    }
-  }
-  return headersByRequestId;
-}
-
-/** Renders submitted answers as `Header: answer` lines, one per question. */
-function formatSubmittedUserInputAnswers(
-  payload: Record<string, unknown> | null,
-  headersByQuestionId: Map<string, string> | undefined,
-): string | null {
-  const answers = asRecord(payload?.answers);
-  if (!answers) {
-    return null;
-  }
-  const lines: string[] = [];
-  for (const [questionId, rawAnswer] of Object.entries(answers)) {
-    const answer = Array.isArray(rawAnswer)
-      ? rawAnswer
-          .map((value) => asTrimmedString(value))
-          .filter((value): value is string => value !== null)
-          .join(", ")
-      : asTrimmedString(rawAnswer);
-    if (!answer) continue;
-    const label = headersByQuestionId?.get(questionId) ?? questionId;
-    lines.push(`${label}: ${answer}`);
-  }
-  return lines.length > 0 ? lines.join("\n") : null;
-}
-
-function toDerivedWorkLogEntry(
-  activity: OrchestrationThreadActivity,
-  userInputHeaders: Map<string, Map<string, string>>,
-): DerivedWorkLogEntry {
+function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
@@ -586,15 +532,7 @@ function toDerivedWorkLogEntry(
   const viewedImagePath = asTrimmedString(asRecord(payload?.data)?.imagePath);
   const commandOutput = commandPreview.command ? extractCommandOutputText(payload?.data) : null;
   const output = commandOutput ? stripTrailingExitCode(commandOutput).output : null;
-  if (activity.kind === "user-input.resolved") {
-    const answers = formatSubmittedUserInputAnswers(
-      payload,
-      userInputHeaders.get(asTrimmedString(payload?.requestId) ?? ""),
-    );
-    if (answers) {
-      entry.detail = answers;
-    }
-  } else if (!taskDetailAsLabel && output) {
+  if (!taskDetailAsLabel && output) {
     entry.detail = output;
   } else if (!taskDetailAsLabel && typeof payload?.detail === "string") {
     const detail = stripTrailingExitCode(payload.detail).output;
@@ -1004,6 +942,7 @@ function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
 function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
   if (entry.agentSpawn) return "agent";
   if (
+    entry.questionAnswer ||
     entry.sourceActivityKind === "user-input.requested" ||
     entry.sourceActivityKind === "user-input.resolved"
   ) {
@@ -1622,13 +1561,15 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
       continue;
     }
 
-    const isCompaction = entry.activity.workEntry.sourceActivityKind === "context-compaction";
-    if (isCompaction || firstActivityEntry?.turnId !== entry.turnId) {
+    const isStandalone =
+      entry.activity.workEntry.sourceActivityKind === "context-compaction" ||
+      entry.activity.workEntry.questionAnswer !== undefined;
+    if (isStandalone || firstActivityEntry?.turnId !== entry.turnId) {
       flushGroup();
     }
     firstActivityEntry ??= entry;
     openGroupActivities.push(entry.activity);
-    if (isCompaction) {
+    if (isStandalone) {
       flushGroup();
     }
   }
@@ -1734,7 +1675,9 @@ function deriveThreadFeedTurnFolds(
       entries
         .filter(
           (entry) =>
-            entry.id !== firstAssistantMessageId && entry.id !== terminalAssistantMessageId,
+            entry.id !== firstAssistantMessageId &&
+            entry.id !== terminalAssistantMessageId &&
+            !(entry.type === "activity-group" && isUserInputActivityGroup(entry)),
         )
         .map((entry) => entry.id),
     );
@@ -1914,7 +1857,7 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry)) {
+  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
     result.push(entry);
     return;
   }
@@ -2252,21 +2195,30 @@ export function buildThreadFeed(
     : loadedMessages;
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
-  const activityEntries = getThreadFeedActivityEntries(thread.activities);
+  const activityEntries = getThreadFeedActivityEntries(thread.activities).filter(
+    (entry) =>
+      oldestLoadedMessageCreatedAt === null || entry.createdAt >= oldestLoadedMessageCreatedAt,
+  );
+  const foldedAnswerMessageIds = new Set(
+    activityEntries.flatMap((entry) =>
+      entry.activity.workEntry.questionAnswer
+        ? [`async-answer:${entry.activity.workEntry.questionAnswer.requestId}`]
+        : [],
+    ),
+  );
   const entries = Arr.sortWith(
     [
-      ...messages.map((message) => {
-        let entry = messageEntriesCache.get(message);
-        if (!entry) {
-          entry = { type: "message", id: message.id, createdAt: message.createdAt, message };
-          messageEntriesCache.set(message, entry);
-        }
-        return entry;
-      }),
-      ...activityEntries.filter(
-        (entry) =>
-          oldestLoadedMessageCreatedAt === null || entry.createdAt >= oldestLoadedMessageCreatedAt,
-      ),
+      ...messages
+        .filter((message) => message.role !== "user" || !foldedAnswerMessageIds.has(message.id))
+        .map((message) => {
+          let entry = messageEntriesCache.get(message);
+          if (!entry) {
+            entry = { type: "message", id: message.id, createdAt: message.createdAt, message };
+            messageEntriesCache.set(message, entry);
+          }
+          return entry;
+        }),
+      ...activityEntries,
     ],
     (s) => new Date(s.createdAt),
     Order.Date,
