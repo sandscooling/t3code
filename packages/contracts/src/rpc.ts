@@ -253,7 +253,6 @@ import {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
-import { AttentionPing, AttentionSubscribeInput } from "./attention.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -405,7 +404,6 @@ export const WS_METHODS = {
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
-  subscribeAttention: "subscribeAttention",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
@@ -923,16 +921,6 @@ const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, 
   error: Schema.Union([ProviderUploadFeedbackError, EnvironmentAuthorizationError]),
 });
 
-// Fork-only. A doorbell, not a projection: one session decides the user is
-// needed, the ping reaches every client attached to this server, and nothing
-// is stored. See attention.ts.
-const WsSubscribeAttentionRpc = Rpc.make(WS_METHODS.subscribeAttention, {
-  payload: AttentionSubscribeInput,
-  success: AttentionPing,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: VcsStatusInput,
   success: VcsStatusStreamEvent,
@@ -1383,7 +1371,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
   WsProviderUploadFeedbackRpc,
-  WsSubscribeAttentionRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,

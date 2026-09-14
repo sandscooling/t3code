@@ -16,7 +16,6 @@ Behind the **Agent orchestration** setting, off by default:
 - MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_models`, `session_projects`.
 - `session_spawn` can pick the provider, model and reasoning effort, and can start work in any project on the server.
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.
-- `session_notify` lets an orchestrator ring you: a sound, a toast, and a Windows notification. Pick one of four tones or your own sound file in Settings, Integrations.
 - The command palette's "New thread in..." takes a count, so `fleet 5` starts five sessions at once.
 
 ### Chat and composer

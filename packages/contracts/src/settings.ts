@@ -18,7 +18,6 @@ import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   ProviderOptionSelections,
 } from "./model.ts";
-import { AttentionSound, DEFAULT_ATTENTION_SOUND } from "./attention.ts";
 import {
   DEFAULT_RUNTIME_MODE,
   ModelSelection,
@@ -1033,17 +1032,6 @@ export const ServerSettings = Schema.Struct({
    * the MCP credential, so the answer is server-authoritative.
    */
   enableAgentOrchestration: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  /**
-   * Whether a `session_notify` ping rings on this server's clients. The sound
-   * is a client concern, but the switch is server-authoritative like the rest
-   * of the agent grants: an agent must not be able to ring a user who turned
-   * it off from another device.
-   */
-  enableAgentAttentionAlerts: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  /** Default sound for a ping that does not name one. */
-  agentAttentionSound: AttentionSound.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ATTENTION_SOUND)),
-  ),
   projectAgentBrowserAccessOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1370,8 +1358,6 @@ export const ServerSettingsPatch = Schema.Struct({
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentOrchestration: Schema.optionalKey(Schema.Boolean),
-  enableAgentAttentionAlerts: Schema.optionalKey(Schema.Boolean),
-  agentAttentionSound: Schema.optionalKey(AttentionSound),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),
   ),

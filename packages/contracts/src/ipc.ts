@@ -142,14 +142,6 @@ export interface ContextMenuItemSchemaType {
   readonly children?: readonly ContextMenuItemSchemaType[];
 }
 
-export const DesktopAttentionNotificationSchema = Schema.Struct({
-  title: Schema.String,
-  body: Schema.String,
-  /** True when the renderer already played the user's chosen tone. */
-  silent: Schema.Boolean,
-});
-export type DesktopAttentionNotification = typeof DesktopAttentionNotificationSchema.Type;
-
 export const ContextMenuItemSchema: Schema.Codec<ContextMenuItemSchemaType> = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
@@ -1291,12 +1283,6 @@ export interface DesktopBridge {
   setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;
   setWslDistro: (distro: string | null) => Promise<DesktopWslState>;
   setWslOnly: (enabled: boolean) => Promise<DesktopWslState>;
-  /**
-   * Raises an OS notification for a `session_notify` ping. Optional: a web
-   * client has no desktop shell, and an older shell hosting a newer web client
-   * does not have this method, so callers fall back to the in-app toast.
-   */
-  showAttentionNotification?: (input: DesktopAttentionNotification) => Promise<boolean>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   /** Optional while older desktop shells can host a newer web client. */
   pickProjectFavicon?: (initialPath?: string) => Promise<string | null>;

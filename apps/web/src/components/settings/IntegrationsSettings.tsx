@@ -23,7 +23,6 @@ import {
   DEFAULT_BROWSER_VIEWPORT,
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_UNIFIED_SETTINGS,
-  type AttentionSound,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   FILL_PREVIEW_VIEWPORT,
   PREVIEW_VIEWPORT_MAX_AREA,
@@ -69,7 +68,6 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { playAttentionSound } from "~/lib/attentionSound";
 import { readLocalApi } from "~/localApi";
 
 import { toastManager } from "../ui/toast";
@@ -506,111 +504,6 @@ function AgentOrchestrationSetting() {
           }
           aria-label="Allow agent orchestration"
         />
-      }
-    />
-  );
-}
-
-const ATTENTION_SOUND_LABELS: Record<AttentionSound, string> = {
-  chime: "Chime",
-  ping: "Ping",
-  alert: "Alert",
-  knock: "Knock",
-};
-
-function AgentAttentionAlertsSetting() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
-
-  return (
-    <SettingsRow
-      {...searchableSetting("agent-attention-alerts")}
-      description="Let an agent ring you with session_notify: a sound, a toast, and a desktop notification. Only the session that calls it rings, so an orchestrator can ask for you without every agent doing the same."
-      status={
-        settings.enableAgentAttentionAlerts
-          ? undefined
-          : "Pings are silently dropped while this is off."
-      }
-      resetAction={
-        settings.enableAgentAttentionAlerts !==
-        DEFAULT_UNIFIED_SETTINGS.enableAgentAttentionAlerts ? (
-          <SettingResetButton
-            label="agent attention alerts"
-            onClick={() =>
-              updateSettings({
-                enableAgentAttentionAlerts: DEFAULT_UNIFIED_SETTINGS.enableAgentAttentionAlerts,
-              })
-            }
-          />
-        ) : null
-      }
-      control={
-        <Switch
-          checked={settings.enableAgentAttentionAlerts}
-          onCheckedChange={(checked) =>
-            updateSettings({ enableAgentAttentionAlerts: Boolean(checked) })
-          }
-          aria-label="Allow agents to notify you"
-        />
-      }
-    />
-  );
-}
-
-function AgentAttentionSoundSetting() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
-  const sound = settings.agentAttentionSound;
-
-  return (
-    <SettingsRow
-      {...searchableSetting("agent-attention-sound")}
-      description="Which sound a ping plays when the agent does not name one. Play it to hear the difference."
-      resetAction={
-        sound !== DEFAULT_UNIFIED_SETTINGS.agentAttentionSound ? (
-          <SettingResetButton
-            label="attention sound"
-            onClick={() =>
-              updateSettings({ agentAttentionSound: DEFAULT_UNIFIED_SETTINGS.agentAttentionSound })
-            }
-          />
-        ) : null
-      }
-      control={
-        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-          <Select
-            value={sound}
-            onValueChange={(next) => {
-              const chosen = next as AttentionSound;
-              updateSettings({ agentAttentionSound: chosen });
-              // Picking a sound you cannot hear is guesswork, so the choice
-              // plays itself. This is also the gesture that unblocks autoplay.
-              playAttentionSound(chosen);
-            }}
-            disabled={!settings.enableAgentAttentionAlerts}
-          >
-            <SelectTrigger size="sm" className="w-full min-w-0 sm:w-36" aria-label="Ping sound">
-              <SelectValue>{ATTENTION_SOUND_LABELS[sound]}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false} className="min-w-40">
-              {(Object.keys(ATTENTION_SOUND_LABELS) as ReadonlyArray<AttentionSound>).map(
-                (option) => (
-                  <SelectItem key={option} value={option}>
-                    {ATTENTION_SOUND_LABELS[option]}
-                  </SelectItem>
-                ),
-              )}
-            </SelectPopup>
-          </Select>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!settings.enableAgentAttentionAlerts}
-            onClick={() => playAttentionSound(sound)}
-          >
-            Play
-          </Button>
-        </div>
       }
     />
   );
@@ -1457,8 +1350,6 @@ export function IntegrationsSettingsPanel() {
             a server; `serverScoped` covers the hosted app, which has none. It
             sits outside the block covering the desktop-only defaults. */}
         <AgentOrchestrationSetting />
-        <AgentAttentionAlertsSetting />
-        <AgentAttentionSoundSetting />
         {previewDefaultsDisabled ? (
           <SettingsUnavailableGroup message="Only available in the desktop app.">
             {previewDefaults}

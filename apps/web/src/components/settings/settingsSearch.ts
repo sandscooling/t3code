@@ -505,20 +505,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "browser",
   },
   {
-    id: "agent-attention-alerts",
-    title: "Agent attention alerts",
-    to: "/settings/integrations",
-    targetId: "browser",
-    searchTerms: ["notify notification sound ping ring session_notify away"],
-  },
-  {
-    id: "agent-attention-sound",
-    title: "Ping sound",
-    to: "/settings/integrations",
-    targetId: "browser",
-    searchTerms: ["notification sound chime alert knock"],
-  },
-  {
     id: "device-hosts",
     title: "Device hosts",
     to: "/settings/integrations",
