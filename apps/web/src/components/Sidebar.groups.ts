@@ -55,6 +55,35 @@ export function buildGroupedSidebarListItems(input: {
   return items;
 }
 
+export type SidebarGroupMove = "top" | "up" | "down" | "bottom";
+
+export function isSidebarGroupMove(value: string | null | undefined): value is SidebarGroupMove {
+  return value === "top" || value === "up" || value === "down" || value === "bottom";
+}
+
+/** Moves one group within the saved group order, counting only the groups
+    on screen: a project with no open threads has no header, so stepping past
+    it would look like the menu did nothing. Hidden groups keep their place
+    relative to their neighbours. */
+export function moveSidebarGroup<T>(input: {
+  readonly order: readonly T[];
+  readonly visible: ReadonlySet<T>;
+  readonly item: T;
+  readonly move: SidebarGroupMove;
+}): T[] {
+  const { order, item, move } = input;
+  const visible = order.filter((entry) => input.visible.has(entry));
+  const from = visible.indexOf(item);
+  if (from === -1) return [...order];
+  const to =
+    move === "top" ? 0 : move === "up" ? from - 1 : move === "down" ? from + 1 : visible.length - 1;
+  if (to < 0 || to >= visible.length || to === from) return [...order];
+  const rest = order.filter((entry) => entry !== item);
+  const anchor = rest.indexOf(visible[to]!);
+  rest.splice(to < from ? anchor : anchor + 1, 0, item);
+  return rest;
+}
+
 /** The part of a grouped list one drag can reach: the group's pinned and
     active rows, then the shared settled shelf. Snoozed rows are left out, so
     grouped snoozed rows wake from their button rather than by dragging. */

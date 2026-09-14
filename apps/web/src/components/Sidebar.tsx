@@ -201,6 +201,8 @@ import {
 import {
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
+  isSidebarGroupMove,
+  moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
 } from "./Sidebar.groups";
@@ -808,6 +810,7 @@ function SidebarProjectGroupHeader(props: {
   collapsed: boolean;
   workingCount: number;
   onToggle: (group: string) => void;
+  onContextMenu: (group: string, position: { x: number; y: number }) => void;
 }) {
   return (
     <SortableSidebarMarker
@@ -819,6 +822,10 @@ function SidebarProjectGroupHeader(props: {
       <button
         type="button"
         onClick={() => props.onToggle(props.group)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          props.onContextMenu(props.group, { x: event.clientX, y: event.clientY });
+        }}
         aria-expanded={!props.collapsed}
         className="flex h-full w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
       >
@@ -2654,6 +2661,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const setProjectOrder = useUiStateStore((store) => store.setProjectOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile, setOpen, state: sidebarState } = useSidebar();
@@ -2814,13 +2822,18 @@ export default function Sidebar() {
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        // Fork: project groups keep the saved order, so activity never moves them.
+        projects:
+          sidebarProjectSortOrder === "manual" || groupThreadsByProject
+            ? orderedProjects
+            : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
+      groupThreadsByProject,
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
@@ -2829,8 +2842,11 @@ export default function Sidebar() {
     ],
   );
   const projectGroups = useMemo(
-    () => sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
-    [sidebarProjectSortOrder, threads, unsortedProjectGroups],
+    () =>
+      groupThreadsByProject
+        ? unsortedProjectGroups
+        : sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
+    [groupThreadsByProject, sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
@@ -3370,6 +3386,52 @@ export default function Sidebar() {
   const threadGroupById = useMemo(
     () => new Map((threadGroups ?? []).map((group) => [group.id, group])),
     [threadGroups],
+  );
+  // Fork: groups keep the saved project order; this header menu is how it changes.
+  const handleProjectGroupContextMenu = useCallback(
+    (group: string, position: { x: number; y: number }) => {
+      void (async () => {
+        const api = readLocalApi();
+        if (!api || threadGroups === null) return;
+        const visible = threadGroups
+          .map((entry) => entry.id)
+          .filter((id) => id !== OTHER_PROJECT_GROUP_ID);
+        const index = visible.indexOf(group);
+        if (index === -1) return;
+        const last = visible.length - 1;
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [
+              { id: "top", label: "Move to top", disabled: index === 0 },
+              { id: "up", label: "Move up", disabled: index === 0 },
+              { id: "down", label: "Move down", disabled: index === last },
+              { id: "bottom", label: "Move to bottom", disabled: index === last },
+            ],
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure" || !isSidebarGroupMove(clicked.value)) return;
+        const moved = moveSidebarGroup({
+          order: projectGroups.map((project) => sidebarGroupId(project.projectKey)),
+          visible: new Set(visible),
+          item: group,
+          move: clicked.value,
+        });
+        const membersById = new Map(
+          projectGroups.map((project) => [
+            sidebarGroupId(project.projectKey),
+            project.memberProjects.map((member) => member.physicalProjectKey),
+          ]),
+        );
+        // Every shown project gets an explicit spot, so a new project lands
+        // below them. Saved keys for projects not loaded right now (another
+        // environment offline) are kept after them.
+        const keys = moved.flatMap((id) => membersById.get(id) ?? []);
+        const placed = new Set(keys);
+        setProjectOrder([...keys, ...projectOrder.filter((key) => !placed.has(key))]);
+      })();
+    },
+    [projectGroups, projectOrder, setProjectOrder, threadGroups],
   );
   // Null while the list is flat. Covers settled threads too, so a drag from
   // the shelf knows which group it may land in.
@@ -5563,6 +5625,7 @@ export default function Sidebar() {
                                   collapsed={itemGroup.collapsed}
                                   workingCount={itemGroup.workingCount}
                                   onToggle={toggleProjectGroup}
+                                  onContextMenu={handleProjectGroupContextMenu}
                                 />,
                               );
                             }

@@ -436,6 +436,8 @@ interface UiStateStore extends UiState {
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
   ) => void;
+  /** Fork: replaces the saved project order, for the grouped sidebar's move menu. */
+  setProjectOrder: (projectOrder: readonly string[]) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -457,6 +459,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
     ),
+  setProjectOrder: (projectOrder) =>
+    set((state) => ({ ...state, projectOrder: [...projectOrder] })),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

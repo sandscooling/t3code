@@ -3,6 +3,7 @@ import type { SortingStrategy } from "@dnd-kit/sortable";
 import {
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
+  moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
 } from "./Sidebar.groups";
@@ -76,6 +77,30 @@ describe("grouped sidebar list", () => {
   it("gives group ids no colon, since scoped thread keys own it", () => {
     expect(sidebarGroupId("env-1:project/a b")).not.toContain(":");
     expect(sidebarGroupId("a:b")).not.toBe(sidebarGroupId("a_b"));
+  });
+});
+
+describe("moving a project group", () => {
+  // b and d have no open threads, so they have no header on screen.
+  const order = ["a", "b", "c", "d", "e"];
+  const visible = new Set(["a", "c", "e"]);
+  const move = (item: string, direction: "top" | "up" | "down" | "bottom") =>
+    moveSidebarGroup({ order, visible, item, move: direction });
+
+  it("steps over hidden groups, so every move changes what is on screen", () => {
+    expect(move("e", "up")).toEqual(["a", "b", "e", "c", "d"]);
+    expect(move("a", "down")).toEqual(["b", "c", "a", "d", "e"]);
+  });
+
+  it("moves to either end of the visible groups", () => {
+    expect(move("c", "top")).toEqual(["c", "a", "b", "d", "e"]);
+    expect(move("c", "bottom")).toEqual(["a", "b", "d", "e", "c"]);
+  });
+
+  it("leaves the order alone at an edge or for a group that is not shown", () => {
+    expect(move("a", "up")).toEqual(order);
+    expect(move("e", "bottom")).toEqual(order);
+    expect(move("b", "top")).toEqual(order);
   });
 });
 
