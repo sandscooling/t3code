@@ -6,6 +6,8 @@ import {
   SessionModelsResult,
   SessionProjectsInput,
   SessionProjectsResult,
+  SessionRenameInput,
+  SessionRenameResult,
   SessionSettleInput,
   SessionSettleResult,
   SessionSpawnInput,
@@ -113,6 +115,20 @@ export const SessionSettleTool = Tool.make("session_settle", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+export const SessionRenameTool = Tool.make("session_rename", {
+  description:
+    "Rename a session: by name in your own project, or by the threadId session_list reports in any project. You can rename yourself. The new name follows session_spawn's rules and must not be held by any other open or settled session in that project; to reuse a settled session's name, rename that session first. After a handoff, this is how a successor takes the old name: settle the old orchestrator, rename it, then rename yourself. The title changes at once, but a Claude session's peer name only follows the next time its process starts, so hand other sessions your threadId, which never changes.",
+  parameters: SessionRenameInput,
+  success: SessionRenameResult,
+  failure: OrchestrationToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Rename a session")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionModelsTool,
@@ -120,4 +136,5 @@ export const OrchestrationToolkit = Toolkit.make(
   SessionListTool,
   SessionWakeTool,
   SessionSettleTool,
+  SessionRenameTool,
 );

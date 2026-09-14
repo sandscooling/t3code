@@ -221,6 +221,22 @@ export const SessionSettleResult = Schema.Struct({
 });
 export type SessionSettleResult = typeof SessionSettleResult.Type;
 
+export const SessionRenameInput = Schema.Struct({
+  session: SessionRef,
+  name: SessionName.annotate({
+    description:
+      "The new name. Same rules as session_spawn: letters, digits, dot, underscore, hyphen; 1 to 64 characters. No other open or settled session in that project may hold it.",
+  }),
+});
+export type SessionRenameInput = typeof SessionRenameInput.Type;
+
+export const SessionRenameResult = Schema.Struct({
+  threadId: Schema.String,
+  name: Schema.String,
+  previousName: Schema.String,
+});
+export type SessionRenameResult = typeof SessionRenameResult.Type;
+
 export const OrchestrationToolErrorReason = Schema.Literals([
   "capability-unavailable",
   "invalid-name",

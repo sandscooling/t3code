@@ -496,6 +496,39 @@ const handlers = {
       );
       return { threadId: target.id, name: target.title };
     }),
+
+  session_rename: (input) =>
+    Effect.gen(function* () {
+      const { caller, threads } = yield* requireScope;
+      const target = yield* resolveSession(threads, caller, input.session);
+      const previousName = target.title;
+      if (previousName === input.name) {
+        return { threadId: target.id, name: input.name, previousName };
+      }
+      // Names are addresses, so a rename keeps spawn's rule: unique in the
+      // project, settled sessions included, since session_wake still reaches
+      // those by name.
+      const clash = threads.find(
+        (thread) =>
+          thread.projectId === target.projectId &&
+          thread.id !== target.id &&
+          thread.title === input.name,
+      );
+      if (clash !== undefined) {
+        return yield* toolError(
+          "already-exists",
+          clash.settledOverride === "settled"
+            ? `a settled session named ${input.name} still holds that name; rename it first, by its threadId ${clash.id}, or archive it`
+            : `an open session named ${input.name} already exists`,
+        );
+      }
+      const engine = yield* OrchestrationEngineService;
+      const commandId = yield* serverCommandId("thread-rename");
+      yield* engine
+        .dispatch({ type: "thread.meta.update", commandId, threadId: target.id, title: input.name })
+        .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
+      return { threadId: target.id, name: input.name, previousName };
+    }),
 } satisfies Parameters<typeof OrchestrationToolkit.toLayer>[0];
 
 export const OrchestrationToolkitHandlersLive = OrchestrationToolkit.toLayer(handlers);

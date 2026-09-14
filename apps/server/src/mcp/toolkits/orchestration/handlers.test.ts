@@ -719,6 +719,76 @@ it.effect("settles a finished session by name and by threadId", () =>
   ),
 );
 
+it.effect("renames a session by name and by threadId, including the caller itself", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const byName = yield* callTool("session_rename", {
+        session: "T-1234-review",
+        name: "T-1234-review-old",
+      }).pipe(Effect.provide(harness.layer));
+      expect(byName.isError).toBe(false);
+      expect(byName.structuredContent).toEqual({
+        threadId: "thread-review",
+        name: "T-1234-review-old",
+        previousName: "T-1234-review",
+      });
+      expect(harness.dispatched[0]).toMatchObject({
+        type: "thread.meta.update",
+        threadId: "thread-review",
+        title: "T-1234-review-old",
+      });
+
+      const self = yield* callTool("session_rename", {
+        session: "thread-orchestrator",
+        name: "Orchestrator",
+      }).pipe(Effect.provide(harness.layer));
+      expect(self.isError).toBe(false);
+      expect(harness.dispatched[1]).toMatchObject({
+        type: "thread.meta.update",
+        threadId: "thread-orchestrator",
+        title: "Orchestrator",
+      });
+
+      // Renaming to the name it already has writes nothing.
+      const unchanged = yield* callTool("session_rename", {
+        session: "T-1234-dev",
+        name: "T-1234-dev",
+      }).pipe(Effect.provide(harness.layer));
+      expect(unchanged.isError).toBe(false);
+      expect(harness.dispatched).toHaveLength(2);
+    }),
+  ),
+);
+
+it.effect("refuses a rename onto a name another session holds, settled or open", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        shell({ id: "thread-orchestrator", title: "orchestrator-2", status: "running" }),
+        shell({ id: "thread-old", title: "Orchestrator", settled: true }),
+        shell({ id: "thread-dev", title: "T-1234-dev" }),
+      ]);
+      const settledClash = yield* callTool("session_rename", {
+        session: "orchestrator-2",
+        name: "Orchestrator",
+      }).pipe(Effect.provide(harness.layer));
+      expect(settledClash.isError).toBe(true);
+      expect(errorText(settledClash)).toContain("already-exists");
+      // Points the agent at the way out: rename the settled holder first.
+      expect(errorText(settledClash)).toContain("thread-old");
+
+      const openClash = yield* callTool("session_rename", {
+        session: "orchestrator-2",
+        name: "T-1234-dev",
+      }).pipe(Effect.provide(harness.layer));
+      expect(openClash.isError).toBe(true);
+      expect(errorText(openClash)).toContain("already-exists");
+      expect(harness.dispatched).toHaveLength(0);
+    }),
+  ),
+);
+
 it.effect("refuses to settle the caller, which is running by definition", () =>
   Effect.scoped(
     Effect.gen(function* () {

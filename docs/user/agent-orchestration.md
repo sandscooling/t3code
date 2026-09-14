@@ -11,7 +11,7 @@ the tools it was given.
 
 ## The tools
 
-With the setting on, every agent session gets six tools:
+With the setting on, every agent session gets seven tools:
 
 - **session_spawn** starts a new session, titled with the name you give it, filed under a group,
   and kicked off with an opening message. It starts in the caller's project unless the agent names
@@ -35,6 +35,9 @@ With the setting on, every agent session gets six tools:
   running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
   cannot hide work you still need to see. A session cannot settle itself, because its own turn is
   running while it asks.
+- **session_rename** renames a session, including the caller itself. The new name follows the same
+  rules as a spawned session's name, and no other open or settled session in that project may
+  hold it. To reuse a settled session's name, rename that session first.
 
 Names and groups use letters, digits, dots, underscores, and hyphens only, so a ticket id such
 as `T-1234` works well as a group and `T-1234-dev` as a name.
@@ -48,7 +51,8 @@ project it runs in.
 ## What stays stable
 
 A session started this way keeps its title. Automatic titling never replaces it, so the name
-the orchestrator used is the name it can keep using.
+the orchestrator used is the name it can keep using until someone renames it. A thread id never
+changes, so it is the address to hand out when a name might.
 
 For Claude Code sessions whose title is a valid session name (no spaces), the title is also the
 name other Claude sessions see and can message, and it survives restarts: a session that stops
@@ -96,15 +100,15 @@ There is no separate way to adopt sessions. They move only inside the handoff ca
 1. **Collect the state.** Call **session_list** for every project the work touches (or `*`), and
    note each open session's name, threadId, project, group, and status, plus which of them are
    waiting on you or on each other.
-2. **Pick a successor name.** It must differ from every open or settled session in the project,
-   including the old orchestrator's own name, which stays taken until that thread is archived.
-   `orchestrator-2` is a good pattern.
+2. **Pick a temporary successor name.** It must differ from every open or settled session in the
+   project, including the old orchestrator's own name, which is still taken during the handoff.
+   `orchestrator-2` is a good pattern. The successor takes the old name back at the end.
 3. **Write the opening message.** It is the successor's only context, so include:
    - the goal and the current plan, and the decisions already made
    - the roster from step 1, with what each session is doing and what it is waiting for
    - anything in flight: messages sent but not answered, reviews pending, commits not yet made
    - the old orchestrator's name and threadId
-   - the successor's first actions, in order: steps 1 to 3 of the next list
+   - the successor's first actions, in order: steps 1 to 4 of the next list
 4. **Call session_spawn** with the successor name, a group, the message, and `handoff: true`.
 5. **Check the result before anything else.** If the old orchestrator had spawned sessions, their
    names must appear in `adopted`. If `adopted` is empty, the handoff did not happen and the
@@ -119,8 +123,16 @@ There is no separate way to adopt sessions. They move only inside the handoff ca
    orchestrator's name or threadId, and those still point at the old thread. Call **session_wake**
    on each adopted session with a short message naming you as the new orchestrator and your
    threadId. Skip settled ones unless you need them again.
-3. **Settle the old orchestrator** with **session_settle**, by name or threadId. If it is refused
-   as still running, its turn has not ended yet; wait and try again. Its moved sessions stay open.
+3. **Settle the old orchestrator** with **session_settle**, by threadId. If it is refused as still
+   running, its turn has not ended yet; wait and try again. Its moved sessions stay open.
+4. **Take the old name.** Only after the settle succeeds:
+   - rename the old orchestrator with **session_rename**, by its threadId, to a retired name such
+     as `Orchestrator-2026-09-13`
+   - rename yourself to the old name, for example from `orchestrator-2` to `Orchestrator`
+
+   The title changes at once. A Claude session's peer name, which other Claude sessions use to
+   message it, only follows the next time its process starts, so until then it still answers to
+   the temporary name. That is why step 2 hands out your threadId rather than a name.
 
 ### If something goes wrong
 

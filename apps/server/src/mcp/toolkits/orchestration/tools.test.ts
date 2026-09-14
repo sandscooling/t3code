@@ -46,4 +46,5 @@ it("marks only the listing tools as read-only", () => {
   expect(readonly("session_spawn")).toBe(false);
   expect(readonly("session_wake")).toBe(false);
   expect(readonly("session_settle")).toBe(false);
+  expect(readonly("session_rename")).toBe(false);
 });
