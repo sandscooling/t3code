@@ -547,6 +547,18 @@ describe("ClientSettings composer collapse", () => {
   });
 });
 
+describe("ClientSettings timeline minimap", () => {
+  it("shows the minimap by default and accepts turning it off", () => {
+    expect(decodeClientSettings({}).timelineMinimapEnabled).toBe(true);
+    expect(decodeClientSettings({ timelineMinimapEnabled: false }).timelineMinimapEnabled).toBe(
+      false,
+    );
+    expect(
+      decodeClientSettingsPatch({ timelineMinimapEnabled: false }).timelineMinimapEnabled,
+    ).toBe(false);
+  });
+});
+
 describe("ServerSettings thread settlement", () => {
   it("defaults merge settlement on and inactivity settlement to three days", () => {
     const settings = decodeServerSettings({});

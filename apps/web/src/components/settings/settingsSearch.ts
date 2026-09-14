@@ -298,6 +298,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
   },
   {
+    id: "timeline-minimap",
+    title: "Show message minimap",
+    to: "/settings/general",
+    searchTerms: ["minimap jump navigation markers strip timeline conversation messages hide"],
+  },
+  {
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",
