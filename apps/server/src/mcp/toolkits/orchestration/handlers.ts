@@ -296,8 +296,11 @@ const handlers = {
 
       // The caller stays out of the group on purpose: one orchestrator drives
       // many tickets, and groups are the tickets, not the driver. It is the
-      // parent instead, which is what lets the sidebar nest each ticket's
-      // group under the session that started it.
+      // parent instead, so settling it settles what it started. A handoff
+      // makes the new session the caller's sibling, since settling the old
+      // orchestrator must not take its successor with it.
+      const handoff = input.handoff === true;
+      const parentThreadId = handoff ? (caller.parentThreadId ?? null) : caller.id;
       const threadId = ThreadId.make(yield* randomId);
       const createdAt = yield* nowIso;
       yield* engine
@@ -313,7 +316,7 @@ const handlers = {
           branch: null,
           worktreePath: null,
           group: input.group,
-          parentThreadId: caller.id,
+          parentThreadId,
           createdAt,
         })
         .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
@@ -325,7 +328,7 @@ const handlers = {
         title: input.name,
         modelSelection,
         group: input.group,
-        parentThreadId: caller.id,
+        parentThreadId,
       };
       yield* startTurn(created, input.message).pipe(
         // A thread that never got its first turn is a draft nobody asked for.
@@ -341,6 +344,22 @@ const handlers = {
         ),
       );
 
+      // Only after the successor is running: a failed start deletes it, and a
+      // roster moved onto a deleted thread would settle with nothing.
+      const adopted = handoff
+        ? threads.filter((thread) => thread.parentThreadId === caller.id)
+        : [];
+      for (const child of adopted) {
+        yield* engine
+          .dispatch({
+            type: "thread.meta.update",
+            commandId: yield* serverCommandId("thread-adopt"),
+            threadId: child.id,
+            parentThreadId: threadId,
+          })
+          .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
+      }
+
       return {
         threadId,
         name: input.name,
@@ -349,6 +368,7 @@ const handlers = {
         instanceId: modelSelection.instanceId,
         model: modelSelection.model,
         options: modelSelection.options ?? [],
+        adopted: adopted.map((child) => child.title),
       };
     }),
 

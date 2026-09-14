@@ -113,6 +113,25 @@ export function requireThread(input: {
   );
 }
 
+/** A session's new parent must be another thread that exists. */
+export function requireParentThread(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+  readonly parentThreadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  if (input.parentThreadId === input.threadId) {
+    return Effect.fail(
+      invariantError(input.command.type, `Thread '${input.threadId}' cannot be its own parent.`),
+    );
+  }
+  return requireThread({
+    readModel: input.readModel,
+    command: input.command,
+    threadId: input.parentThreadId,
+  });
+}
+
 export function requireThreadArchived(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;

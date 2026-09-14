@@ -69,6 +69,12 @@ export const SessionSpawnInput = Schema.Struct({
         "Model options such as reasoning effort, as `{ id, value }` pairs from the model's options in session_models. Options you leave out take the model's defaults. Omit entirely to keep your own options when the model is unchanged.",
     }),
   ),
+  handoff: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Hand your work to the new session, to replace yourself when your context has grown too long. The new session becomes your sibling instead of your child, and every session you spawned moves to it, so settling you afterwards leaves them open. Put everything it needs to continue in `message`. You cannot settle yourself; once your turn ends, the new session can settle you with session_settle, retrying if you are still running.",
+    }),
+  ),
 });
 export type SessionSpawnInput = typeof SessionSpawnInput.Type;
 
@@ -81,6 +87,8 @@ export const SessionSpawnResult = Schema.Struct({
   instanceId: Schema.String,
   model: Schema.String,
   options: Schema.Array(SessionModelOptionSelection),
+  /** Names of the sessions a handoff moved to the new session; empty otherwise. */
+  adopted: Schema.Array(Schema.String),
 });
 export type SessionSpawnResult = typeof SessionSpawnResult.Type;
 

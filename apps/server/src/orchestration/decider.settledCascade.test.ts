@@ -187,6 +187,44 @@ it.layer(NodeServices.layer)("settling an orchestrator", (it) => {
     }),
   );
 
+  it.effect("moves a session to a new parent, and refuses itself or a missing parent", () =>
+    Effect.gen(function* () {
+      const readModel = makeReadModel([
+        makeThread({ id: "thread-orchestrator" }),
+        makeThread({ id: "thread-successor" }),
+        makeThread({ id: "thread-dev", parentThreadId: "thread-orchestrator" }),
+      ]);
+      const move = (parentThreadId: string) =>
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.meta.update",
+            commandId: CommandId.make("cmd-move"),
+            threadId: ThreadId.make("thread-dev"),
+            parentThreadId: ThreadId.make(parentThreadId),
+          },
+          readModel,
+        });
+
+      const result = yield* move("thread-successor");
+      const events = Array.isArray(result) ? result : [result];
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "thread.meta-updated",
+          payload: expect.objectContaining({
+            threadId: "thread-dev",
+            parentThreadId: "thread-successor",
+          }),
+        }),
+      ]);
+      expect((yield* Effect.flip(move("thread-dev")))._tag).toBe(
+        "OrchestrationCommandInvariantError",
+      );
+      expect((yield* Effect.flip(move("thread-missing")))._tag).toBe(
+        "OrchestrationCommandInvariantError",
+      );
+    }),
+  );
+
   it.effect("does not cascade on automatic settlement", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({

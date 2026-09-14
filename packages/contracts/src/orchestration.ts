@@ -1161,6 +1161,9 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Moves a session under another one, which is how a handoff hands an old
+  // orchestrator's roster to its successor. Null makes it top level.
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
 }).check(
   Schema.makeFilter(
@@ -1714,6 +1717,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   // No longer produced; kept so persisted events from before
   // thread.pull-request-linked still decode and replay into the link table.
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),

@@ -19,7 +19,8 @@ With the setting on, every agent session gets six tools:
   project's directory on its current checkout and inherits the calling session's permission mode. It also inherits the
   caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
-  session. The name must be unique among that project's open sessions.
+  session. The name must be unique among that project's open sessions. With the handoff option,
+  the new session replaces the caller instead; see below.
 - **session_models** lists the providers and models a spawned session can use, with each model's
   options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_projects** lists the projects on this server that the other tools can reach.
@@ -55,18 +56,20 @@ and is woken again comes back under the same name. That covers every spawned ses
 thread you title that way yourself. A single long-lived orchestrator works well titled
 `orchestrator`, driving one group per ticket.
 
-## What to expect in the sidebar
+## Settling what a session started
 
-The orchestrator holds everything it started. Its card carries a live count and a chevron:
-click the chevron to show or hide the sessions below it, and the whole nest travels with the
-newest session in it, so work in progress stays near the top of the list. Inside the nest the
-order is the order the orchestrator started them, which reads as the pipeline it is, and it
-holds still while the run proceeds. Sessions that share a group appear together under a header
-showing the group name and how many of its sessions are live, oldest ticket first. Each grouped session carries a small dot, green while a process is
-behind it and muted once it has stopped. Stopping a session with the stop button ends its
-process; it stays in the list and can be woken by the orchestrator or by sending it a message
-yourself.
+Each spawned session remembers the session that started it. Settling the orchestrator settles
+the sessions it started, so one click clears the whole ticket from the inbox. A session that is
+still running, or that is waiting on an answer from you, is left where it is rather than hidden.
 
-Settling the orchestrator settles the sessions it started, so one click clears the whole ticket
-from the inbox. A session that is still running, or that is waiting on an answer from you, is
-left where it is rather than hidden.
+Stopping a session with the stop button ends its process; it stays in the list and can be woken
+by the orchestrator or by sending it a message yourself.
+
+## Handing off a long-running orchestrator
+
+An orchestrator's history keeps growing. Instead of compacting it, ask it to hand off: it spawns
+a successor with the handoff option and puts everything the successor needs in the opening
+message. The successor sits beside the old orchestrator rather than under it, and every session
+the old one started moves to the successor. Settling the old orchestrator then leaves that work
+open. A session cannot settle itself, so the successor settles the old one once its turn ends,
+or you can settle it yourself.

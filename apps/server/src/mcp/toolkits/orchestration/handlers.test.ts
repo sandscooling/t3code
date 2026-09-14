@@ -61,6 +61,7 @@ function shell(input: {
   readonly title: string;
   readonly projectId?: ProjectId;
   readonly group?: string | null;
+  readonly parentThreadId?: string | null;
   readonly archivedAt?: string | null;
   readonly status?: "running" | "ready" | "stopped";
   readonly settled?: boolean;
@@ -75,6 +76,7 @@ function shell(input: {
     branch: null,
     worktreePath: null,
     group: input.group ?? null,
+    parentThreadId: input.parentThreadId == null ? null : ThreadId.make(input.parentThreadId),
     latestTurn: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -321,7 +323,9 @@ it.effect("spawns by creating the thread and starting its turn, leaving the call
         runtimeMode: "full-access",
         // No model inputs: an exact copy of the caller's selection.
         modelSelection: { instanceId: "claudeAgent", model: "claude-opus-5" },
+        parentThreadId: callerId,
       });
+      expect(result.structuredContent).toMatchObject({ adopted: [] });
       expect(String(create?.commandId)).toMatch(/^server:orchestration-thread-create:/);
       // No titleSeed: the title must never be eligible for auto-replacement.
       expect(turn).not.toHaveProperty("titleSeed");
@@ -331,6 +335,57 @@ it.effect("spawns by creating the thread and starting its turn, leaving the call
       if (turn?.type === "thread.turn.start" && create?.type === "thread.create") {
         expect(turn.threadId).toBe(create.threadId);
       }
+    }),
+  ),
+);
+
+it.effect("hands off: the successor is the caller's sibling and takes over its roster", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        shell({
+          id: "thread-orchestrator",
+          title: "orchestrator",
+          parentThreadId: "thread-root",
+          status: "running",
+        }),
+        shell({ id: "thread-dev", title: "T-1234-dev", parentThreadId: "thread-orchestrator" }),
+        shell({
+          id: "thread-review",
+          title: "T-1234-review",
+          parentThreadId: "thread-orchestrator",
+          settled: true,
+        }),
+        shell({ id: "thread-other", title: "other", parentThreadId: "thread-root" }),
+      ]);
+      const result = yield* callTool("session_spawn", {
+        name: "orchestrator-2",
+        group: "ops",
+        message: "Take over from orchestrator.",
+        handoff: true,
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        adopted: ["T-1234-dev", "T-1234-review"],
+      });
+      const [create, turn, ...moves] = harness.dispatched;
+      expect(turn?.type).toBe("thread.turn.start");
+      // Sibling: settling the old orchestrator must not reach its successor.
+      expect(create).toMatchObject({ type: "thread.create", parentThreadId: "thread-root" });
+      const successorId = create?.type === "thread.create" ? create.threadId : null;
+      expect(moves).toEqual([
+        expect.objectContaining({
+          type: "thread.meta.update",
+          threadId: "thread-dev",
+          parentThreadId: successorId,
+        }),
+        expect.objectContaining({
+          type: "thread.meta.update",
+          threadId: "thread-review",
+          parentThreadId: successorId,
+        }),
+      ]);
     }),
   ),
 );
