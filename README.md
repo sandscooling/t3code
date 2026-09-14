@@ -28,6 +28,7 @@ Behind the **Agent orchestration** setting, off by default:
 - The tasks banner stays up after you interrupt a turn.
 - Stopped turns are marked in the transcript.
 - The question panel scales with the appearance font size.
+- A setting to hide the message minimap beside the chat (Settings, General, "Show message minimap").
 - The chat releases its scroll anchor when a turn settles, so the final reply is not stranded above blank space. Remove when upstream issues #4619 and #5903 close.
 
 ### Threads and sidebar
