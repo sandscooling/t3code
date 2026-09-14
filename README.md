@@ -13,7 +13,7 @@ The branch is `kevlingo/features`, kept current by merging upstream `main`. When
 
 Behind the **Agent orchestration** setting, off by default:
 
-- MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_models`, `session_projects`.
+- MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_rename`, `session_models`, `session_projects`.
 - `session_spawn` can pick the provider, model and reasoning effort, and can start work in any project on the server.
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.
 - `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled.
