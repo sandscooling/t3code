@@ -12,43 +12,10 @@ import { IsoDateTime, ThreadId } from "./baseSchemas.ts";
  * agent rang is already written in its thread, and a ping replayed after a
  * reconnect would ring for work the user has long since answered.
  */
-/**
- * `custom` means the sound file the user picked; the rest are synthesised by
- * the client. A client that cannot reach the file falls back to `chime`, so an
- * unreadable file costs the tone rather than the ping.
- */
-export const AttentionSound = Schema.Literals(["chime", "ping", "alert", "knock", "custom"]);
+export const AttentionSound = Schema.Literals(["chime", "ping", "alert", "knock"]);
 export type AttentionSound = typeof AttentionSound.Type;
 
 export const DEFAULT_ATTENTION_SOUND: AttentionSound = "chime";
-
-/**
- * Audio the browser can play from a plain Audio element. Deliberately short:
- * every entry is a format Chromium decodes on all three desktop platforms, so
- * a file that passes this check plays everywhere the app runs.
- */
-const ATTENTION_SOUND_MIME_BY_EXTENSION = new Map([
-  [".aac", "audio/aac"],
-  [".flac", "audio/flac"],
-  [".m4a", "audio/mp4"],
-  [".mp3", "audio/mpeg"],
-  [".oga", "audio/ogg"],
-  [".ogg", "audio/ogg"],
-  [".opus", "audio/ogg"],
-  [".wav", "audio/wav"],
-  [".weba", "audio/webm"],
-]);
-
-/** Extensions without the dot, which is the shape a file dialog filter wants. */
-export const ATTENTION_SOUND_FILE_EXTENSIONS = [...ATTENTION_SOUND_MIME_BY_EXTENSION.keys()].map(
-  (extension) => extension.slice(1),
-);
-
-/** Null for anything the user should not be able to point the picker at. */
-export function attentionSoundMimeTypeFromExtension(extension: string): string | null {
-  if (!/^[.][a-z0-9]+$/i.test(extension)) return null;
-  return ATTENTION_SOUND_MIME_BY_EXTENSION.get(extension.toLowerCase()) ?? null;
-}
 
 /** Bounded so a runaway agent cannot push a wall of text into a toast. */
 export const ATTENTION_MESSAGE_MAX_LENGTH = 200;

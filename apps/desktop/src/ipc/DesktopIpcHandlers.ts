@@ -44,7 +44,6 @@ import {
   pasteAsText,
   probeRemoteEditors,
   pickFolder,
-  pickAttentionSound,
   showAttentionNotification,
   pickProjectFavicon,
   pickThemeFiles,
@@ -129,7 +128,6 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openExternal);
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(showAttentionNotification);
-  yield* ipc.handle(pickAttentionSound);
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(probeRemoteEditors);

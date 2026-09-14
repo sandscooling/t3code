@@ -18,7 +18,7 @@ type Tone = {
   readonly type: OscillatorType;
 };
 
-const TONES: Record<Exclude<AttentionSound, "custom">, Tone> = {
+const TONES: Record<AttentionSound, Tone> = {
   // A rising perfect fifth: the "someone is asking" sound.
   chime: { steps: [660, 990], stepSeconds: 0.16, gain: 0.14, type: "sine" },
   // One short note, for when a ping is expected and should not be a moment.
@@ -65,9 +65,7 @@ function getContext(): AudioContext | null {
 export function playAttentionSound(sound: AttentionSound): boolean {
   const context = getContext();
   if (context === null) return false;
-  // A caller that asks for the custom sound without a file to play gets the
-  // neutral tone: the ping matters more than which noise carries it.
-  const tone = TONES[sound === "custom" ? "chime" : sound];
+  const tone = TONES[sound];
   try {
     void context.resume();
     const startedAt = context.currentTime;
@@ -94,27 +92,8 @@ export function playAttentionSound(sound: AttentionSound): boolean {
   }
 }
 
-/**
- * Plays the user's own sound file from a signed asset URL.
- *
- * Resolves false when the file cannot be played at all, which is the caller's
- * cue to fall back to a tone: a renamed or deleted file must not cost the ping.
- * Playback is fire and forget past the first frame, so a file that starts and
- * then fails is treated as played.
- */
-export async function playAttentionSoundUrl(url: string): Promise<boolean> {
-  try {
-    const audio = new Audio(url);
-    audio.preload = "auto";
-    await audio.play();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Seconds a sound occupies, for tests and for anything that waits on one. */
 export function attentionSoundDurationSeconds(sound: AttentionSound): number {
-  const tone = TONES[sound === "custom" ? "chime" : sound];
+  const tone = TONES[sound];
   return tone.steps.length * tone.stepSeconds;
 }

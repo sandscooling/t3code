@@ -6,7 +6,6 @@ import {
   EDITORS,
   EditorId,
   PickedThemeFileSchema,
-  ATTENTION_SOUND_FILE_EXTENSIONS,
   DesktopAttentionNotificationSchema,
   PickFolderOptionsSchema,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
@@ -16,7 +15,6 @@ import {
   type PickedThemeFile,
 } from "@t3tools/contracts";
 import { WORKSPACE_IMAGE_PREVIEW_EXTENSIONS } from "@t3tools/shared/filePreview";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable } from "@t3tools/shared/shell";
 import * as NodeOS from "node:os";
 import * as FileSystem from "effect/FileSystem";
@@ -303,32 +301,6 @@ export const openExternal = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.openExternal")(function* (url) {
     const shell = yield* ElectronShell.ElectronShell;
     return yield* shell.openExternal(url);
-  }),
-});
-
-export const pickAttentionSound = DesktopIpc.makeIpcMethod({
-  channel: IpcChannels.PICK_ATTENTION_SOUND_CHANNEL,
-  payload: Schema.Undefined,
-  result: Schema.NullOr(Schema.String),
-  handler: Effect.fn("desktop.ipc.window.pickAttentionSound")(function* () {
-    const dialog = yield* ElectronDialog.ElectronDialog;
-    const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const path = yield* Path.Path;
-    const fileSystem = yield* FileSystem.FileSystem;
-    const platform = yield* HostProcessPlatform;
-    // Windows keeps its own notification sounds in the Media folder, which is
-    // the first place someone looks for a ding they already like.
-    const mediaDir = path.join(platform === "win32" ? "C:\\Windows" : NodeOS.homedir(), "Media");
-    const mediaDirExists = yield* fileSystem
-      .exists(mediaDir)
-      .pipe(Effect.orElseSucceed(() => false));
-    const paths = yield* dialog.pickFiles({
-      owner: yield* electronWindow.focusedMainOrFirst,
-      defaultPath: mediaDirExists ? Option.some(mediaDir) : Option.none(),
-      filters: [{ name: "Audio", extensions: [...ATTENTION_SOUND_FILE_EXTENSIONS] }],
-      multiple: false,
-    });
-    return paths[0] ?? null;
   }),
 });
 

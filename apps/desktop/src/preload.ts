@@ -148,7 +148,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.SET_WSL_BACKEND_ENABLED_CHANNEL, enabled),
   setWslDistro: (distro) => ipcRenderer.invoke(IpcChannels.SET_WSL_DISTRO_CHANNEL, distro),
   setWslOnly: (enabled) => ipcRenderer.invoke(IpcChannels.SET_WSL_ONLY_CHANNEL, enabled),
-  pickAttentionSound: () => ipcRenderer.invoke(IpcChannels.PICK_ATTENTION_SOUND_CHANNEL, undefined),
   showAttentionNotification: (input) =>
     ipcRenderer.invoke(IpcChannels.SHOW_ATTENTION_NOTIFICATION_CHANNEL, input),
   pickFolder: (options) => ipcRenderer.invoke(IpcChannels.PICK_FOLDER_CHANNEL, options),

@@ -1297,8 +1297,6 @@ export interface DesktopBridge {
    * does not have this method, so callers fall back to the in-app toast.
    */
   showAttentionNotification?: (input: DesktopAttentionNotification) => Promise<boolean>;
-  /** Absolute path to an audio file, or null when the dialog was dismissed. */
-  pickAttentionSound?: () => Promise<string | null>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   /** Optional while older desktop shells can host a newer web client. */
   pickProjectFavicon?: (initialPath?: string) => Promise<string | null>;

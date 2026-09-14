@@ -1044,14 +1044,6 @@ export const ServerSettings = Schema.Struct({
   agentAttentionSound: AttentionSound.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ATTENTION_SOUND)),
   ),
-  /**
-   * Absolute path to the user's own sound file, on the server host rather than
-   * on any one client: every attached client then rings with the same sound,
-   * and a phone can play a file only the desktop machine has.
-   */
-  agentAttentionSoundFile: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
   projectAgentBrowserAccessOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1380,7 +1372,6 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAgentOrchestration: Schema.optionalKey(Schema.Boolean),
   enableAgentAttentionAlerts: Schema.optionalKey(Schema.Boolean),
   agentAttentionSound: Schema.optionalKey(AttentionSound),
-  agentAttentionSoundFile: Schema.optionalKey(Schema.NullOr(Schema.String)),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),
   ),

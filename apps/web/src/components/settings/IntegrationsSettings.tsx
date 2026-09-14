@@ -69,8 +69,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { useAssetUrlState } from "~/assets/assetUrls";
-import { playAttentionSound, playAttentionSoundUrl } from "~/lib/attentionSound";
+import { playAttentionSound } from "~/lib/attentionSound";
 import { readLocalApi } from "~/localApi";
 
 import { toastManager } from "../ui/toast";
@@ -517,14 +516,7 @@ const ATTENTION_SOUND_LABELS: Record<AttentionSound, string> = {
   ping: "Ping",
   alert: "Alert",
   knock: "Knock",
-  custom: "Your own file",
 };
-
-/** Enough of the path to recognise the file, from the end that identifies it. */
-function attentionSoundFileLabel(path: string): string {
-  const segments = path.split(/[\\/]/).filter((segment) => segment.length > 0);
-  return segments.slice(-2).join("/") || path;
-}
 
 function AgentAttentionAlertsSetting() {
   const settings = usePrimarySettings();
@@ -569,49 +561,11 @@ function AgentAttentionSoundSetting() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const sound = settings.agentAttentionSound;
-  const soundFile = settings.agentAttentionSoundFile;
-  const soundResource =
-    sound === "custom" && soundFile !== null
-      ? ({ _tag: "attention-sound", path: soundFile } as const)
-      : null;
-  const primaryEnvironment = usePrimaryEnvironment();
-  const soundUrl = useAssetUrlState(primaryEnvironment?.environmentId ?? null, soundResource);
-  // `isElectron` is already false wherever there is no window, but a test
-  // renderer evaluates this line before that helps, so the guard is explicit.
-  const canBrowse =
-    typeof window !== "undefined" &&
-    isElectron &&
-    window.desktopBridge?.pickAttentionSound !== undefined;
-
-  const playChosenSound = () => {
-    if (sound === "custom" && soundUrl._tag === "Success") {
-      void playAttentionSoundUrl(soundUrl.url).then(
-        (played) => played || playAttentionSound("chime"),
-      );
-      return;
-    }
-    playAttentionSound(sound);
-  };
-
-  const browseForSound = async () => {
-    const picked = canBrowse ? await window.desktopBridge?.pickAttentionSound?.() : null;
-    if (!picked) return;
-    // The file and the choice move together: picking a file is what makes the
-    // custom option mean anything.
-    updateSettings({ agentAttentionSound: "custom", agentAttentionSoundFile: picked });
-  };
 
   return (
     <SettingsRow
       {...searchableSetting("agent-attention-sound")}
       description="Which sound a ping plays when the agent does not name one. Play it to hear the difference."
-      status={
-        sound === "custom" && soundFile !== null
-          ? soundUrl._tag === "Failure"
-            ? `${attentionSoundFileLabel(soundFile)} cannot be read; pings fall back to Chime.`
-            : attentionSoundFileLabel(soundFile)
-          : undefined
-      }
       resetAction={
         sound !== DEFAULT_UNIFIED_SETTINGS.agentAttentionSound ? (
           <SettingResetButton
@@ -628,16 +582,10 @@ function AgentAttentionSoundSetting() {
             value={sound}
             onValueChange={(next) => {
               const chosen = next as AttentionSound;
-              if (chosen === "custom" && soundFile === null) {
-                // Nothing to play yet: go straight to the picker rather than
-                // storing a choice that would fall back to a tone.
-                void browseForSound();
-                return;
-              }
               updateSettings({ agentAttentionSound: chosen });
               // Picking a sound you cannot hear is guesswork, so the choice
               // plays itself. This is also the gesture that unblocks autoplay.
-              if (chosen !== "custom") playAttentionSound(chosen);
+              playAttentionSound(chosen);
             }}
             disabled={!settings.enableAgentAttentionAlerts}
           >
@@ -645,30 +593,20 @@ function AgentAttentionSoundSetting() {
               <SelectValue>{ATTENTION_SOUND_LABELS[sound]}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false} className="min-w-40">
-              {(Object.keys(ATTENTION_SOUND_LABELS) as ReadonlyArray<AttentionSound>)
-                .filter((option) => option !== "custom" || canBrowse || soundFile !== null)
-                .map((option) => (
+              {(Object.keys(ATTENTION_SOUND_LABELS) as ReadonlyArray<AttentionSound>).map(
+                (option) => (
                   <SelectItem key={option} value={option}>
                     {ATTENTION_SOUND_LABELS[option]}
                   </SelectItem>
-                ))}
+                ),
+              )}
             </SelectPopup>
           </Select>
-          {sound === "custom" && canBrowse ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!settings.enableAgentAttentionAlerts}
-              onClick={() => void browseForSound()}
-            >
-              Browse
-            </Button>
-          ) : null}
           <Button
             size="sm"
             variant="outline"
             disabled={!settings.enableAgentAttentionAlerts}
-            onClick={playChosenSound}
+            onClick={() => playAttentionSound(sound)}
           >
             Play
           </Button>

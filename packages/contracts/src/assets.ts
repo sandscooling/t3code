@@ -41,13 +41,6 @@ export const AssetResource = Schema.Union([
         inline response after deciding the file type is safe to preview. */
     disposition: Schema.optionalKey(Schema.Literals(["inline", "attachment"])),
   }),
-  // Fork-only. The user's own notification sound, which the media-file route
-  // refuses because it serves images, video and documents rather than audio.
-  // Carries its path the way media-file does, and the server checks the
-  // extension against the audio list before it mints anything.
-  Schema.TaggedStruct("attention-sound", {
-    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
-  }),
   Schema.TaggedStruct("project-favicon", {
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     // A cache-key hint only. The server reads the authoritative path from the

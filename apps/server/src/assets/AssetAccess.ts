@@ -1,6 +1,5 @@
 import type { AssetResource } from "@t3tools/contracts";
 import {
-  attentionSoundMimeTypeFromExtension,
   AssetAttachmentNotFoundError,
   AssetPreviewTypeValidationError,
   AssetProjectFaviconInspectionError,
@@ -99,14 +98,6 @@ const AssetClaimsSchema = Schema.Union([
   Schema.Struct({
     version: Schema.Literal(1),
     kind: Schema.Literal("media-file-exact"),
-    filePath: Schema.String,
-    device: Schema.String,
-    inode: Schema.String,
-    expiresAt: Schema.Number,
-  }),
-  Schema.Struct({
-    version: Schema.Literal(1),
-    kind: Schema.Literal("attention-sound-exact"),
     filePath: Schema.String,
     device: Schema.String,
     inode: Schema.String,
@@ -444,48 +435,6 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       claims = finalized.claims;
       fileName = finalized.fileName;
       imageDimensions = finalized.imageDimensions;
-      break;
-    }
-    case "attention-sound": {
-      // Audio only, and only a real file: the extension check is what keeps
-      // this from becoming a second, wider read-anything route.
-      const requestedPath = input.resource.path;
-      if (!path.isAbsolute(requestedPath)) {
-        return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });
-      }
-      if (attentionSoundMimeTypeFromExtension(path.extname(requestedPath)) === null) {
-        return yield* new AssetPreviewTypeValidationError({ resource: input.resource });
-      }
-      const canonicalSound = yield* resolveCanonicalFile(requestedPath).pipe(
-        Effect.mapError(
-          (cause) => new AssetWorkspaceAssetInspectionError({ resource: input.resource, cause }),
-        ),
-      );
-      if (!canonicalSound) {
-        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
-      }
-      const openedSound = yield* openMediaFile(canonicalSound).pipe(
-        Effect.map((file) =>
-          file === null
-            ? null
-            : { device: file.info.dev.toString(), inode: file.info.ino.toString() },
-        ),
-        Effect.scoped,
-        Effect.mapError(
-          (cause) => new AssetWorkspaceAssetInspectionError({ resource: input.resource, cause }),
-        ),
-      );
-      if (!openedSound) {
-        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
-      }
-      claims = {
-        version: 1,
-        kind: "attention-sound-exact",
-        filePath: canonicalSound,
-        ...openedSound,
-        expiresAt,
-      };
-      fileName = path.basename(canonicalSound);
       break;
     }
     case "workspace-file": {
@@ -851,26 +800,6 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     );
     return file
       ? ({ kind: "file", path: canonicalFile, mimeType, file } satisfies ResolvedAsset)
-      : null;
-  }
-  if (claims.kind === "attention-sound-exact") {
-    if (decodedPath !== path.basename(claims.filePath)) return null;
-    const canonicalSound = yield* resolveCanonicalFile(claims.filePath).pipe(
-      Effect.orElseSucceed(() => null),
-    );
-    if (canonicalSound !== claims.filePath) return null;
-    const soundMimeType = attentionSoundMimeTypeFromExtension(path.extname(canonicalSound));
-    if (!soundMimeType) return null;
-    const soundFile = yield* openMediaFile(canonicalSound, claims).pipe(
-      Effect.orElseSucceed(() => null),
-    );
-    return soundFile
-      ? ({
-          kind: "file",
-          path: canonicalSound,
-          mimeType: soundMimeType,
-          file: soundFile,
-        } satisfies ResolvedAsset)
       : null;
   }
   if (claims.kind === "workspace-file-exact") {

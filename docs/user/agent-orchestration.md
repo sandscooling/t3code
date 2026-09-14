@@ -83,16 +83,9 @@ orchestration. Turn it off and pings are dropped server side, so an agent cannot
 device you silenced from another one.
 
 **Ping sound** picks the sound a ping plays when the agent does not name one: Chime, Ping,
-Alert, Knock, or your own file. Choosing one plays it, and the Play button repeats it. An agent
-can override the choice per call, so an orchestrator can keep Knock for routine questions and
-Alert for the one that blocks a release.
-
-Pick **Your own file** to use a sound you already have. Browse opens a file dialog on the
-machine running the server, starting in the Windows Media folder where the system sounds live.
-Anything Chromium can play works: wav, mp3, ogg, opus, m4a, aac, flac, weba. The file stays
-where it is and is read from the server host, so every client rings with the same sound,
-including a phone that has never seen the file. If the file is moved or renamed later, the row
-says so and pings fall back to Chime rather than going silent.
+Alert, or Knock. Choosing one plays it, and the Play button repeats it. An agent can override
+the choice per call, so an orchestrator can keep Knock for routine questions and Alert for the
+one that blocks a release.
 
 A ping older than two minutes never rings. Clients re-attach their subscription when a
 connection drops, and a sound for a question you answered an hour ago teaches you to ignore

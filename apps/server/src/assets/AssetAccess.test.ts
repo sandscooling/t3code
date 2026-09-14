@@ -83,48 +83,6 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
-  it.effect("serves the user's own notification sound, and only audio", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-attention-sound-" });
-
-      for (const [name, mimeType] of [
-        ["ding.wav", "audio/wav"],
-        ["ding.mp3", "audio/mpeg"],
-        ["ding.ogg", "audio/ogg"],
-      ] as const) {
-        const filePath = path.join(outside, name);
-        yield* fs.writeFileString(filePath, "audio");
-        const canonicalFile = yield* fs.realPath(filePath);
-        const result = yield* issueAssetUrl({
-          resource: { _tag: "attention-sound", path: filePath },
-        });
-        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
-        const separator = suffix.indexOf("/");
-        const token = suffix.slice(0, separator);
-        expect(yield* resolveAsset(token, suffix.slice(separator + 1))).toMatchObject({
-          kind: "file",
-          path: canonicalFile,
-          mimeType,
-        });
-        // The token names one file: a sibling in the same folder is not part of
-        // the grant, which is what keeps this from being a read-anything route.
-        yield* fs.writeFileString(path.join(outside, "private.wav"), "private");
-        expect(yield* resolveAsset(token, "private.wav")).toBeNull();
-      }
-
-      // The extension check is the whole boundary, so it is worth an assertion
-      // rather than trust: a settings file naming a script must not mint.
-      const scriptPath = path.join(outside, "payload.ps1");
-      yield* fs.writeFileString(scriptPath, "whoami");
-      const rejected = yield* Effect.flip(
-        issueAssetUrl({ resource: { _tag: "attention-sound", path: scriptPath } }),
-      );
-      expect(rejected).toBeInstanceOf(AssetPreviewTypeValidationError);
-    }).pipe(Effect.provide(testLayer)),
-  );
-
   it.effect("reports pixel dimensions from an image header and nothing for other files", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
