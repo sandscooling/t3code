@@ -506,6 +506,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarCompactThreadRows !== DEFAULT_UNIFIED_SETTINGS.sidebarCompactThreadRows
         ? ["Compact sidebar"]
         : []),
+      ...(settings.sidebarGroupThreadsByProject !==
+      DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject
+        ? ["Group threads by project"]
+        : []),
       ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
         ? ["Contrast"]
         : []),
@@ -658,6 +662,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarCompactThreadRows,
+      settings.sidebarGroupThreadsByProject,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
@@ -755,6 +760,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarCompactThreadRows: DEFAULT_UNIFIED_SETTINGS.sidebarCompactThreadRows,
+      sidebarGroupThreadsByProject: DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       enableLegacyTokenStreaming: DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming,
@@ -1452,6 +1458,33 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("sidebar-group-by-project")}
+          description="Nest pinned, active, and snoozed threads under a header for each project. Settled threads stay in one list at the bottom."
+          resetAction={
+            settings.sidebarGroupThreadsByProject !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject ? (
+              <SettingResetButton
+                label="project groups"
+                onClick={() =>
+                  updateSettings({
+                    sidebarGroupThreadsByProject:
+                      DEFAULT_UNIFIED_SETTINGS.sidebarGroupThreadsByProject,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarGroupThreadsByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarGroupThreadsByProject: Boolean(checked) })
+              }
+              aria-label="Group threads by project"
+            />
           }
         />
       </SettingsSection>

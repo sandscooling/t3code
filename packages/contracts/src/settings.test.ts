@@ -559,6 +559,19 @@ describe("ClientSettings timeline minimap", () => {
   });
 });
 
+describe("ClientSettings sidebar project groups", () => {
+  it("keeps the flat sidebar by default and accepts grouping by project", () => {
+    expect(decodeClientSettings({}).sidebarGroupThreadsByProject).toBe(false);
+    expect(
+      decodeClientSettings({ sidebarGroupThreadsByProject: true }).sidebarGroupThreadsByProject,
+    ).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ sidebarGroupThreadsByProject: true })
+        .sidebarGroupThreadsByProject,
+    ).toBe(true);
+  });
+});
+
 describe("ServerSettings thread settlement", () => {
   it("defaults merge settlement on and inactivity settlement to three days", () => {
     const settings = decodeServerSettings({});

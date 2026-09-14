@@ -38,13 +38,23 @@ export function createSidebarCollisionDetection(
   const sections = new Map<string, SidebarSection | null>();
   let previousPointerY = options.activationY;
   let boundarySection: "pinned" | "active" | undefined;
+  // Fork: grouped lists namespace their markers, so read the ids off the items.
+  const markerId = (name: SidebarListMarker) => {
+    const item = options.items?.find(
+      (candidate) => candidate.kind === "marker" && candidate.marker === name,
+    );
+    return item === undefined ? sidebarMarkerId(name) : sidebarListItemId(item);
+  };
+  const dividerId = markerId("pinned-divider");
+  const snoozedHeaderId = markerId("snoozed-header");
+  const settledHeaderId = markerId("settled-header");
   return (args) => {
     let collisions = closestCenter(args);
     const pointer = args.pointerCoordinates;
     const items = options.items;
     const source = items?.find((item) => item.kind === "thread" && item.key === args.active.id);
     const boundary = args.droppableContainers
-      .find((container) => container.id === sidebarMarkerId("pinned-divider"))
+      .find((container) => container.id === dividerId)
       ?.node.current?.querySelector(".sidebar-drag-boundary-label")
       ?.getBoundingClientRect();
     if (items && boundary && source?.kind === "thread" && pointer) {
@@ -58,12 +68,8 @@ export function createSidebarCollisionDetection(
         if (pointer.y < previousY && pointer.y <= boundary.bottom) boundarySection = "pinned";
         else if (pointer.y > previousY && pointer.y >= boundary.top) boundarySection = "active";
         const nextHeader =
-          args.droppableContainers.find(
-            (container) => container.id === sidebarMarkerId("snoozed-header"),
-          ) ??
-          args.droppableContainers.find(
-            (container) => container.id === sidebarMarkerId("settled-header"),
-          );
+          args.droppableContainers.find((container) => container.id === snoozedHeaderId) ??
+          args.droppableContainers.find((container) => container.id === settledHeaderId);
         const activeBottom = nextHeader?.node.current?.getBoundingClientRect().top;
         if (boundarySection === "pinned" || (activeBottom != null && pointer.y < activeBottom)) {
           const target = collisions.find((collision) => {

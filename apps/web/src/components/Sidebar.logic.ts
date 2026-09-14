@@ -108,18 +108,21 @@ export type SidebarListMarker =
   /** The boundary between pinned and active rows. */
   | "pinned-divider"
   | "snoozed-header"
-  | "settled-header";
+  | "settled-header"
+  /** Fork: the header above one project's rows when grouping by project. */
+  | "group-header";
 
-export function sidebarMarkerId(marker: SidebarListMarker): string {
-  return `${SIDEBAR_MARKER_PREFIX}${marker}`;
+/** Fork: `group` namespaces a project group's markers (see Sidebar.groups). */
+export function sidebarMarkerId(marker: SidebarListMarker, group?: string): string {
+  return `${SIDEBAR_MARKER_PREFIX}${marker}${group === undefined ? "" : `-${group}`}`;
 }
 
 export type SidebarListItem =
   | { readonly kind: "thread"; readonly key: string; readonly section: SidebarSection }
-  | { readonly kind: "marker"; readonly marker: SidebarListMarker };
+  | { readonly kind: "marker"; readonly marker: SidebarListMarker; readonly group?: string };
 
 export function sidebarListItemId(item: SidebarListItem): string {
-  return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
+  return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker, item.group);
 }
 
 /** The section a slot belongs to, read off the markers around it: from

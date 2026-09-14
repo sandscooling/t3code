@@ -417,6 +417,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["response output old compatibility"],
   },
   {
+    id: "sidebar-group-by-project",
+    title: "Group threads by project",
+    to: "/settings/appearance",
+    searchTerms: [
+      "sidebar project groups headers nest fold collapse working pinned active snoozed",
+    ],
+  },
+  {
     id: "legacy-sidebar",
     title: "Sidebar (legacy)",
     to: "/settings/general",
