@@ -547,18 +547,6 @@ describe("ClientSettings composer collapse", () => {
   });
 });
 
-describe("ClientSettings timeline minimap", () => {
-  it("shows the minimap by default and accepts turning it off", () => {
-    expect(decodeClientSettings({}).timelineMinimapEnabled).toBe(true);
-    expect(decodeClientSettings({ timelineMinimapEnabled: false }).timelineMinimapEnabled).toBe(
-      false,
-    );
-    expect(
-      decodeClientSettingsPatch({ timelineMinimapEnabled: false }).timelineMinimapEnabled,
-    ).toBe(false);
-  });
-});
-
 describe("ClientSettings sidebar project groups", () => {
   it("keeps the flat sidebar by default and accepts grouping by project", () => {
     expect(decodeClientSettings({}).sidebarGroupThreadsByProject).toBe(false);

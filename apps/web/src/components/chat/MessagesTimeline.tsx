@@ -230,7 +230,6 @@ import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
-import { useClientSettings } from "~/hooks/useSettings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 
 import { SkillInlineText } from "./SkillInlineText";
@@ -688,12 +687,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     liveAgentTaskIds,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
-  const minimapEnabled = useClientSettings((settings) => settings.timelineMinimapEnabled);
-  // Disabled means no items at all, which skips the strip and its scroll tracking.
-  const minimapItems = useMemo(
-    () => (minimapEnabled ? deriveTimelineMinimapItems(rows) : []),
-    [minimapEnabled, rows],
-  );
+  const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );

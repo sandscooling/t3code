@@ -35,7 +35,6 @@ const clientSettings: ClientSettings = {
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
   composerCollapseOnScroll: true,
-  timelineMinimapEnabled: true,
   sidebarGroupThreadsByProject: false,
   dismissedProviderUpdateNotificationKeys: [],
   diffFilesCollapsed: true,
