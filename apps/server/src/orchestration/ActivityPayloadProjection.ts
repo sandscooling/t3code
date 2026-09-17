@@ -699,11 +699,17 @@ function rateLimitWindowKinds(activity: OrchestrationThreadActivity): ReadonlyAr
 
 export function projectThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
+  reasoningMessages = true,
 ): OrchestrationThreadDetailSnapshot {
   return {
     ...snapshot,
     thread: {
       ...snapshot.thread,
+      messages: reasoningMessages
+        ? snapshot.thread.messages
+        : snapshot.thread.messages.map((message) =>
+            message.role === "reasoning" ? { ...message, role: "system" as const } : message,
+          ),
       activities: dropSupersededToolUpdatedActivities(
         dropStaleRateLimitActivities(dropStaleContextWindowActivities(snapshot.thread.activities)),
       ).map(projectActivityPayload),
@@ -711,7 +717,19 @@ export function projectThreadDetailSnapshot(
   };
 }
 
-export function projectActivityEvent(event: OrchestrationEvent): OrchestrationEvent {
+export function projectActivityEvent(
+  event: OrchestrationEvent,
+  reasoningMessages = true,
+): OrchestrationEvent {
+  // Preserve sequence watermarks and message identities for clients whose role
+  // decoder predates reasoning. Filtering would strand their history pages.
+  if (
+    !reasoningMessages &&
+    event.type === "thread.message-sent" &&
+    event.payload.role === "reasoning"
+  ) {
+    return { ...event, payload: { ...event.payload, role: "system" } };
+  }
   if (event.type !== "thread.activity-appended") {
     return event;
   }
