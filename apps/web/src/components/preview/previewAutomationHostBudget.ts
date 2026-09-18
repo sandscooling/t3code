@@ -14,6 +14,21 @@ export function resolveHostWaitBudgetMs(requestTimeoutMs: number): number {
   return Math.max(0, requestTimeoutMs - reservedMs);
 }
 
+/**
+ * Timeout for an in-page wait. The broker arms the request's own timeout and
+ * evicts this host when it expires, so a wait allowed to run the full length
+ * always loses that race. Ending inside the host deadline lets the "did not
+ * match" failure reach the agent instead.
+ */
+export function resolveInPageWaitTimeoutMs(
+  requestedTimeoutMs: number | undefined,
+  hostDeadlineMs: number,
+  nowMs: number,
+): number {
+  const remainingMs = Math.max(1, Math.floor(hostDeadlineMs - nowMs));
+  return Math.min(requestedTimeoutMs ?? remainingMs, remainingMs);
+}
+
 /** Both readiness probes and polling delays share the request's host deadline. */
 export async function waitForHostReadiness(
   deadlineMs: number,
