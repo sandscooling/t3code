@@ -181,7 +181,6 @@ import {
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
-  isSidebarThreadLive,
   sortThreadsForSidebar,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
@@ -1714,19 +1713,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       </TooltipPopup>
     </Tooltip>
   ) : null;
-  // Grouped rows are a roster, so say whether a process is behind each one.
-  const liveDot =
-    thread.group != null ? (
-      <span
-        role="img"
-        aria-label={isSidebarThreadLive(thread.session) ? "Session live" : "Session stopped"}
-        data-testid={`sidebar-live-dot-${thread.id}`}
-        className={cn(
-          "inline-block size-1.5 shrink-0 rounded-full",
-          isSidebarThreadLive(thread.session) ? "bg-emerald-500" : "bg-muted-foreground/40",
-        )}
-      />
-    ) : null;
   // Same pen the new-thread draft rows lead with, so both kinds of unsent
   // work read the same way in the list.
   const draftIndicator = hasUnsentDraft ? (
@@ -1820,7 +1806,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {pinIndicator}
             {terminalStatusIcon}
             {browserStatusIcon}
-            {liveDot}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
                 Regenerating title
@@ -2140,7 +2125,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {nestToggle}
               {terminalStatusIcon}
               {browserStatusIcon}
-              {liveDot}
               {prBadge}
               {diff ? (
                 <span className="shrink-0 font-mono">
