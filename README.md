@@ -55,6 +55,7 @@ Behind the **Agent orchestration** setting, off by default:
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
 - Old rate limit rows are pruned from thread activity.
+- A question whose agent died (a crash or restart) clears instead of locking the thread forever. From open upstream PR [#10586](https://github.com/pingdotgg/t3code/pull/10586).
 - The desktop build accepts the workspace config again (`msgpackr-extract` build permission). From open upstream PR [#12435](https://github.com/pingdotgg/t3code/pull/12435).
 
 ### Windows test suite
