@@ -1,6 +1,7 @@
 import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
 import { formatResetsIn } from "@t3tools/shared/usageLimits";
 
+import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
@@ -69,6 +70,16 @@ function WindowRow(props: { window: ServerProviderUsageWindow; now: number }) {
 }
 
 /**
+ * The popover's rows, timed against the shared minute clock. The pill can sit
+ * unrendered for an hour while a thread idles, so reading the clock in the pill
+ * made every reset look that much further away when the popover opened.
+ */
+function WindowRows(props: { windows: ReadonlyArray<ServerProviderUsageWindow> }) {
+  const now = Date.parse(`${useNowMinute()}:00.000Z`);
+  return props.windows.map((window) => <WindowRow key={window.id} window={window} now={now} />);
+}
+
+/**
  * Plan usage windows (session / weekly) beside the context meter, read from the
  * provider instance's own limits snapshot. Providers report utilization only,
  * so every figure here is a percentage plus a reset time.
@@ -82,7 +93,6 @@ export function RateLimitMeter(props: {
   if (!peak) {
     return null;
   }
-  const now = Date.now();
   const peakPercent = formatPercent(peak.usedPercent);
 
   return (
@@ -126,9 +136,7 @@ export function RateLimitMeter(props: {
               <div className="text-[11px] text-muted-foreground/70">{providerDisplayName}</div>
             ) : null}
           </div>
-          {limits.windows.map((window) => (
-            <WindowRow key={window.id} window={window} now={now} />
-          ))}
+          <WindowRows windows={limits.windows} />
           <div className="mt-1 text-pretty text-[11px] font-medium text-muted-foreground/70">
             {providerDisplayName ?? "This provider"} reports how much of each window is used, not
             the size of the limit.
