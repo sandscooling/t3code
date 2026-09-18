@@ -6363,6 +6363,18 @@ export default function ChatView(props: ChatViewProps) {
           : "Background work"
         : "Monitoring",
       ...(namedTask?.title ? { description: namedTask.title } : {}),
+      ...(namedTask?.title && namedTask.command
+        ? {
+            details: (
+              <div className="flex flex-col gap-1.5">
+                <span>{namedTask.title}</span>
+                <code className="block whitespace-pre-wrap rounded-md bg-foreground/8 px-2 py-1.5 font-mono text-xs">
+                  {namedTask.command}
+                </code>
+              </div>
+            ),
+          }
+        : {}),
       actions: (
         <>
           {namedTask ? (
