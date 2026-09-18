@@ -131,6 +131,7 @@ import {
   deriveTimelineEntriesWithState,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLiveBackgroundTasks,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   deriveTurnInterruptionNotice,
@@ -139,6 +140,7 @@ import {
   selectHandoffImageResources,
   type TimelineEntriesProjection,
 } from "../session-logic";
+import { LiveElapsed } from "./AgentElapsed";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
@@ -6330,12 +6332,21 @@ export default function ChatView(props: ChatViewProps) {
       }
     }
   }, [activeThread, environmentId, interruptThreadTurn, setThreadError]);
+  const liveBackgroundTasks = useMemo(
+    () => (activeBackgroundLiveness === null ? [] : deriveLiveBackgroundTasks(threadActivities)),
+    [activeBackgroundLiveness, threadActivities],
+  );
   const backgroundLivenessBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
     if (activeBackgroundLiveness === null || !activeThread) {
       return null;
     }
     const working = activeBackgroundLiveness === "working";
     const liveCount = agentPanelModel.liveCount;
+    // Agents carry their own clocks in the activity feed; the banner names a
+    // watch loop only when no agent is the headline. The newest one leads,
+    // since it is the one the agent just started waiting on.
+    const namedTask = liveCount === 0 ? (liveBackgroundTasks.at(-1) ?? null) : null;
+    const otherTaskCount = liveBackgroundTasks.length - 1;
     return {
       id: `background-liveness:${activeThread.id}`,
       variant: "default",
@@ -6351,15 +6362,30 @@ export default function ChatView(props: ChatViewProps) {
           ? `${liveCount} ${liveCount === 1 ? "agent" : "agents"} working`
           : "Background work"
         : "Monitoring",
+      ...(namedTask?.title ? { description: namedTask.title } : {}),
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={isStoppingBackgroundWork}
-          onClick={() => void handleStopBackgroundWork()}
-        >
-          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        <>
+          {namedTask ? (
+            <LiveElapsed
+              startedAt={namedTask.startedAt}
+              className="shrink-0 font-mono text-xs text-muted-foreground/80"
+            />
+          ) : null}
+          {namedTask && otherTaskCount > 0 ? (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              +{otherTaskCount}
+              <span className="sr-only"> more running</span>
+            </span>
+          ) : null}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={isStoppingBackgroundWork}
+            onClick={() => void handleStopBackgroundWork()}
+          >
+            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+          </Button>
+        </>
       ),
     };
   }, [
@@ -6368,6 +6394,7 @@ export default function ChatView(props: ChatViewProps) {
     agentPanelModel.liveCount,
     handleStopBackgroundWork,
     isStoppingBackgroundWork,
+    liveBackgroundTasks,
   ]);
   // A woken thread announces itself in the open view, not just the sidebar
   // pill. Dismissing marks the wake as seen (same acknowledgment as the

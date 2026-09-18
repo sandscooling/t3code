@@ -37,21 +37,17 @@ export function isAgentTicking(status: RuntimeSubagent["status"]): boolean {
   return status === "running" || status === "waiting";
 }
 
-export function AgentElapsed({
-  agent,
+/** A clock counting up from `startedAt`, ticking by DOM write once a second. */
+export function LiveElapsed({
+  startedAt,
   className,
 }: {
-  readonly agent: RuntimeSubagent;
-  readonly className?: string;
+  readonly startedAt: string;
+  readonly className?: string | undefined;
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
-  const live = isAgentTicking(agent.status);
-  const startedAt = agent.startedAt;
 
   useEffect(() => {
-    if (!live || !startedAt) {
-      return;
-    }
     const update = () => {
       if (textRef.current) {
         textRef.current.textContent = elapsedBetween(startedAt, null);
@@ -60,14 +56,32 @@ export function AgentElapsed({
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [live, startedAt]);
+  }, [startedAt]);
 
+  return (
+    <span ref={textRef} className={cn("tabular-nums", className)}>
+      {elapsedBetween(startedAt, null)}
+    </span>
+  );
+}
+
+export function AgentElapsed({
+  agent,
+  className,
+}: {
+  readonly agent: RuntimeSubagent;
+  readonly className?: string;
+}) {
+  const startedAt = agent.startedAt;
   if (!startedAt) {
     return null;
   }
+  if (isAgentTicking(agent.status)) {
+    return <LiveElapsed startedAt={startedAt} className={className} />;
+  }
   return (
-    <span ref={textRef} className={cn("tabular-nums", className)}>
-      {elapsedBetween(startedAt, live ? null : agent.completedAt)}
+    <span className={cn("tabular-nums", className)}>
+      {elapsedBetween(startedAt, agent.completedAt)}
     </span>
   );
 }

@@ -2,7 +2,7 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
+import { INERT_TASK_TYPES, UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -350,6 +350,61 @@ export function deriveActivePlanState(
     (activity) => planStateFromActivity(activity) === null,
   );
   return addPlanStepDurations(plan, matchingActivities.slice(latestClearIndex + 1));
+}
+
+export interface LiveBackgroundTask {
+  readonly taskId: string;
+  readonly title: string | null;
+  readonly startedAt: string;
+}
+
+const ENDED_TASK_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "stopped",
+  "cancelled",
+  "interrupted",
+  "idle",
+]);
+
+/**
+ * The thread's own watch loops and background shells still running, oldest
+ * first. Names the work behind the Monitoring banner; whether that banner
+ * shows at all stays the server liveness registry's call.
+ */
+export function deriveLiveBackgroundTasks(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): LiveBackgroundTask[] {
+  const live = new Map<string, LiveBackgroundTask>();
+  for (const activity of activities.toSorted(compareActivitiesByOrder)) {
+    if (!activity.kind.startsWith("task.")) continue;
+    const payload = asRecord(activity.payload);
+    const taskId = asTrimmedString(payload?.taskId);
+    if (!payload || !taskId) continue;
+    const taskType = asTrimmedString(payload.taskType);
+    // A subagent's own shells belong to that agent, not the thread.
+    const threadBackground =
+      payload.agentKind === "background" &&
+      asTrimmedString(payload.agentId) === null &&
+      (taskType === null || !INERT_TASK_TYPES.has(taskType));
+    const status = asTrimmedString(payload.status);
+    if (
+      !threadBackground ||
+      activity.kind === "task.completed" ||
+      (status !== null && ENDED_TASK_STATUSES.has(status))
+    ) {
+      live.delete(taskId);
+      continue;
+    }
+    const title = asTrimmedString(payload.title) ?? asTrimmedString(payload.detail);
+    const existing = live.get(taskId);
+    if (existing) {
+      if (title !== null && title !== existing.title) live.set(taskId, { ...existing, title });
+    } else if (activity.kind === "task.started") {
+      live.set(taskId, { taskId, title, startedAt: activity.createdAt });
+    }
+  }
+  return [...live.values()];
 }
 
 export function findLatestProposedPlan(

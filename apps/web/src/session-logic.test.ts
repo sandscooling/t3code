@@ -13,6 +13,7 @@ import {
   createMessageAttachmentPreviewProjector,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLiveBackgroundTasks,
   deriveTimelineEntries,
   deriveTurnInterruptionNotice,
   deriveTimelineEntriesWithState,
@@ -2602,5 +2603,72 @@ describe("session activity performance", () => {
       command: "git diff",
       toolLifecycleStatus: "completed",
     });
+  });
+});
+
+describe("deriveLiveBackgroundTasks", () => {
+  const started = (taskId: string, title: string, createdAt: string, extra = {}) =>
+    makeActivity({
+      kind: "task.started",
+      createdAt,
+      payload: { taskId, taskType: "monitor", title, ...extra },
+    });
+
+  it("names a running watch loop with the time it started", () => {
+    expect(
+      deriveLiveBackgroundTasks([
+        started("t1", "Wait for CI on PR 12", "2026-09-18T10:00:00.000Z"),
+        makeActivity({
+          kind: "task.progress",
+          createdAt: "2026-09-18T10:01:00.000Z",
+          payload: { taskId: "t1", taskType: "monitor", summary: "still pending" },
+        }),
+      ]),
+    ).toEqual([
+      { taskId: "t1", title: "Wait for CI on PR 12", startedAt: "2026-09-18T10:00:00.000Z" },
+    ]);
+  });
+
+  it("drops a task once it completes or reports an ended status", () => {
+    expect(
+      deriveLiveBackgroundTasks([
+        started("t1", "Tail the log", "2026-09-18T10:00:00.000Z"),
+        started("t2", "Watch the build", "2026-09-18T10:00:05.000Z"),
+        makeActivity({
+          kind: "task.completed",
+          createdAt: "2026-09-18T10:02:00.000Z",
+          payload: { taskId: "t1", taskType: "monitor", status: "completed" },
+        }),
+        makeActivity({
+          kind: "task.updated",
+          createdAt: "2026-09-18T10:03:00.000Z",
+          payload: { taskId: "t2", taskType: "monitor", status: "stopped" },
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("keeps background shells, oldest first, and ignores agents and a subagent's own shells", () => {
+    const tasks = deriveLiveBackgroundTasks([
+      started("shell", "Poll the deploy", "2026-09-18T10:00:00.000Z", { taskType: "local_bash" }),
+      started("agent", "Review the diff", "2026-09-18T10:00:01.000Z", {
+        taskType: "local_agent",
+      }),
+      started("inner", "Agent's own tail", "2026-09-18T10:00:02.000Z", { agentId: "agent" }),
+      started("watch", "Wait for the lock", "2026-09-18T10:00:03.000Z"),
+    ]);
+    expect(tasks.map((task) => task.taskId)).toEqual(["shell", "watch"]);
+  });
+
+  it("does not revive a task from a progress row whose start is missing", () => {
+    expect(
+      deriveLiveBackgroundTasks([
+        makeActivity({
+          kind: "task.progress",
+          createdAt: "2026-09-18T10:01:00.000Z",
+          payload: { taskId: "t9", taskType: "monitor", title: "Orphan" },
+        }),
+      ]),
+    ).toEqual([]);
   });
 });
