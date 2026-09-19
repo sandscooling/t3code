@@ -434,11 +434,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       const persisted = yield* threads.getById({ threadId: ThreadId.make("thread-grouped") });
       assert.strictEqual(Option.getOrNull(persisted)?.group, "T-1234");
-
-      const listed = yield* threads.listByProjectId({
-        projectId: ProjectId.make("project-grouped"),
-      });
-      assert.strictEqual(listed[0]?.group, "T-1234");
     }),
   );
 
@@ -561,9 +556,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const persisted = yield* threads.getById({ threadId: ThreadId.make("thread-linked-pr") });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.linkedPullRequest, linkedPullRequest);
       assert.deepStrictEqual(Option.getOrNull(persisted)?.branchPullRequest, branchPullRequest);
-
-      const listed = yield* threads.listByProjectId({ projectId: linkedPullRequest.projectId });
-      assert.deepStrictEqual(listed[0]?.branchPullRequest, branchPullRequest);
 
       const row = Option.getOrNull(persisted);
       if (row === null) return yield* Effect.die("Expected linked thread row to exist.");

@@ -45,7 +45,6 @@ Behind the **Agent orchestration** setting, off by default:
 - Snapshots work on background tabs that are not painted on screen.
 - Smaller snapshots: a compacted accessibility tree without text-only nodes, and an `include` option to ask for only some sections.
 - A stuck browser request no longer leaves the globe on.
-- The browser host reconnects after a timed-out request, instead of staying gone for every session until a restart. From open upstream PR [#12343](https://github.com/pingdotgg/t3code/pull/12343).
 - `preview_wait_for` gives up before the server does, so a condition that never matches returns an error instead of dropping the browser host.
 
 ### Fixes
