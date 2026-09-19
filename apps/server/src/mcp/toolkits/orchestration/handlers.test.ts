@@ -65,6 +65,7 @@ function shell(input: {
   readonly archivedAt?: string | null;
   readonly status?: "running" | "ready" | "stopped";
   readonly settled?: boolean;
+  readonly pinOrderKey?: string;
 }): OrchestrationThreadShell {
   return {
     id: ThreadId.make(input.id),
@@ -85,7 +86,8 @@ function shell(input: {
     settledAt: input.settled === true ? "2026-01-03T00:00:00.000Z" : null,
     snoozedUntil: null,
     snoozedAt: null,
-    pinnedAt: null,
+    pinnedAt: input.pinOrderKey === undefined ? null : "2026-01-02T00:00:00.000Z",
+    pinOrderKey: input.pinOrderKey ?? null,
     deletedAt: null,
     session:
       input.status === undefined
@@ -385,7 +387,57 @@ it.effect("hands off: the successor is the caller's sibling and takes over its r
           threadId: "thread-review",
           parentThreadId: successorId,
         }),
+        expect.objectContaining({ type: "thread.pin", threadId: successorId }),
       ]);
+      // An unpinned predecessor has no slot to hand over.
+      expect(moves.at(-1)).not.toHaveProperty("orderKey");
+    }),
+  ),
+);
+
+it.effect("hands off: the successor takes a pinned predecessor's pinned slot", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness([
+        shell({
+          id: "thread-orchestrator",
+          title: "orchestrator",
+          parentThreadId: "thread-root",
+          status: "running",
+          pinOrderKey: "a0",
+        }),
+      ]);
+      const result = yield* callTool("session_spawn", {
+        name: "orchestrator-2",
+        group: "ops",
+        message: "Take over from orchestrator.",
+        handoff: true,
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.isError).toBe(false);
+      const create = harness.dispatched[0];
+      const successorId = create?.type === "thread.create" ? create.threadId : null;
+      expect(harness.dispatched.at(-1)).toMatchObject({
+        type: "thread.pin",
+        threadId: successorId,
+        orderKey: "a0",
+      });
+    }),
+  ),
+);
+
+it.effect("does not pin an ordinary spawn", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(baseThreads);
+      const result = yield* callTool("session_spawn", {
+        name: "T-1234-docs",
+        group: "T-1234",
+        message: "Write the docs.",
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.isError).toBe(false);
+      expect(harness.dispatched.map((command) => command.type)).not.toContain("thread.pin");
     }),
   ),
 );

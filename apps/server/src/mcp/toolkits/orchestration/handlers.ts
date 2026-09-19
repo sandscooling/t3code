@@ -360,6 +360,20 @@ const handlers = {
           .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
       }
 
+      // A successor orchestrator is pinned the way the user pins the one it
+      // replaces, taking that one's slot in the pinned order when it had one.
+      // A failed pin is cosmetic and must not fail a handoff that already ran.
+      if (handoff) {
+        yield* engine
+          .dispatch({
+            type: "thread.pin",
+            commandId: yield* serverCommandId("thread-pin"),
+            threadId,
+            ...(caller.pinnedAt && caller.pinOrderKey ? { orderKey: caller.pinOrderKey } : {}),
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+      }
+
       return {
         threadId,
         name: input.name,
