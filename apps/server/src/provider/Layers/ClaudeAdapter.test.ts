@@ -828,9 +828,8 @@ describe("ClaudeAdapterLive", () => {
       const createInput = harness.getLastCreateQueryInput();
       // Rides the session-scoped settings flag on this thread's own
       // subprocess, so it cannot leak into another thread or onto disk.
-      assert.deepEqual(createInput?.options.settings, {
-        outputStyle: "Explanatory",
-      });
+      // Other settings (upstream's thinking summaries) share this object.
+      assert.equal(createInput?.options.settings?.outputStyle, "Explanatory");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -855,7 +854,7 @@ describe("ClaudeAdapterLive", () => {
       const createInput = harness.getLastCreateQueryInput();
       // "default" is the CLI's zero state; forwarding it would pin the
       // session to a style instead of letting the CLI resolve its own.
-      assert.equal(createInput?.options.settings, undefined);
+      assert.notProperty(createInput?.options.settings ?? {}, "outputStyle");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -7970,6 +7969,141 @@ describe("ClaudeAdapterLive", () => {
         .join(", ");
       assert.notEqual(v121Rendered, "", "Expected non-empty SDK 2.1.121 tool_result (#2388)");
       assert.equal(v121Rendered, '"Which framework?"="React"');
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  // Drives a session to a synthetic turn: one real turn finishes, then the
+  // agent speaks again on its own (a background task or peer message woke it).
+  const startSyntheticTurn = (harness: ReturnType<typeof makeHarness>) =>
+    Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const events: Array<ProviderRuntimeEvent> = [];
+      let waiter:
+        | {
+            readonly matches: (event: ProviderRuntimeEvent) => boolean;
+            readonly done: Deferred.Deferred<void>;
+          }
+        | undefined;
+      const fiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          events.push(event);
+          if (waiter?.matches(event)) yield* Deferred.succeed(waiter.done, undefined);
+        }),
+      ).pipe(Effect.forkChild);
+      const until = (matches: (event: ProviderRuntimeEvent) => boolean) =>
+        Effect.gen(function* () {
+          if (events.some(matches)) return;
+          const done = yield* Deferred.make<void>();
+          waiter = { matches, done };
+          if (events.some(matches)) return;
+          yield* Deferred.await(done);
+        });
+      const count = (type: ProviderRuntimeEvent["type"]) =>
+        events.filter((event) => event.type === type).length;
+      // An SDK heartbeat is processed after everything queued before it.
+      let flushes = 0;
+      const flush = Effect.gen(function* () {
+        flushes += 1;
+        const reason = `api_retry:${flushes}/99`;
+        harness.query.emit({
+          type: "system",
+          subtype: "api_retry",
+          attempt: flushes,
+          max_retries: 99,
+          retry_delay_ms: 0,
+          error_status: 429,
+          error: { type: "rate_limit_error" },
+          session_id: "sdk-session-synthetic-ask",
+          uuid: `synthetic-ask-flush-${flushes}`,
+        } as unknown as SDKMessage);
+        yield* until(
+          (event) => event.type === "session.state.changed" && event.payload.reason === reason,
+        );
+      });
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hello", attachments: [] });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-synthetic-ask",
+        uuid: "result-synthetic-ask",
+      } as unknown as SDKMessage);
+      yield* until((event) => event.type === "turn.completed");
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-synthetic-ask",
+        uuid: "assistant-synthetic-ask",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-message-synthetic-ask",
+          content: [{ type: "text", text: "A background task finished." }],
+        },
+      } as unknown as SDKMessage);
+      yield* flush;
+      assert.equal(count("turn.started"), 2, "the agent's own output opened a synthetic turn");
+      return { adapter, events, until, count, flush, fiber };
+    });
+
+  it.effect("keeps a synthetic turn's open question alive when another message arrives", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const { adapter, events, until, count, flush, fiber } = yield* startSyntheticTurn(harness);
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      if (!canUseTool) return assert.fail("canUseTool was not registered");
+
+      const question = "Where should the caps go?";
+      const permissionPromise = canUseTool(
+        "AskUserQuestion",
+        {
+          questions: [{ question, header: "Caps", options: [{ label: "F4" }], multiSelect: false }],
+        },
+        {
+          signal: new AbortController().signal,
+          requestId: "request-synthetic-ask",
+          toolUseID: "tool-synthetic-ask",
+        },
+      );
+      yield* until((event) => event.type === "user-input.requested");
+      const requested = events.find((event) => event.type === "user-input.requested");
+      if (requested?.type !== "user-input.requested") return assert.fail("no question was asked");
+
+      // Another session's message lands while the question waits on the user.
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "peer check-in", attachments: [] });
+      yield* flush;
+      assert.equal(count("turn.completed"), 1, "the waiting turn must not be closed");
+      assert.equal(count("user-input.resolved"), 0, "the question must stay open");
+
+      yield* adapter.respondToUserInput(THREAD_ID, ApprovalRequestId.make(requested.requestId!), {
+        [question]: "F4",
+      });
+      const permissionResult = yield* Effect.promise(() => permissionPromise);
+      assert.equal((permissionResult as PermissionResult).behavior, "allow");
+
+      fiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("still closes a synthetic turn with nothing open when a message arrives", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const { adapter, count, flush, fiber } = yield* startSyntheticTurn(harness);
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "next prompt", attachments: [] });
+      yield* flush;
+      assert.equal(count("turn.completed"), 2, "stale background output is closed");
+      fiber.interruptUnsafe();
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
