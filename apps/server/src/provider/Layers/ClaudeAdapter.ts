@@ -268,7 +268,7 @@ interface ClaudeTurnState {
    * Synthetic turns are auto-closed by the next sendTurn; real turns are
    * steered instead (the queued message continues the same turn).
    */
-  readonly synthetic?: boolean;
+  synthetic?: boolean;
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
@@ -5184,12 +5184,21 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // queued into the live SDK agent loop and the work continues as the same
     // turn — no synthetic turn boundary. Stale synthetic turns (from
     // background agent responses between user prompts) are auto-closed
-    // instead, so they don't block the user's next turn.
+    // instead, so they don't block the user's next turn. A synthetic turn
+    // still waiting on the user is not stale: its question or approval
+    // callback is live in the SDK, and closing the turn would dismiss that
+    // request in the UI while the agent keeps waiting on it forever.
+    const awaitingUser = context.pendingUserInputs.size > 0 || context.pendingApprovals.size > 0;
     const steeringTurnState =
-      context.turnState && context.turnState.synthetic !== true ? context.turnState : null;
+      context.turnState && (context.turnState.synthetic !== true || awaitingUser)
+        ? context.turnState
+        : null;
     if (context.turnState && steeringTurnState === null) {
       yield* completeTurn(context, "completed");
     }
+    // A user message now belongs to this turn, so it is no longer stale
+    // background output and a later message must steer it too.
+    if (steeringTurnState) steeringTurnState.synthetic = false;
 
     if (modelSelection?.model) {
       const apiModelId = resolveClaudeCatalogApiModelId(modelCatalog, modelSelection);
