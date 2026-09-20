@@ -54,6 +54,7 @@ Behind the **Agent orchestration** setting, off by default:
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
 - Old rate limit rows are pruned from thread activity.
+- A Claude question asked while the agent was working on its own stays open when another session's message arrives, instead of vanishing and leaving the agent stuck.
 - A question whose agent died (a crash or restart) clears instead of locking the thread forever. From open upstream PR [#10586](https://github.com/pingdotgg/t3code/pull/10586).
 
 ### Windows test suite
