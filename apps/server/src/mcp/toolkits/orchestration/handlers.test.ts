@@ -388,9 +388,18 @@ it.effect("hands off: the successor is the caller's sibling and takes over its r
           parentThreadId: successorId,
         }),
         expect.objectContaining({ type: "thread.pin", threadId: successorId }),
+        // The row a client watching the old orchestrator follows to the new one.
+        expect.objectContaining({
+          type: "thread.activity.append",
+          threadId: "thread-orchestrator",
+          activity: expect.objectContaining({
+            kind: "session.handoff",
+            payload: { successorThreadId: successorId, successorTitle: "orchestrator-2" },
+          }),
+        }),
       ]);
       // An unpinned predecessor has no slot to hand over.
-      expect(moves.at(-1)).not.toHaveProperty("orderKey");
+      expect(moves.at(-2)).not.toHaveProperty("orderKey");
     }),
   ),
 );
@@ -417,7 +426,7 @@ it.effect("hands off: the successor takes a pinned predecessor's pinned slot", (
       expect(result.isError).toBe(false);
       const create = harness.dispatched[0];
       const successorId = create?.type === "thread.create" ? create.threadId : null;
-      expect(harness.dispatched.at(-1)).toMatchObject({
+      expect(harness.dispatched.find((command) => command.type === "thread.pin")).toMatchObject({
         type: "thread.pin",
         threadId: successorId,
         orderKey: "a0",

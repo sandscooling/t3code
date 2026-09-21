@@ -407,6 +407,27 @@ export function deriveLiveBackgroundTasks(
   return [...live.values()];
 }
 
+export interface ThreadHandoffSuccessor {
+  /** Identifies the row, so a client only follows a succession it just saw arrive. */
+  readonly activityId: string;
+  readonly successorThreadId: string;
+}
+
+/**
+ * The newest session that replaced this one, from the row `session_spawn`
+ * writes on the thread being handed off.
+ */
+export function findThreadHandoffSuccessor(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ThreadHandoffSuccessor | null {
+  for (const activity of activities.toSorted(compareActivitiesByOrder).toReversed()) {
+    if (activity.kind !== "session.handoff") continue;
+    const successorThreadId = asTrimmedString(asRecord(activity.payload)?.successorThreadId);
+    if (successorThreadId !== null) return { activityId: activity.id, successorThreadId };
+  }
+  return null;
+}
+
 export function findLatestProposedPlan(
   proposedPlans: ReadonlyArray<ProposedPlan>,
   latestTurnId: TurnId | string | null | undefined,

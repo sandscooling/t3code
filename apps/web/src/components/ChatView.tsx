@@ -32,7 +32,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type ThreadLinkedPullRequest,
   type TurnId,
   type KeybindingCommand,
@@ -132,6 +132,7 @@ import {
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   deriveLiveBackgroundTasks,
+  findThreadHandoffSuccessor,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   deriveTurnInterruptionNotice,
@@ -2919,6 +2920,44 @@ export default function ChatView(props: ChatViewProps) {
     [threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  // Following an orchestrator handoff: the reader watching the thread that just
+  // handed off goes with it. Only a succession that arrives while this thread
+  // is open counts, so reopening the old one later stays put, and a reader on
+  // any other thread is never moved.
+  const handoffSuccessor = useMemo(
+    () => findThreadHandoffSuccessor(threadActivities),
+    [threadActivities],
+  );
+  const seenHandoffRef = useRef<{ threadKey: string | null; activityId: string | null }>({
+    threadKey: null,
+    activityId: null,
+  });
+  useEffect(() => {
+    if (!activeThread) return;
+    // The first snapshot of a thread is the baseline, however late it loads:
+    // whatever succession it already carries happened before this reader
+    // arrived, so reopening the old orchestrator must not bounce them forward.
+    const seen = seenHandoffRef.current;
+    if (seen.threadKey !== activeThreadKey) {
+      seenHandoffRef.current = {
+        threadKey: activeThreadKey,
+        activityId: handoffSuccessor?.activityId ?? null,
+      };
+      return;
+    }
+    if (!handoffSuccessor || seen.activityId === handoffSuccessor.activityId) return;
+    seenHandoffRef.current = {
+      threadKey: activeThreadKey,
+      activityId: handoffSuccessor.activityId,
+    };
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams({
+        environmentId: activeThread.environmentId,
+        threadId: ThreadId.make(handoffSuccessor.successorThreadId),
+      }),
+    });
+  }, [activeThread, handoffSuccessor, navigate]);
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).

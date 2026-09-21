@@ -1,6 +1,7 @@
 import {
   ALL_PROJECTS,
   CommandId,
+  EventId,
   isProviderAvailable,
   MessageId,
   OrchestrationToolError,
@@ -370,6 +371,25 @@ const handlers = {
             commandId: yield* serverCommandId("thread-pin"),
             threadId,
             ...(caller.pinnedAt && caller.pinOrderKey ? { orderKey: caller.pinOrderKey } : {}),
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+        // Records the succession on the thread being replaced, which is what a
+        // client reading that thread follows to the successor. Cosmetic too.
+        yield* engine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: yield* serverCommandId("session-handoff"),
+            threadId: caller.id,
+            activity: {
+              id: EventId.make(yield* randomId),
+              tone: "info",
+              kind: "session.handoff",
+              summary: `Handed off to ${input.name}`,
+              payload: { successorThreadId: threadId, successorTitle: input.name },
+              turnId: null,
+              createdAt,
+            },
+            createdAt,
           })
           .pipe(Effect.ignoreCause({ log: true }));
       }

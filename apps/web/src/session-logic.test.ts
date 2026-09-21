@@ -14,6 +14,7 @@ import {
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   deriveLiveBackgroundTasks,
+  findThreadHandoffSuccessor,
   deriveTimelineEntries,
   deriveTurnInterruptionNotice,
   deriveTimelineEntriesWithState,
@@ -2670,5 +2671,30 @@ describe("deriveLiveBackgroundTasks", () => {
         }),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("findThreadHandoffSuccessor", () => {
+  const handoff = (id: string, successorThreadId: unknown, createdAt: string) =>
+    makeActivity({
+      id,
+      kind: "session.handoff",
+      createdAt,
+      payload: { successorThreadId, successorTitle: "orchestrator-2" },
+    });
+
+  it("returns the newest succession on the thread", () => {
+    expect(
+      findThreadHandoffSuccessor([
+        handoff("a1", "thread-older", "2026-09-20T10:00:00.000Z"),
+        makeActivity({ kind: "task.started", createdAt: "2026-09-20T10:01:00.000Z" }),
+        handoff("a2", "thread-newer", "2026-09-20T10:02:00.000Z"),
+      ]),
+    ).toEqual({ activityId: "a2", successorThreadId: "thread-newer" });
+  });
+
+  it("ignores rows without a successor and threads that never handed off", () => {
+    expect(findThreadHandoffSuccessor([handoff("a1", 42, "2026-09-20T10:00:00.000Z")])).toBeNull();
+    expect(findThreadHandoffSuccessor([makeActivity({ kind: "task.started" })])).toBeNull();
   });
 });

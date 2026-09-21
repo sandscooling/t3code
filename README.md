@@ -16,7 +16,7 @@ Behind the **Agent orchestration** setting, off by default:
 - MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_rename`, `session_models`, `session_projects`.
 - `session_spawn` can pick the provider, model and reasoning effort, and can start work in any project on the server.
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.
-- `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled. The successor is pinned automatically, in the old one's pinned slot if it had one.
+- `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled. The successor is pinned automatically, in the old one's pinned slot if it had one. A client reading the old orchestrator when it hands off follows to the successor.
 - The command palette's "New thread in..." takes a count, so `fleet 5` starts five sessions at once.
 
 ### Chat and composer
