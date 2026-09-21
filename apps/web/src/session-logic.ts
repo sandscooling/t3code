@@ -355,15 +355,7 @@ export function deriveActivePlanState(
 export interface LiveBackgroundTask {
   readonly taskId: string;
   readonly title: string | null;
-  /** The command the launching Bash or Monitor call ran, when its tool row carried one. */
-  readonly command: string | null;
   readonly startedAt: string;
-}
-
-/** A tool row's command, from whichever payload shape the adapter recorded. */
-function toolActivityCommand(payload: Record<string, unknown>): string | null {
-  const data = asRecord(payload.data);
-  return asTrimmedString(data?.command) ?? asTrimmedString(asRecord(data?.input)?.command);
 }
 
 const ENDED_TASK_STATUSES: ReadonlySet<string> = new Set([
@@ -383,18 +375,8 @@ const ENDED_TASK_STATUSES: ReadonlySet<string> = new Set([
 export function deriveLiveBackgroundTasks(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): LiveBackgroundTask[] {
-  const live = new Map<string, LiveBackgroundTask & { readonly toolUseId: string | null }>();
-  // The launching tool's rows can land before or after task.started, so
-  // commands are collected by tool call id and joined once at the end.
-  const commandsByToolCallId = new Map<string, string>();
+  const live = new Map<string, LiveBackgroundTask>();
   for (const activity of activities.toSorted(compareActivitiesByOrder)) {
-    if (activity.kind.startsWith("tool.")) {
-      const payload = asRecord(activity.payload);
-      const toolCallId = asTrimmedString(payload?.toolCallId);
-      const command = payload ? toolActivityCommand(payload) : null;
-      if (toolCallId && command) commandsByToolCallId.set(toolCallId, command);
-      continue;
-    }
     if (!activity.kind.startsWith("task.")) continue;
     const payload = asRecord(activity.payload);
     const taskId = asTrimmedString(payload?.taskId);
@@ -419,19 +401,10 @@ export function deriveLiveBackgroundTasks(
     if (existing) {
       if (title !== null && title !== existing.title) live.set(taskId, { ...existing, title });
     } else if (activity.kind === "task.started") {
-      live.set(taskId, {
-        taskId,
-        title,
-        command: null,
-        startedAt: activity.createdAt,
-        toolUseId: asTrimmedString(payload.toolUseId),
-      });
+      live.set(taskId, { taskId, title, startedAt: activity.createdAt });
     }
   }
-  return [...live.values()].map(({ toolUseId, ...task }) => ({
-    ...task,
-    command: toolUseId === null ? null : (commandsByToolCallId.get(toolUseId) ?? null),
-  }));
+  return [...live.values()];
 }
 
 export function findLatestProposedPlan(

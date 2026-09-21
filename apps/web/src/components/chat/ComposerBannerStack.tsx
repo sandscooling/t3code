@@ -17,8 +17,6 @@ export interface ComposerBannerStackItem {
   readonly icon: ReactNode;
   readonly title: ReactNode;
   readonly description?: ReactNode;
-  /** What the info popover shows instead of the description, when it has more to say. */
-  readonly details?: ReactNode;
   readonly children?: ReactNode;
   readonly actions?: ReactNode;
   readonly dismissLabel?: string;
@@ -347,13 +345,10 @@ function ComposerBannerStackAlert({
                   aria-label="Notice details"
                   tooltipStyle
                   side="top"
-                  className={cn(
-                    "whitespace-normal text-pretty wrap-anywhere",
-                    item.details ? "max-w-120" : "max-w-80",
-                  )}
+                  className="max-w-80 whitespace-normal text-pretty wrap-anywhere"
                 >
                   <ComposerBanner.Scroll className="max-h-[min(var(--available-height),24rem,40dvh)]">
-                    {item.details ?? item.description}
+                    {item.description}
                   </ComposerBanner.Scroll>
                 </PopoverPopup>
               </Popover>

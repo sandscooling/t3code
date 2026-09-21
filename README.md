@@ -26,7 +26,7 @@ Behind the **Agent orchestration** setting, off by default:
 - A plan usage pill in the composer, showing how much of the current plan window is used.
 - An agents row in the composer activity banner, with Tasks and Agents tabs that keep one height and hide once work settles.
 - The tasks banner stays up after you interrupt a turn.
-- The Monitoring banner names the background command or watch it is waiting on, and shows how long it has been running. Its info icon shows the exact command.
+- The Monitoring banner names the background command or watch it is waiting on, and shows how long it has been running.
 - Stopped turns are marked in the transcript.
 - The question panel scales with the appearance font size.
 - The chat releases its scroll anchor when a turn settles, so the final reply is not stranded above blank space. Remove when upstream issue #5903 closes.

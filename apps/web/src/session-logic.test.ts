@@ -2625,51 +2625,8 @@ describe("deriveLiveBackgroundTasks", () => {
         }),
       ]),
     ).toEqual([
-      {
-        taskId: "t1",
-        title: "Wait for CI on PR 12",
-        command: null,
-        startedAt: "2026-09-18T10:00:00.000Z",
-      },
+      { taskId: "t1", title: "Wait for CI on PR 12", startedAt: "2026-09-18T10:00:00.000Z" },
     ]);
-  });
-
-  it("carries the command from the tool call that launched the task", () => {
-    const [task] = deriveLiveBackgroundTasks([
-      makeActivity({
-        kind: "tool.updated",
-        createdAt: "2026-09-18T10:00:00.000Z",
-        payload: { toolCallId: "toolu_1", data: { command: "bun run gates", toolName: "Bash" } },
-      }),
-      started("t1", "Run the gates", "2026-09-18T10:00:01.000Z", {
-        taskType: "local_bash",
-        toolUseId: "toolu_1",
-      }),
-      makeActivity({
-        kind: "tool.completed",
-        createdAt: "2026-09-18T10:00:02.000Z",
-        payload: {
-          toolCallId: "toolu_2",
-          data: { toolName: "Monitor", input: { command: "tail -f other.log" } },
-        },
-      }),
-    ]);
-    expect(task?.command).toBe("bun run gates");
-  });
-
-  it("reads a Monitor command from the tool input once the tool row lands", () => {
-    const [task] = deriveLiveBackgroundTasks([
-      started("t1", "Watch the log", "2026-09-18T10:00:00.000Z", { toolUseId: "toolu_9" }),
-      makeActivity({
-        kind: "tool.completed",
-        createdAt: "2026-09-18T10:00:01.000Z",
-        payload: {
-          toolCallId: "toolu_9",
-          data: { toolName: "Monitor", input: { command: "tail -f app.log" } },
-        },
-      }),
-    ]);
-    expect(task?.command).toBe("tail -f app.log");
   });
 
   it("drops a task once it completes or reports an ended status", () => {
