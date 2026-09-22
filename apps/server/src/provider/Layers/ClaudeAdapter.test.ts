@@ -829,7 +829,11 @@ describe("ClaudeAdapterLive", () => {
       // Rides the session-scoped settings flag on this thread's own
       // subprocess, so it cannot leak into another thread or onto disk.
       // Other settings (upstream's thinking summaries) share this object.
-      assert.equal(createInput?.options.settings?.outputStyle, "Explanatory");
+      const sessionSettings = createInput?.options.settings;
+      assert.equal(
+        typeof sessionSettings === "object" ? sessionSettings.outputStyle : undefined,
+        "Explanatory",
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

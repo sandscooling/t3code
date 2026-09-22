@@ -188,8 +188,8 @@ import {
   primaryServerProvidersAtom,
   primaryServerSettingsAtom,
 } from "../state/server";
-import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
-import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
@@ -1311,17 +1311,19 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
-      const envMode = resolveDefaultThreadEnvMode({
-        projectSetting: project.defaultThreadEnvMode,
-        projectFile:
-          project.defaultThreadEnvMode == null
-            ? await readT3ProjectFileDefaultThreadEnvMode(
-                project.environmentId,
-                project.workspaceRoot,
-              )
-            : null,
-        globalDefault: primaryServerSettings.defaultThreadEnvMode,
-      });
+      // The shared resolver owns the priority order, and the t3.json read is
+      // skipped when a higher-priority source already decides.
+      const projectSettings = resolveProjectSettings(primaryServerSettings, project.id, project);
+      const projectFile =
+        projectSettings.settings.defaultThreadEnvMode === null
+          ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
+          : null;
+      const envMode = resolveProjectSettings(
+        primaryServerSettings,
+        project.id,
+        project,
+        projectFile,
+      ).settings.defaultThreadEnvMode;
 
       // Worktree mode needs a base branch to cut from. The project's checked-out
       // branch is the same starting point the composer offers by default.
@@ -1360,7 +1362,7 @@ function OpenCommandPaletteDialog(props: {
         baseBranch,
         startFromOrigin: resolveNewDraftStartFromOrigin({
           envMode,
-          newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
+          newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
         }),
         startTurn: startThreadTurn,
       });
