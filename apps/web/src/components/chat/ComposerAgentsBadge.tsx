@@ -136,12 +136,9 @@ export const ComposerAgentsList = memo(function ComposerAgentsList({
               ) : null}
             </ComposerBanner.Content>
             <ComposerBanner.Actions>
-              <AgentElapsed
-                agent={agent}
-                className="font-mono text-[10px] text-muted-foreground/60"
-              />
+              <AgentElapsed agent={agent} className="font-mono text-3xs text-muted-foreground/60" />
               {tokens > 0 ? (
-                <span className="text-[10px] text-muted-foreground/45 tabular-nums">
+                <span className="text-3xs text-muted-foreground/45 tabular-nums">
                   {formatSubagentTokenCount(tokens)} tok
                 </span>
               ) : null}

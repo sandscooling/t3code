@@ -40,7 +40,7 @@ function WindowRow(props: { window: ServerProviderUsageWindow; now: number }) {
   const resetsIn = formatResetsIn(window, now);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+      <div className="flex items-center justify-between gap-3 text-2xs leading-4">
         <span className="text-muted-foreground/60">{window.label}</span>
         <span className="font-medium tabular-nums text-muted-foreground/80">
           {formatPercent(window.usedPercent)}
@@ -105,7 +105,7 @@ export function RateLimitMeter(props: {
           <button
             type="button"
             className={cn(
-              "inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-transparent px-2 text-[11px] text-muted-foreground outline-none transition-colors",
+              "inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-transparent px-2 text-2xs text-muted-foreground outline-none transition-colors",
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
@@ -126,18 +126,18 @@ export function RateLimitMeter(props: {
         tooltipStyle
         side="top"
         align="end"
-        viewportClassName="p-0"
+        padding="none"
         className="w-64 max-w-none text-left whitespace-normal"
       >
-        <div className="flex flex-col gap-2 p-[var(--floating-content-inset)]">
+        <div className="flex flex-col gap-2 p-(--floating-content-inset)">
           <div className="flex items-center justify-between gap-3">
             <div className="font-medium text-muted-foreground text-xs">Plan usage</div>
             {providerDisplayName ? (
-              <div className="text-[11px] text-muted-foreground/70">{providerDisplayName}</div>
+              <div className="text-2xs text-muted-foreground/70">{providerDisplayName}</div>
             ) : null}
           </div>
           <WindowRows windows={limits.windows} />
-          <div className="mt-1 text-pretty text-[11px] font-medium text-muted-foreground/70">
+          <div className="mt-1 text-pretty text-2xs font-medium text-muted-foreground/70">
             {providerDisplayName ?? "This provider"} reports how much of each window is used, not
             the size of the limit.
           </div>

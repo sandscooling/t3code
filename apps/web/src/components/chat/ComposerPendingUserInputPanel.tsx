@@ -214,7 +214,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             isCollapsed ? "Show the question and its options" : "Hide the question and its options"
           }
           data-pending-user-input-toggle={isCollapsed ? "collapsed" : "expanded"}
-          className="absolute inset-0 cursor-pointer rounded-[0.5rem] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          className="absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
         />
         <ComposerBanner.Icon />
         <ComposerBanner.Content>
@@ -229,7 +229,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         </ComposerBanner.Content>
         <ComposerBanner.Actions>
           {prompt.questions.length > 1 ? (
-            <span className="text-[0.625rem] font-medium text-muted-foreground tabular-nums">
+            <span className="text-3xs font-medium text-muted-foreground tabular-nums">
               {questionIndex + 1}/{prompt.questions.length}
             </span>
           ) : null}
@@ -288,7 +288,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                     <div className="min-w-0 flex-1 flex flex-col gap-0.5">
                       <span className="text-sm font-medium">{option.label}</span>
                       {option.description && option.description !== option.label ? (
-                        <span className="text-secondary-label text-xs">{option.description}</span>
+                        <span className="text-secondary-label text-2xs">{option.description}</span>
                       ) : null}
                     </div>
                     {isSelected ? (
@@ -296,7 +296,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                     ) : shortcutKey !== null ? (
                       <kbd
                         className={cn(
-                          "flex size-5 shrink-0 items-center justify-center text-[0.625rem] font-medium text-muted-foreground tabular-nums",
+                          "flex size-5 shrink-0 items-center justify-center text-3xs font-medium text-muted-foreground tabular-nums",
                         )}
                       >
                         {shortcutKey}

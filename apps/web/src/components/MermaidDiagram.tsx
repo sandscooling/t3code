@@ -388,7 +388,6 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="chat-markdown-chrome-action"
               aria-label="Zoom out diagram"
               title="Zoom out"
               disabled={scale <= MIN_MERMAID_SCALE}
@@ -400,7 +399,6 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="chat-markdown-chrome-action"
               aria-label="Zoom in diagram"
               title="Zoom in"
               disabled={scale >= MAX_MERMAID_SCALE}
@@ -411,7 +409,6 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="chat-markdown-chrome-action"
               aria-label="Reset diagram pan and zoom"
               title="Reset pan and zoom"
               disabled={scale === DEFAULT_MERMAID_TRANSFORM.scale && !hasPan}
@@ -449,7 +446,7 @@ export const MermaidDiagram = memo(function MermaidDiagram(props: {
             </div>
           ) : null}
           <pre>
-            <code className="language-mermaid">{props.code}</code>
+            <code>{props.code}</code>
           </pre>
         </>
       )}

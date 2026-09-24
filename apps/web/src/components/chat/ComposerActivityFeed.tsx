@@ -211,7 +211,7 @@ function ActivityTab({
       aria-controls={panelId}
       aria-selected={selected}
       className={cn(
-        "flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-[11px]",
+        "flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-2xs",
         "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
         selected
           ? "bg-foreground/8 font-medium text-foreground"
