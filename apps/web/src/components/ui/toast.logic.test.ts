@@ -5,6 +5,7 @@ import {
   hasVisibleToastAction,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
+  toastIdsToDismissForActiveThread,
 } from "./toast.logic";
 
 describe("hasVisibleToastAction", () => {
@@ -178,6 +179,56 @@ describe("shouldRenderThreadScopedToast", () => {
         activeThreadRef,
       ),
       true,
+    );
+  });
+});
+
+describe("toastIdsToDismissForActiveThread", () => {
+  const activeThreadRef = {
+    environmentId: "environment-a",
+    threadId: "thread-1",
+  } as ScopedThreadRef;
+  const toastFor = (id: string, ref: ScopedThreadRef | null) => ({
+    id,
+    data: { dismissOnActiveThreadRef: ref },
+  });
+
+  it("dismisses every toast waiting on the thread now on screen", () => {
+    assert.deepEqual(
+      toastIdsToDismissForActiveThread(
+        [toastFor("input", activeThreadRef), toastFor("approval", activeThreadRef)],
+        activeThreadRef,
+      ),
+      ["input", "approval"],
+    );
+  });
+
+  it("leaves toasts about other threads alone", () => {
+    const other = { environmentId: "environment-a", threadId: "thread-2" } as ScopedThreadRef;
+    const sameThreadElsewhere = {
+      environmentId: "environment-b",
+      threadId: "thread-1",
+    } as ScopedThreadRef;
+    assert.deepEqual(
+      toastIdsToDismissForActiveThread(
+        [toastFor("other", other), toastFor("elsewhere", sameThreadElsewhere)],
+        activeThreadRef,
+      ),
+      [],
+    );
+  });
+
+  it("ignores toasts that never asked to be dismissed, and drafts with no thread", () => {
+    assert.deepEqual(
+      toastIdsToDismissForActiveThread(
+        [toastFor("unscoped", null), { id: "plain" }],
+        activeThreadRef,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      toastIdsToDismissForActiveThread([toastFor("input", activeThreadRef)], null),
+      [],
     );
   });
 });

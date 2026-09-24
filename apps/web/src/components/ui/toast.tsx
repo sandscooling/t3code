@@ -36,6 +36,7 @@ import {
   hasVisibleToastAction,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
+  toastIdsToDismissForActiveThread,
 } from "./toast.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./tooltip";
 
@@ -45,6 +46,8 @@ export type ThreadToastData = {
   leadingIcon?: ReactNode;
   tooltipStyle?: boolean;
   onClose?: (() => void) | undefined;
+  /** Close this toast once the reader opens the thread it is about. */
+  dismissOnActiveThreadRef?: ScopedThreadRef | null;
   dismissAfterVisibleMs?: number;
   hideCopyButton?: boolean;
   additionalActions?: ReadonlyArray<{
@@ -555,6 +558,12 @@ function Toasts({ position }: { position: ToastPosition }) {
       }
     }
   }, [toasts]);
+
+  useEffect(() => {
+    for (const toastId of toastIdsToDismissForActiveThread(toasts, activeThreadRef)) {
+      toastManager.close(toastId);
+    }
+  }, [activeThreadRef, toasts]);
 
   return (
     <Toast.Portal data-slot="toast-portal">

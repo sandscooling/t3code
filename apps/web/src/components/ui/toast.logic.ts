@@ -105,6 +105,30 @@ function normalizeToastHeight(height: number | null | undefined): number {
   return typeof height === "number" && Number.isFinite(height) && height > 0 ? height : 0;
 }
 
+/**
+ * Ids of toasts that asked to be retired once their thread is the one on screen.
+ * A toast that nagged about a thread has said its piece as soon as the reader
+ * arrives there, so opening the thread is itself the dismissal.
+ */
+export function toastIdsToDismissForActiveThread<
+  TToast extends {
+    id: string;
+    data?: { dismissOnActiveThreadRef?: ScopedThreadRef | null } | undefined;
+  },
+>(toasts: readonly TToast[], activeThreadRef: ScopedThreadRef | null): string[] {
+  if (activeThreadRef === null) return [];
+  return toasts
+    .filter((toast) => {
+      const ref = toast.data?.dismissOnActiveThreadRef;
+      return (
+        ref != null &&
+        ref.environmentId === activeThreadRef.environmentId &&
+        ref.threadId === activeThreadRef.threadId
+      );
+    })
+    .map((toast) => toast.id);
+}
+
 export function shouldRenderThreadScopedToast(
   data:
     | {

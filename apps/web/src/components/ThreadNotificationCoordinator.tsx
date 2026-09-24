@@ -23,6 +23,15 @@ import {
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
+/**
+ * Stable id for the toast that waits on one thread's answer, so a follow-up
+ * event on the same thread replaces it rather than stacking a duplicate, and so
+ * the coordinator can retire it later without tracking the id itself.
+ */
+function attentionToastId(environmentId: EnvironmentId, threadId: ThreadId): string {
+  return `thread-attention:${environmentId}:${threadId}`;
+}
+
 export function ThreadNotificationCoordinator() {
   const { environments } = useEnvironments();
   const mode = useClientSettings((settings) => settings.notificationMode);
@@ -121,6 +130,11 @@ function EnvironmentNotifications({
         status === "input" || status === "approval" || status === "failed"
           ? `${thread.latestTurn?.turnId ?? ""}:${status}`
           : null;
+      // A toast that waits for an answer becomes a stale label the moment the
+      // thread stops asking, so retire it wherever the answer came from.
+      if (prior && prior.attention !== null && attention === null) {
+        toastManager.close(attentionToastId(environmentId, thread.id));
+      }
       const completedAt = Date.parse(thread.latestTurn?.completedAt ?? "");
       const completion =
         status === "ready" &&
@@ -156,12 +170,20 @@ function EnvironmentNotifications({
         document.hasFocus() &&
         (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
       ) {
+        // A question outlives a five second toast: it waits until the reader
+        // answers it. Only the states that want a reply persist; completions
+        // and failures still fall away on their own.
+        const awaitsAnswer = status === "input" || status === "approval";
         const toastId = toastManager.add({
+          ...(awaitsAnswer
+            ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
+            : undefined),
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
           title,
           description: thread.title,
           data: {
             hideCopyButton: true,
+            dismissOnActiveThreadRef: awaitsAnswer ? { environmentId, threadId: thread.id } : null,
             leadingIcon:
               kind === "completion" ? (
                 <CircleCheckIcon

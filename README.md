@@ -39,6 +39,7 @@ Behind the **Agent orchestration** setting, off by default:
 - Per-thread Claude output style.
 - A setting to stop threads renaming themselves.
 - Browser previews close once a thread settles.
+- A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several stack. It clears when you open that thread, use its "Open thread" button, or the question is answered anywhere. Completions and failures still fade on their own.
 
 ### Browser automation
 

@@ -18,8 +18,14 @@ const state = vi.hoisted(() => ({
   sessionError: false,
   turnError: false,
   add: vi.fn(
-    (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
-      "toast-1",
+    (_toast: {
+      id?: string;
+      timeout?: number;
+      title: string;
+      description: string;
+      data?: { dismissOnActiveThreadRef?: { environmentId: string; threadId: string } | null };
+      actionProps: { onClick: () => void };
+    }) => "toast-1",
   ),
   close: vi.fn(),
   navigate: vi.fn(),
@@ -190,6 +196,37 @@ describe("thread notifications", () => {
       tag: "env-1:thread-1",
       silent: true,
     });
+  });
+
+  it.each(["input", "approval"] as const)(
+    "keeps the %s toast up until the thread is answered",
+    async (event) => {
+      await render();
+      state[event] = true;
+      await render();
+
+      const toast = state.add.mock.calls[0]?.[0];
+      // No auto-dismiss, and a per-thread id so a follow-up question on the same
+      // thread replaces this toast instead of stacking a second one.
+      expect(toast).toMatchObject({
+        id: "thread-attention:env-1:thread-1",
+        timeout: 0,
+        data: { dismissOnActiveThreadRef: { environmentId: "env-1", threadId: "thread-1" } },
+      });
+
+      state[event] = false;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+    },
+  );
+
+  it("lets a completion toast fall away on its own", async () => {
+    await render();
+    await complete();
+    const toast = state.add.mock.calls[0]?.[0];
+    expect(toast).not.toHaveProperty("timeout");
+    expect(toast).not.toHaveProperty("id");
+    expect(toast?.data?.dismissOnActiveThreadRef).toBe(null);
   });
 
   it("keeps background desktop alerts when in-app notifications are disabled", async () => {
