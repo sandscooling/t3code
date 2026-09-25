@@ -125,7 +125,16 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { derivePhysicalProjectKey } from "@t3tools/client-runtime/state/project-grouping";
+import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
+import {
+  buildOrchestratorColorMenuItem,
+  orchestratorColorClassName,
+  orchestratorThreadIds,
+  parseOrchestratorColorMenuId,
+  withOrchestratorColor,
+} from "./orchestratorColor.logic";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -1120,6 +1129,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   project: EnvironmentProject | null;
+  // Fork: set only on an orchestrator whose project has picked a tint.
+  orchestratorColor?: SidebarOrchestratorColor | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   timestampFormat: TimestampFormat;
@@ -1549,6 +1560,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     // The hover tint must not clobber an active/selected row's own surface.
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
+    props.orchestratorColor && orchestratorColorClassName(props.orchestratorColor),
     // The lifted row is an opaque card so the rows beneath it never show
     // through. The row tint is translucent in dark themes and the pointer
     // keeps the hover color applied, so both the tint and the solid sidebar
@@ -2346,6 +2358,26 @@ export default function Sidebar() {
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const groupThreadsByProject = useClientSettings((s) => s.sidebarGroupThreadsByProject);
+  const orchestratorColors = useClientSettings((s) => s.sidebarOrchestratorColors);
+  const updateClientSettings = useUpdateClientSettings();
+  const orchestratorIds = useMemo(() => orchestratorThreadIds(threads), [threads]);
+  // Refs so the context menu handlers read the latest without re-creating.
+  const orchestratorColorsRef = useRef(orchestratorColors);
+  orchestratorColorsRef.current = orchestratorColors;
+  const orchestratorIdsRef = useRef(orchestratorIds);
+  orchestratorIdsRef.current = orchestratorIds;
+  const setOrchestratorColor = useCallback(
+    (projectKeys: ReadonlyArray<string>, color: SidebarOrchestratorColor | null) => {
+      updateClientSettings({
+        sidebarOrchestratorColors: withOrchestratorColor(
+          orchestratorColorsRef.current,
+          projectKeys,
+          color,
+        ),
+      });
+    },
+    [updateClientSettings],
+  );
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -3093,6 +3125,16 @@ export default function Sidebar() {
         const index = visible.indexOf(group);
         if (index === -1) return;
         const last = visible.length - 1;
+        // Fork: the group's orchestrator tint applies to every member project.
+        // Checked only when all members agree.
+        const memberKeys =
+          projectGroups
+            .find((project) => sidebarGroupId(project.projectKey) === group)
+            ?.memberProjects.map((member) => member.physicalProjectKey) ?? [];
+        const memberColors = memberKeys.map((key) => orchestratorColorsRef.current[key] ?? null);
+        const currentColor = memberColors.every((color) => color === memberColors[0])
+          ? (memberColors[0] ?? null)
+          : null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
@@ -3100,11 +3142,18 @@ export default function Sidebar() {
               { id: "up", label: "Move up", disabled: index === 0 },
               { id: "down", label: "Move down", disabled: index === last },
               { id: "bottom", label: "Move to bottom", disabled: index === last },
+              { ...buildOrchestratorColorMenuItem(currentColor), separatorBefore: true },
             ],
             position,
           ),
         );
-        if (clicked._tag === "Failure" || !isSidebarGroupMove(clicked.value)) return;
+        if (clicked._tag === "Failure") return;
+        const pickedColor = parseOrchestratorColorMenuId(clicked.value);
+        if (pickedColor !== undefined) {
+          setOrchestratorColor(memberKeys, pickedColor);
+          return;
+        }
+        if (!isSidebarGroupMove(clicked.value)) return;
         const moved = moveSidebarGroup({
           order: projectGroups.map((project) => sidebarGroupId(project.projectKey)),
           visible: new Set(visible),
@@ -3125,7 +3174,7 @@ export default function Sidebar() {
         setProjectOrder([...keys, ...projectOrder.filter((key) => !placed.has(key))]);
       })();
     },
-    [projectGroups, projectOrder, setProjectOrder, threadGroups],
+    [projectGroups, projectOrder, setOrchestratorColor, setProjectOrder, threadGroups],
   );
   // Null while the list is flat. Covers settled threads too, so a drag from
   // the shelf knows which group it may land in.
@@ -4499,9 +4548,19 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        // Fork: an orchestrator's menu sets its project's card tint.
+        const threadProject =
+          projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null;
+        const orchestratorProjectKey =
+          threadProject && orchestratorIdsRef.current.has(thread.id)
+            ? derivePhysicalProjectKey(threadProject)
+            : null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              orchestratorColor: orchestratorProjectKey
+                ? { current: orchestratorColorsRef.current[orchestratorProjectKey] ?? null }
+                : null,
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
                 ? {
@@ -4536,6 +4595,11 @@ export default function Sidebar() {
               ? await requestCustomSnooze()
               : snoozePresets.find((candidate) => `snooze:${candidate.id}` === clicked.value);
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        const pickedColor = parseOrchestratorColorMenuId(clicked.value);
+        if (pickedColor !== undefined) {
+          if (orchestratorProjectKey) setOrchestratorColor([orchestratorProjectKey], pickedColor);
           return;
         }
         switch (clicked.value) {
@@ -4734,6 +4798,7 @@ export default function Sidebar() {
       projectScopeKey,
       projectByKey,
       serverConfigs,
+      setOrchestratorColor,
       setProjectScopeKey,
       setThreadAutoSettle,
       startThreadRename,
@@ -5132,6 +5197,12 @@ export default function Sidebar() {
                         // not from the sidebar second-guessing what still matters.
                         const isCard = section === "active" || section === "pinned";
                         const rowVariant = isCard ? "card" : "slim";
+                        const rowProject =
+                          projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null;
+                        const orchestratorColor =
+                          rowProject && orchestratorIds.has(thread.id)
+                            ? (orchestratorColors[derivePhysicalProjectKey(rowProject)] ?? null)
+                            : null;
                         return (
                           <SidebarThreadRow
                             // Fade between card and compact rows while the outer
@@ -5193,10 +5264,8 @@ export default function Sidebar() {
                             environmentMachine={
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
-                            project={
-                              projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
-                              null
-                            }
+                            project={rowProject}
+                            orchestratorColor={orchestratorColor}
                             projectDisplayName={
                               projectDisplayNameByKey.get(
                                 `${thread.environmentId}:${thread.projectId}`,

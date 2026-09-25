@@ -1,5 +1,11 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+
+import {
+  buildOrchestratorColorMenuItem,
+  type OrchestratorColorMenuId,
+} from "./orchestratorColor.logic";
 
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
@@ -28,7 +34,8 @@ export type ThreadActionMenuId =
   | "copy-branch"
   | "copy-thread-id"
   | "archive"
-  | "delete";
+  | "delete"
+  | OrchestratorColorMenuId;
 
 export interface ThreadActionMenuState {
   readonly branch: string | null;
@@ -59,6 +66,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /** Fork: present only on an orchestrator in the sidebar; its project's current tint. */
+  readonly orchestratorColor?: { readonly current: SidebarOrchestratorColor | null } | null;
 }
 
 /**
@@ -162,6 +171,9 @@ export function buildThreadActionMenuItems(
             ],
           },
         ]
+      : []),
+    ...(state.orchestratorColor
+      ? [buildOrchestratorColorMenuItem(state.orchestratorColor.current)]
       : []),
     {
       id: "copy",

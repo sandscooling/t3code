@@ -655,6 +655,19 @@ describe("ClientSettings sidebar project groups", () => {
   });
 });
 
+describe("ClientSettings orchestrator colors", () => {
+  it("starts with no tints and keeps a chosen one per project", () => {
+    expect(decodeClientSettings({}).sidebarOrchestratorColors).toEqual({});
+    const colors = { "env-1:/work/fleet": "teal" as const };
+    expect(
+      decodeClientSettings({ sidebarOrchestratorColors: colors }).sidebarOrchestratorColors,
+    ).toEqual(colors);
+    expect(
+      decodeClientSettingsPatch({ sidebarOrchestratorColors: colors }).sidebarOrchestratorColors,
+    ).toEqual(colors);
+  });
+});
+
 describe("ServerSettings thread settlement", () => {
   it("defaults merge settlement on and inactivity settlement to three days", () => {
     const settings = decodeServerSettings({});

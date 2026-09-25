@@ -218,6 +218,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-diff-deletion-foreground: var(--diff-deletion-foreground);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
+  --color-orchestrator-red: var(--orchestrator-red);
+  --color-orchestrator-orange: var(--orchestrator-orange);
+  --color-orchestrator-amber: var(--orchestrator-amber);
+  --color-orchestrator-green: var(--orchestrator-green);
+  --color-orchestrator-teal: var(--orchestrator-teal);
+  --color-orchestrator-blue: var(--orchestrator-blue);
+  --color-orchestrator-violet: var(--orchestrator-violet);
+  --color-orchestrator-pink: var(--orchestrator-pink);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
   --color-input: var(--contrast-input);
@@ -2044,6 +2052,43 @@ code {
 .chat-markdown .chat-markdown-table-container[data-expanded="true"] td {
   max-width: 24rem;
   overflow-wrap: anywhere;
+}
+
+/* Fork: orchestrator card tints. Translucent so the row's own active and hover
+   surfaces still read through them. */
+:root {
+  --orchestrator-red: light-dark(
+    color-mix(in srgb, var(--color-red-500) 14%, transparent),
+    color-mix(in srgb, var(--color-red-400) 18%, transparent)
+  );
+  --orchestrator-orange: light-dark(
+    color-mix(in srgb, var(--color-orange-500) 14%, transparent),
+    color-mix(in srgb, var(--color-orange-400) 18%, transparent)
+  );
+  --orchestrator-amber: light-dark(
+    color-mix(in srgb, var(--color-amber-500) 16%, transparent),
+    color-mix(in srgb, var(--color-amber-400) 18%, transparent)
+  );
+  --orchestrator-green: light-dark(
+    color-mix(in srgb, var(--color-green-500) 14%, transparent),
+    color-mix(in srgb, var(--color-green-400) 18%, transparent)
+  );
+  --orchestrator-teal: light-dark(
+    color-mix(in srgb, var(--color-teal-500) 14%, transparent),
+    color-mix(in srgb, var(--color-teal-400) 18%, transparent)
+  );
+  --orchestrator-blue: light-dark(
+    color-mix(in srgb, var(--color-blue-500) 14%, transparent),
+    color-mix(in srgb, var(--color-blue-400) 18%, transparent)
+  );
+  --orchestrator-violet: light-dark(
+    color-mix(in srgb, var(--color-violet-500) 14%, transparent),
+    color-mix(in srgb, var(--color-violet-400) 18%, transparent)
+  );
+  --orchestrator-pink: light-dark(
+    color-mix(in srgb, var(--color-pink-500) 14%, transparent),
+    color-mix(in srgb, var(--color-pink-400) 18%, transparent)
+  );
 }
 
 :root {

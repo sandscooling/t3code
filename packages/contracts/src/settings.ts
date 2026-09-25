@@ -69,6 +69,19 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+
+// Fork: the tint a project's orchestrator card wears in the sidebar.
+export const SidebarOrchestratorColor = Schema.Literals([
+  "red",
+  "orange",
+  "amber",
+  "green",
+  "teal",
+  "blue",
+  "violet",
+  "pink",
+]);
+export type SidebarOrchestratorColor = typeof SidebarOrchestratorColor.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -472,6 +485,10 @@ export const ClientSettingsSchema = Schema.Struct({
   // one header per project, with a single settled shelf below every group.
   sidebarGroupThreadsByProject: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  // Fork: orchestrator card tint, keyed by physical project key. Absent is no tint.
+  sidebarOrchestratorColors: Schema.Record(TrimmedNonEmptyString, SidebarOrchestratorColor).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
@@ -1646,6 +1663,9 @@ export const ClientSettingsPatch = Schema.Struct({
   composerRichTextEnabled: Schema.optionalKey(Schema.Boolean),
   sendShortcut: Schema.optionalKey(Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"])),
   sidebarGroupThreadsByProject: Schema.optionalKey(Schema.Boolean),
+  sidebarOrchestratorColors: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, SidebarOrchestratorColor),
+  ),
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
