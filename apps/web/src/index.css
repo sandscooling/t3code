@@ -2054,41 +2054,16 @@ code {
   overflow-wrap: anywhere;
 }
 
-/* Fork: orchestrator card tints. Translucent so the row's own active and hover
-   surfaces still read through them. */
+/* Fork: orchestrator card accent bar colors. */
 :root {
-  --orchestrator-red: light-dark(
-    color-mix(in srgb, var(--color-red-500) 14%, transparent),
-    color-mix(in srgb, var(--color-red-400) 18%, transparent)
-  );
-  --orchestrator-orange: light-dark(
-    color-mix(in srgb, var(--color-orange-500) 14%, transparent),
-    color-mix(in srgb, var(--color-orange-400) 18%, transparent)
-  );
-  --orchestrator-amber: light-dark(
-    color-mix(in srgb, var(--color-amber-500) 16%, transparent),
-    color-mix(in srgb, var(--color-amber-400) 18%, transparent)
-  );
-  --orchestrator-green: light-dark(
-    color-mix(in srgb, var(--color-green-500) 14%, transparent),
-    color-mix(in srgb, var(--color-green-400) 18%, transparent)
-  );
-  --orchestrator-teal: light-dark(
-    color-mix(in srgb, var(--color-teal-500) 14%, transparent),
-    color-mix(in srgb, var(--color-teal-400) 18%, transparent)
-  );
-  --orchestrator-blue: light-dark(
-    color-mix(in srgb, var(--color-blue-500) 14%, transparent),
-    color-mix(in srgb, var(--color-blue-400) 18%, transparent)
-  );
-  --orchestrator-violet: light-dark(
-    color-mix(in srgb, var(--color-violet-500) 14%, transparent),
-    color-mix(in srgb, var(--color-violet-400) 18%, transparent)
-  );
-  --orchestrator-pink: light-dark(
-    color-mix(in srgb, var(--color-pink-500) 14%, transparent),
-    color-mix(in srgb, var(--color-pink-400) 18%, transparent)
-  );
+  --orchestrator-red: light-dark(var(--color-red-500), var(--color-red-400));
+  --orchestrator-orange: light-dark(var(--color-orange-500), var(--color-orange-400));
+  --orchestrator-amber: light-dark(var(--color-amber-500), var(--color-amber-400));
+  --orchestrator-green: light-dark(var(--color-green-500), var(--color-green-400));
+  --orchestrator-teal: light-dark(var(--color-teal-500), var(--color-teal-400));
+  --orchestrator-blue: light-dark(var(--color-blue-500), var(--color-blue-400));
+  --orchestrator-violet: light-dark(var(--color-violet-500), var(--color-violet-400));
+  --orchestrator-pink: light-dark(var(--color-pink-500), var(--color-pink-400));
 }
 
 :root {

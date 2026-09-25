@@ -4,8 +4,8 @@ import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
 /**
  * Fork: the swatches a project's orchestrator card can wear. The class names
  * are spelled out so Tailwind generates them; each maps to a theme token in
- * index.css. The tint is a background image, so it layers over the row's own
- * active and hover background color instead of replacing it.
+ * index.css. The color is a bar down the card's left edge, drawn as an inset
+ * shadow so it follows the rounded corners and moves nothing.
  */
 export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   readonly id: SidebarOrchestratorColor;
@@ -15,57 +15,47 @@ export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   {
     id: "red",
     label: "Red",
-    className: "bg-linear-to-b from-orchestrator-red to-orchestrator-red",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-red)]",
   },
   {
     id: "orange",
     label: "Orange",
-    className: "bg-linear-to-b from-orchestrator-orange to-orchestrator-orange",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-orange)]",
   },
   {
     id: "amber",
     label: "Amber",
-    className: "bg-linear-to-b from-orchestrator-amber to-orchestrator-amber",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-amber)]",
   },
   {
     id: "green",
     label: "Green",
-    className: "bg-linear-to-b from-orchestrator-green to-orchestrator-green",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-green)]",
   },
   {
     id: "teal",
     label: "Teal",
-    className: "bg-linear-to-b from-orchestrator-teal to-orchestrator-teal",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-teal)]",
   },
   {
     id: "blue",
     label: "Blue",
-    className: "bg-linear-to-b from-orchestrator-blue to-orchestrator-blue",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-blue)]",
   },
   {
     id: "violet",
     label: "Violet",
-    className: "bg-linear-to-b from-orchestrator-violet to-orchestrator-violet",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-violet)]",
   },
   {
     id: "pink",
     label: "Pink",
-    className: "bg-linear-to-b from-orchestrator-pink to-orchestrator-pink",
+    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-pink)]",
   },
 ];
 
-/**
- * Text on a tinted card: the row's secondary labels and icons read at full
- * strength, since their muted tones wash out against the tint. Status colors
- * keep their own meaning. The theme's foreground is near white in dark themes
- * and stays dark in light ones, where white would vanish on a pale tint.
- */
-const ORCHESTRATOR_TEXT_CLASS_NAME =
-  "text-sidebar-foreground [&_.text-secondary-label]:text-sidebar-foreground [&_.text-muted-foreground]:text-sidebar-foreground";
-
 export function orchestratorColorClassName(color: SidebarOrchestratorColor): string {
-  const tint = ORCHESTRATOR_COLORS.find((entry) => entry.id === color)?.className;
-  return tint ? `${tint} ${ORCHESTRATOR_TEXT_CLASS_NAME}` : "";
+  return ORCHESTRATOR_COLORS.find((entry) => entry.id === color)?.className ?? "";
 }
 
 export type OrchestratorColorMenuId =
