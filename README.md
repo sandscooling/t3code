@@ -18,7 +18,7 @@ Behind the **Agent orchestration** setting, off by default:
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.
 - `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled. The successor is pinned automatically, in the old one's pinned slot if it had one. A client reading the old orchestrator when it hands off follows to the successor.
 - The command palette's "New thread in..." takes a count, so `fleet 5` starts five sessions at once.
-- Each project can give its orchestrator's sidebar card a color. Right-click the orchestrator, or the project header when threads are grouped by project, and pick "Orchestrator color". A handoff successor keeps the color. The choice is saved on this device only.
+- Each project can mark its orchestrator's sidebar card with a colored bar down its left edge. Right-click the orchestrator, or the project header when threads are grouped by project, and pick "Orchestrator color". A handoff successor keeps the color. The choice is saved on this device only.
 
 ### Chat and composer
 
