@@ -218,6 +218,19 @@ describe("toastIdsToDismissForActiveThread", () => {
     );
   });
 
+  it("skips a toast that is already closing, so closing it cannot loop", () => {
+    assert.deepEqual(
+      toastIdsToDismissForActiveThread(
+        [
+          { ...toastFor("closing", activeThreadRef), transitionStatus: "ending" },
+          { ...toastFor("open", activeThreadRef), transitionStatus: "starting" },
+        ],
+        activeThreadRef,
+      ),
+      ["open"],
+    );
+  });
+
   it("ignores toasts that never asked to be dismissed, and drafts with no thread", () => {
     assert.deepEqual(
       toastIdsToDismissForActiveThread(
