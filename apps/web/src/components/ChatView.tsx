@@ -647,6 +647,8 @@ const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   '[role="switch"]',
   '[role="tab"]',
 ].join(",");
+// Popups match only while open or closing: some stay mounted when closed,
+// such as the chat header actions menu.
 const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [
   '[role="dialog"][aria-modal="true"]',
   '[data-slot="alert-dialog-popup"]:is([data-open],[data-ending-style])',
@@ -654,11 +656,11 @@ const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [
   '[data-slot="dialog-popup"]:is([data-open],[data-ending-style])',
   '[data-slot="sheet-popup"]:is([data-open],[data-ending-style])',
   '[data-slot="sidebar"][data-mobile="true"]:is([data-open],[data-ending-style])',
-  '[data-slot="menu-popup"]',
-  '[data-slot="select-popup"]',
-  '[data-slot="popover-popup"]',
-  '[data-slot="combobox-popup"]',
-  '[data-slot="autocomplete-popup"]',
+  '[data-slot="menu-popup"]:is([data-open],[data-ending-style])',
+  '[data-slot="select-popup"]:is([data-open],[data-ending-style])',
+  '[data-slot="popover-popup"]:is([data-open],[data-ending-style])',
+  '[data-slot="combobox-popup"]:is([data-open],[data-ending-style])',
+  '[data-slot="autocomplete-popup"]:is([data-open],[data-ending-style])',
 ].join(",");
 
 type EnvironmentUnavailableState = {
@@ -5952,6 +5954,7 @@ export default function ChatView(props: ChatViewProps) {
     activeWorktreePath,
     hasServerThread: isServerThread,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
+    preparingWorktree: isPreparingWorktree,
   });
   const canOverrideServerThreadEnvMode = Boolean(
     isServerThread &&
@@ -6415,6 +6418,9 @@ export default function ChatView(props: ChatViewProps) {
     // since it is the one the agent just started waiting on.
     const namedTask = liveCount === 0 ? (liveBackgroundTasks.at(-1) ?? null) : null;
     const otherTaskCount = liveBackgroundTasks.length - 1;
+    // Hidden once the Agents surface is on screen; the link would point at nothing.
+    const showViewAgents =
+      liveCount > 0 && !(rightPanelOpen && activeRightPanelSurface?.kind === "agents");
     return {
       id: `background-liveness:${activeThread.id}`,
       variant: "default",
@@ -6445,6 +6451,11 @@ export default function ChatView(props: ChatViewProps) {
               <span className="sr-only"> more running</span>
             </span>
           ) : null}
+          {showViewAgents ? (
+            <Button size="xs" variant="ghost" aria-label="View agents" onClick={addAgentsSurface}>
+              View
+            </Button>
+          ) : null}
           <Button
             size="xs"
             variant="ghost"
@@ -6458,11 +6469,14 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [
     activeBackgroundLiveness,
+    activeRightPanelSurface?.kind,
     activeThread,
+    addAgentsSurface,
     agentPanelModel.liveCount,
     handleStopBackgroundWork,
     isStoppingBackgroundWork,
     liveBackgroundTasks,
+    rightPanelOpen,
   ]);
   // A woken thread announces itself in the open view, not just the sidebar
   // pill. Dismissing marks the wake as seen (same acknowledgment as the
@@ -10359,9 +10373,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}
                                 onStartFromOriginChange={onStartFromOriginChange}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? { effectiveEnvModeOverride: envMode }
-                                  : {})}
+                                envMode={envMode}
                                 {...(canOverrideServerThreadEnvMode
                                   ? {
                                       activeThreadBranchOverride: activeThreadBranch,

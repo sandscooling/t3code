@@ -45,7 +45,7 @@ Behind the **Agent orchestration** setting, off by default:
 ### Browser automation
 
 - Snapshots work on background tabs that are not painted on screen.
-- Smaller snapshots: a compacted accessibility tree without text-only nodes, and an `include` option to ask for only some sections.
+- Smaller snapshots: a compacted accessibility tree without text-only nodes.
 - A stuck browser request no longer leaves the globe on.
 - `preview_wait_for` gives up before the server does, so a condition that never matches returns an error instead of dropping the browser host.
 

@@ -198,17 +198,8 @@ const handlers = {
   preview_set_appearance: (input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
   preview_snapshot: (input) => {
-    // Output selection and saving are MCP-only: the browser still produces a
-    // complete snapshot, and every knob is answered on this side, so they are
-    // stripped before the call reaches the desktop. That keeps the IPC payload
-    // identical to what every released host already accepts, which matters
-    // because hosts are versioned independently of the server.
-    const {
-      include: _include,
-      includeImage: _includeImage,
-      save: _save,
-      ...operationInput
-    } = input ?? {};
+    // Output selection and saving are MCP-only; the browser still produces a complete snapshot.
+    const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   },
   preview_click: (input) => invokeTargeted<object>("click", input, input.timeoutMs),
