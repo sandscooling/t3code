@@ -189,7 +189,9 @@ describe("thread notifications", () => {
     state[event] = true;
     await render();
     await render();
-    expect(state.add).toHaveBeenCalledTimes(1);
+    // A question's toast waits for the reader even when raised in the background;
+    // a failure's does not.
+    expect(state.add).toHaveBeenCalledTimes(event === "input" || event === "approval" ? 2 : 1);
     expect(state.notification).toHaveBeenCalledTimes(1);
     expect(state.notification).toHaveBeenCalledWith(title, {
       body: "Fix the login form",
@@ -219,6 +221,39 @@ describe("thread notifications", () => {
       expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
     },
   );
+
+  it("leaves a question's toast waiting when it arrives while the app is unfocused", async () => {
+    state.mode = "notifications";
+    state.focused = false;
+    await render();
+    state.input = true;
+    await render();
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thread-attention:env-1:thread-1", timeout: 0 }),
+    );
+    expect(state.notification).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not raise a question's toast for the thread already open", async () => {
+    state.active.threadId = "thread-1";
+    state.focused = false;
+    await render();
+    state.input = true;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it("restores a question's toast, silently, for a thread already waiting on load", async () => {
+    state.mode = "notifications-and-sound";
+    state.approval = true;
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(1);
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thread-attention:env-1:thread-1", title: "Approval needed" }),
+    );
+    expect(state.sound).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
+  });
 
   it("lets a completion toast fall away on its own", async () => {
     await render();

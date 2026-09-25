@@ -143,37 +143,12 @@ function EnvironmentNotifications({
           ? completedAt
           : (prior?.completion ?? null);
       next.set(thread.id, { attention, completion });
-      if (!prior || thread.archivedAt !== null) continue;
-      const kind =
-        attention && attention !== prior.attention
-          ? "input"
-          : completion !== null && (prior.completion === null || completion > prior.completion)
-            ? "completion"
-            : null;
-      if (!kind) continue;
-      const title =
-        kind === "completion"
-          ? "Thread completed"
-          : status === "approval"
-            ? "Approval needed"
-            : status === "failed"
-              ? "Thread failed"
-              : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
-      }
-      if (
-        inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
-      ) {
-        // A question outlives a five second toast: it waits until the reader
-        // answers it. Only the states that want a reply persist; completions
-        // and failures still fall away on their own.
-        const awaitsAnswer = status === "input" || status === "approval";
+      if (thread.archivedAt !== null) continue;
+      // Questions and approvals get a standing toast; completions and failures
+      // are momentary and still fall away on their own.
+      const awaitsAnswer = status === "input" || status === "approval";
+      const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
+      const showToast = (kind: "input" | "completion", title: string) => {
         const toastId = toastManager.add({
           ...(awaitsAnswer
             ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
@@ -206,11 +181,48 @@ function EnvironmentNotifications({
             },
           },
         });
+      };
+      if (!prior) {
+        // First sight, on load or after a reconnect: a thread already waiting on
+        // an answer gets its standing toast back, quietly. The stable id means an
+        // existing toast is refreshed rather than duplicated.
+        if (awaitsAnswer && inAppNotificationsEnabled && !isActiveThread) {
+          showToast("input", status === "approval" ? "Approval needed" : "Input needed");
+        }
         continue;
+      }
+      const kind =
+        attention && attention !== prior.attention
+          ? "input"
+          : completion !== null && (prior.completion === null || completion > prior.completion)
+            ? "completion"
+            : null;
+      if (!kind) continue;
+      const title =
+        kind === "completion"
+          ? "Thread completed"
+          : status === "approval"
+            ? "Approval needed"
+            : status === "failed"
+              ? "Thread failed"
+              : "Input needed";
+      if (hasNotificationSound(mode)) {
+        void playNotificationSound(kind, () =>
+          hasNotificationSound(getClientSettings().notificationMode),
+        );
+      }
+      const onScreen = document.visibilityState === "visible" && document.hasFocus();
+      // A question must still be waiting when the reader comes back, so its
+      // toast does not depend on focus; the app can think it is unfocused while
+      // the reader is looking at it (a browser preview or dictation holding
+      // focus). A background question still gets its system popup below.
+      if (inAppNotificationsEnabled && !isActiveThread && (awaitsAnswer || onScreen)) {
+        showToast(kind, title);
+        if (onScreen) continue;
       }
       if (
         !hasDesktopNotifications(mode) ||
-        (document.visibilityState === "visible" && document.hasFocus()) ||
+        onScreen ||
         typeof Notification === "undefined" ||
         Notification.permission !== "granted"
       )
