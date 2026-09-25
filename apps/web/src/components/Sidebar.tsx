@@ -1264,13 +1264,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Upstream owns the recede rule now; it subsumes the fork's in-flight
   // clause by receding working and monitoring rows outright. `isInFlight`
   // above still stands, because the row surface dims an in-flight card.
-  const shouldRecede = shouldRecedeSidebarThread({
-    status,
-    isUnread,
-    isWoke,
-    isActive: props.isActive,
-    isSelected,
-  });
+  // A tinted orchestrator never recedes: its color exists to stand out.
+  const shouldRecede =
+    !props.orchestratorColor &&
+    shouldRecedeSidebarThread({
+      status,
+      isUnread,
+      isWoke,
+      isActive: props.isActive,
+      isSelected,
+    });
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, sky working)
   // so a thread reads the same color everywhere it surfaces.

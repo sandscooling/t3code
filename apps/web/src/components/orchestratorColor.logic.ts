@@ -54,8 +54,18 @@ export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   },
 ];
 
+/**
+ * Text on a tinted card: the row's secondary labels and icons read at full
+ * strength, since their muted tones wash out against the tint. Status colors
+ * keep their own meaning. The theme's foreground is near white in dark themes
+ * and stays dark in light ones, where white would vanish on a pale tint.
+ */
+const ORCHESTRATOR_TEXT_CLASS_NAME =
+  "text-sidebar-foreground [&_.text-secondary-label]:text-sidebar-foreground [&_.text-muted-foreground]:text-sidebar-foreground";
+
 export function orchestratorColorClassName(color: SidebarOrchestratorColor): string {
-  return ORCHESTRATOR_COLORS.find((entry) => entry.id === color)?.className ?? "";
+  const tint = ORCHESTRATOR_COLORS.find((entry) => entry.id === color)?.className;
+  return tint ? `${tint} ${ORCHESTRATOR_TEXT_CLASS_NAME}` : "";
 }
 
 export type OrchestratorColorMenuId =
