@@ -136,13 +136,14 @@ afterEach(async () => {
 });
 
 describe("thread notifications", () => {
-  it("alerts once with system alerts off and opens the completed thread", async () => {
+  it("alerts once with system alerts off and opens the waiting thread", async () => {
     await render();
-    await complete();
+    state.input = true;
+    await render();
     await render();
     expect(state.add).toHaveBeenCalledTimes(1);
     const toast = state.add.mock.calls[0]?.[0];
-    expect(toast?.title).toBe("Thread completed");
+    expect(toast?.title).toBe("Input needed");
     expect(toast?.description).toBe("Fix the login form");
     toast?.actionProps.onClick();
     expect(state.close).toHaveBeenCalledWith("toast-1");
@@ -153,16 +154,24 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  it.each(["active", "blurred", "hidden", "archived", "disabled"])(
-    "does not show a completion toast for %s threads",
+  it("gives a completion its sound but no toast", async () => {
+    state.mode = "notifications-and-sound";
+    await render();
+    await complete();
+    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
+    expect(state.add).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  it.each(["active", "archived", "disabled"])(
+    "does not show a question toast for %s threads",
     async (condition) => {
       await render();
       if (condition === "active") state.active.threadId = "thread-1";
-      if (condition === "blurred") state.focused = false;
-      if (condition === "hidden") state.visible = "hidden";
       if (condition === "archived") state.archivedAt = "2026-09-13T09:00:00.000Z";
       if (condition === "disabled") state.inApp = false;
-      await complete();
+      state.input = true;
+      await render();
       expect(state.add).not.toHaveBeenCalled();
     },
   );
@@ -255,9 +264,10 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  it("lets a completion toast fall away on its own", async () => {
+  it("lets a failure toast fall away on its own", async () => {
     await render();
-    await complete();
+    state.sessionError = true;
+    await render();
     const toast = state.add.mock.calls[0]?.[0];
     expect(toast).not.toHaveProperty("timeout");
     expect(toast).not.toHaveProperty("id");
@@ -277,19 +287,11 @@ describe("thread notifications", () => {
     expect(state.add).not.toHaveBeenCalled();
   });
 
-  it("does not replay a completion when opting in from all alerts off", async () => {
-    state.inApp = false;
-    await render();
-    await complete();
-    state.inApp = true;
-    await render();
-    expect(state.add).not.toHaveBeenCalled();
-  });
-
   it("compares the environment as well as the thread", async () => {
     state.active = { environmentId: "env-2", threadId: "thread-1" };
     await render();
-    await complete();
+    state.input = true;
+    await render();
     expect(state.add).toHaveBeenCalledTimes(1);
   });
 
@@ -300,15 +302,6 @@ describe("thread notifications", () => {
     state.live = true;
     await render();
     expect(state.add).not.toHaveBeenCalled();
-  });
-
-  it("keeps sound but replaces the system popup when showing a toast", async () => {
-    state.mode = "notifications-and-sound";
-    await render();
-    await complete();
-    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
-    expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.notification).not.toHaveBeenCalled();
   });
 
   it("keeps system alerts when the app is in the background", async () => {

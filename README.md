@@ -39,7 +39,7 @@ Behind the **Agent orchestration** setting, off by default:
 - Per-thread Claude output style.
 - A setting to stop threads renaming themselves.
 - Browser previews close once a thread settles.
-- A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several stack. It appears even if the question arrived while the window was in the background, and comes back after a restart for any thread still waiting. It clears when you open that thread, use its "Open thread" button, or the question is answered anywhere. Completions and failures still fade on their own.
+- A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several show as a readable list rather than a collapsed pile. It appears even if the question arrived while the window was in the background, and comes back after a restart for any thread still waiting. It clears when you open that thread, use its "Open thread" button, or the question is answered anywhere. Failures still fade on their own, and a finished thread gets its sound and background popup but no toast.
 
 ### Browser automation
 

@@ -2,12 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import {
-  CircleAlertIcon,
-  CircleCheckIcon,
-  MessageCircleQuestionIcon,
-  ShieldQuestionIcon,
-} from "lucide-react";
+import { CircleAlertIcon, MessageCircleQuestionIcon, ShieldQuestionIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
@@ -144,25 +139,24 @@ function EnvironmentNotifications({
           : (prior?.completion ?? null);
       next.set(thread.id, { attention, completion });
       if (thread.archivedAt !== null) continue;
-      // Questions and approvals get a standing toast; completions and failures
-      // are momentary and still fall away on their own.
+      // Only threads that want the reader get a toast. Questions and approvals
+      // stand until answered; failures fall away on their own. Completions have
+      // no toast at all, only their sound and background system popup.
       const awaitsAnswer = status === "input" || status === "approval";
       const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
-      const showToast = (kind: "input" | "completion", title: string) => {
+      const showToast = (title: string) => {
         const toastId = toastManager.add({
           ...(awaitsAnswer
             ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
             : undefined),
-          type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+          type: status === "failed" ? "error" : "warning",
           title,
           description: thread.title,
           data: {
             hideCopyButton: true,
             dismissOnActiveThreadRef: awaitsAnswer ? { environmentId, threadId: thread.id } : null,
             leadingIcon:
-              kind === "completion" ? (
-                <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
-              ) : status === "approval" ? (
+              status === "approval" ? (
                 <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
               ) : status === "failed" ? (
                 <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
@@ -187,7 +181,7 @@ function EnvironmentNotifications({
         // an answer gets its standing toast back, quietly. The stable id means an
         // existing toast is refreshed rather than duplicated.
         if (awaitsAnswer && inAppNotificationsEnabled && !isActiveThread) {
-          showToast("input", status === "approval" ? "Approval needed" : "Input needed");
+          showToast(status === "approval" ? "Approval needed" : "Input needed");
         }
         continue;
       }
@@ -216,8 +210,13 @@ function EnvironmentNotifications({
       // toast does not depend on focus; the app can think it is unfocused while
       // the reader is looking at it (a browser preview or dictation holding
       // focus). A background question still gets its system popup below.
-      if (inAppNotificationsEnabled && !isActiveThread && (awaitsAnswer || onScreen)) {
-        showToast(kind, title);
+      if (
+        kind === "input" &&
+        inAppNotificationsEnabled &&
+        !isActiveThread &&
+        (awaitsAnswer || onScreen)
+      ) {
+        showToast(title);
         if (onScreen) continue;
       }
       if (
