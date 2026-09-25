@@ -534,7 +534,9 @@ function ThreadToastVisibleAutoDismiss({
 
 function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
   return (
-    <Toast.Provider toastManager={toastManager} {...props}>
+    // Question toasts stand until answered, so the default limit of 3 would hide
+    // a fourth waiting thread until another one closed.
+    <Toast.Provider toastManager={toastManager} limit={6} {...props}>
       {children}
       <Toasts position={position} />
     </Toast.Provider>
@@ -650,6 +652,10 @@ function Toasts({ position }: { position: ToastPosition }) {
                 "data-expanded:data-ending-style:data-[swipe-direction=down]:transform-[translateY(calc(var(--toast-swipe-movement-y)+100%+var(--toast-inset)))]",
               )}
               data-position={position}
+              // Always laid out as the expanded list, so every waiting toast stays
+              // readable without hovering. Props win over Base UI's own state
+              // attribute; its timers pause on hover state, not this attribute.
+              data-expanded=""
               key={toast.id}
               style={
                 {
@@ -684,6 +690,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                 </button>
               </div>
               <Toast.Content
+                data-expanded=""
                 className={cn(
                   // `overflow-x: clip` avoids the CSS quirk where pairing `hidden` + `y: visible`
                   // forces `y` to `auto`. Expandable detail panels can extend below without being cut off.
