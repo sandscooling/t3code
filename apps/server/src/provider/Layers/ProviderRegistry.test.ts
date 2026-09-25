@@ -3141,6 +3141,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             status.message,
             "Could not verify Claude authentication status from initialization result.",
           );
+          // A failed probe must read as a failed usage read, so the last
+          // published windows survive it rather than blanking.
+          assert.strictEqual(status.usageLimits?.unavailable?.reason, "probeFailed");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {

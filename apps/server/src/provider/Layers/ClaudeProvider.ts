@@ -644,6 +644,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         status: "warning",
         auth: { status: "unknown" },
         message: "Could not verify Claude authentication status from initialization result.",
+        // Fork: a probe that never came back is a failed usage read, not an
+        // absent one. Marking it keeps the last published windows (see
+        // resolveUsageLimitsAfterProbe) instead of blanking the composer pill.
+        usageLimits: makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed" }),
       },
     });
   }
