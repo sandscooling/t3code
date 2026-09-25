@@ -1,3 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -16,6 +21,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/unstable/ai";
 
+import { GitWorkflowService } from "../../../git/GitWorkflowService.ts";
 import { OrchestrationThreadSettleBlockedError } from "../../../orchestration/Errors.ts";
 import {
   OrchestrationEngineService,
@@ -66,6 +72,8 @@ function shell(input: {
   readonly status?: "running" | "ready" | "stopped";
   readonly settled?: boolean;
   readonly pinOrderKey?: string;
+  readonly branch?: string;
+  readonly worktreePath?: string;
 }): OrchestrationThreadShell {
   return {
     id: ThreadId.make(input.id),
@@ -74,8 +82,8 @@ function shell(input: {
     modelSelection: { instanceId: ProviderInstanceId.make("claudeAgent"), model: "claude-opus-5" },
     runtimeMode: "full-access",
     interactionMode: "default",
-    branch: null,
-    worktreePath: null,
+    branch: input.branch ?? null,
+    worktreePath: input.worktreePath ?? null,
     group: input.group ?? null,
     parentThreadId: input.parentThreadId == null ? null : ThreadId.make(input.parentThreadId),
     latestTurn: null,
@@ -152,6 +160,8 @@ class RefusedByTest extends Data.TaggedError("RefusedByTest")<{ readonly message
 function makeHarness(
   threads: ReadonlyArray<OrchestrationThreadShell>,
   providers: ReadonlyArray<ServerProvider> = baseProviders,
+  // What `git worktree list` reports for the project, as listRefs carries it.
+  worktrees: ReadonlyArray<{ readonly branch: string; readonly path: string }> = [],
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
   const failing = new Set<OrchestrationCommand["type"]>();
@@ -204,6 +214,23 @@ function makeHarness(
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engine)),
     Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, query)),
     Layer.provideMerge(makeProviderRegistryLayer(providers)),
+    Layer.provideMerge(
+      Layer.mock(GitWorkflowService, {
+        listRefs: () =>
+          Effect.succeed({
+            refs: worktrees.map((worktree) => ({
+              name: worktree.branch,
+              current: false,
+              isDefault: false,
+              worktreePath: worktree.path,
+            })),
+            isRepo: true,
+            hasPrimaryRemote: true,
+            nextCursor: null,
+            totalCount: worktrees.length,
+          }),
+      }),
+    ),
     Layer.provideMerge(NodeServices.layer),
   );
   return { dispatched, failing, blocking, layer };
@@ -269,6 +296,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             project: "t3code",
             status: "running",
             self: true,
+            branch: null,
+            worktreePath: null,
           },
           {
             threadId: "thread-dev",
@@ -278,6 +307,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             project: "t3code",
             status: "ready",
             self: false,
+            branch: null,
+            worktreePath: null,
           },
           {
             threadId: "thread-review",
@@ -287,6 +318,8 @@ it.effect("lists the caller's project only, skipping archived threads", () =>
             project: "t3code",
             status: "stopped",
             self: false,
+            branch: null,
+            worktreePath: null,
           },
         ],
       });
@@ -721,6 +754,8 @@ it.effect("keeps the caller's own row even if the caller is settled", () =>
             project: "t3code",
             status: "stopped",
             self: true,
+            branch: null,
+            worktreePath: null,
           },
         ],
       });
@@ -976,5 +1011,177 @@ it.effect("lists the projects, then sessions in one other project or in all of t
         "thread-elsewhere",
       ]);
     }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
+  ),
+);
+
+const laneThreads = [
+  shell({
+    id: "thread-orchestrator",
+    title: "orchestrator",
+    status: "running",
+    branch: "lane/T-1",
+    worktreePath: "C:/lanes/T-1",
+  }),
+  shell({
+    id: "thread-dev",
+    title: "T-1-dev",
+    group: "T-1",
+    branch: "lane/T-2",
+    worktreePath: "C:/lanes/T-2",
+  }),
+  shell({ id: "thread-main", title: "T-1-main", group: "T-1" }),
+  shell({
+    id: "thread-elsewhere",
+    title: "fleet-dev",
+    projectId: otherProjectId,
+    branch: "lane/F-1",
+    worktreePath: "C:/fleet-lanes/F-1",
+  }),
+];
+
+const createdWorktree = (dispatched: ReadonlyArray<OrchestrationCommand>) => {
+  const create = dispatched.find((command) => command.type === "thread.create");
+  return create?.type === "thread.create"
+    ? { branch: create.branch, worktreePath: create.worktreePath }
+    : null;
+};
+
+it.effect("spawns into another session's worktree with sameAs, main checkout included", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = makeHarness(laneThreads);
+      const result = yield* callTool("session_spawn", {
+        name: "T-1-review",
+        group: "T-1",
+        message: "Review the lane.",
+        worktree: { sameAs: "T-1-dev" },
+      }).pipe(Effect.provide(harness.layer));
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        branch: "lane/T-2",
+        worktreePath: "C:/lanes/T-2",
+      });
+      expect(createdWorktree(harness.dispatched)).toEqual({
+        branch: "lane/T-2",
+        worktreePath: "C:/lanes/T-2",
+      });
+
+      const onMain = makeHarness(laneThreads);
+      yield* callTool("session_spawn", {
+        name: "T-1-tests",
+        group: "T-1",
+        message: "Tests.",
+        worktree: { sameAs: "thread-main" },
+      }).pipe(Effect.provide(onMain.layer));
+      expect(createdWorktree(onMain.dispatched)).toEqual({ branch: null, worktreePath: null });
+
+      // A worktree belongs to one repository, so it never crosses projects.
+      const crossProject = makeHarness(laneThreads);
+      const refused = yield* callTool("session_spawn", {
+        name: "T-1-fleet",
+        group: "T-1",
+        message: "Nope.",
+        worktree: { sameAs: "thread-elsewhere" },
+      }).pipe(Effect.provide(crossProject.layer));
+      expect(refused.isError).toBe(true);
+      expect(errorText(refused)).toContain("invalid-worktree");
+      expect(crossProject.dispatched).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("keeps a handoff in the caller's worktree, and a plain spawn on the main checkout", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const handoff = makeHarness(laneThreads);
+      const result = yield* callTool("session_spawn", {
+        name: "orchestrator-2",
+        group: "ops",
+        message: "Take over.",
+        handoff: true,
+      }).pipe(Effect.provide(handoff.layer));
+      expect(result.structuredContent).toMatchObject({
+        branch: "lane/T-1",
+        worktreePath: "C:/lanes/T-1",
+      });
+      expect(createdWorktree(handoff.dispatched)).toEqual({
+        branch: "lane/T-1",
+        worktreePath: "C:/lanes/T-1",
+      });
+
+      const plain = makeHarness(laneThreads);
+      const spawned = yield* callTool("session_spawn", {
+        name: "T-1-plain",
+        group: "T-1",
+        message: "Main checkout.",
+      }).pipe(Effect.provide(plain.layer));
+      expect(spawned.structuredContent).toMatchObject({ branch: null, worktreePath: null });
+      expect(createdWorktree(plain.dispatched)).toEqual({ branch: null, worktreePath: null });
+    }),
+  ),
+);
+
+it.effect("lists each session's branch and worktree path", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const result = yield* callTool("session_list", {});
+      expect(result.structuredContent).toMatchObject({
+        sessions: [
+          { name: "orchestrator", branch: "lane/T-1", worktreePath: "C:/lanes/T-1" },
+          { name: "T-1-dev", branch: "lane/T-2", worktreePath: "C:/lanes/T-2" },
+          { name: "T-1-main", branch: null, worktreePath: null },
+        ],
+      });
+    }).pipe(Effect.provide(makeHarness(laneThreads).layer)),
+  ),
+);
+
+it.effect("attaches a worktree git lists with that branch, and refuses anything else", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-lane-"));
+      const unlisted = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-unlisted-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(lane, { recursive: true, force: true });
+          NodeFS.rmSync(unlisted, { recursive: true, force: true });
+        }),
+      );
+      const worktrees = [{ branch: "lane/T-9", path: lane }];
+      const spawn = (worktree: { readonly path: string; readonly branch: string }) => {
+        const harness = makeHarness(baseThreads, baseProviders, worktrees);
+        return callTool("session_spawn", {
+          name: "T-9-dev",
+          group: "T-9",
+          message: "Work the lane.",
+          worktree,
+        }).pipe(
+          Effect.provide(harness.layer),
+          Effect.map((result) => ({ result, dispatched: harness.dispatched })),
+        );
+      };
+
+      const notListed = yield* spawn({ path: unlisted, branch: "lane/T-9" });
+      expect(notListed.result.isError).toBe(true);
+      expect(errorText(notListed.result)).toContain("invalid-worktree");
+      expect(errorText(notListed.result)).toContain("does not list");
+      expect(notListed.dispatched).toEqual([]);
+
+      const wrongBranch = yield* spawn({ path: lane, branch: "lane/T-8" });
+      expect(wrongBranch.result.isError).toBe(true);
+      expect(errorText(wrongBranch.result)).toContain("has lane/T-9 checked out, not lane/T-8");
+      expect(wrongBranch.dispatched).toEqual([]);
+
+      const attached = yield* spawn({ path: lane, branch: "lane/T-9" });
+      expect(attached.result.isError).toBe(false);
+      expect(attached.result.structuredContent).toMatchObject({
+        branch: "lane/T-9",
+        worktreePath: lane,
+      });
+      expect(createdWorktree(attached.dispatched)).toEqual({
+        branch: "lane/T-9",
+        worktreePath: lane,
+      });
+    }),
   ),
 );

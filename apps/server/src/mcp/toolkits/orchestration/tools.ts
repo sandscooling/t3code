@@ -16,8 +16,11 @@ import {
   SessionWakeResult,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
+import { GitWorkflowService } from "../../../git/GitWorkflowService.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../../../provider/Services/ProviderRegistry.ts";
@@ -32,11 +35,17 @@ const dependencies = [
 
 export const SessionSpawnTool = Tool.make("session_spawn", {
   description:
-    "Start a new agent session as its own thread, titled `name`, filed under `group`, and kicked off with `message`. It starts in your own project, or in the one `project` names from session_projects. The session runs in that project's directory on its current checkout and inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Pass `handoff` to replace yourself with the new session: it becomes your sibling, takes over every session you spawned, and is pinned in the sidebar in your pinned slot. Reports what the session runs on, and which sessions a handoff moved. Fails if an open session already has that name.",
+    "Start a new agent session as its own thread, titled `name`, filed under `group`, and kicked off with `message`. It starts in your own project, or in the one `project` names from session_projects. The session runs in that project's main checkout unless you pass `worktree`: `{ path, branch }` attaches it to a git worktree you already created for that project (checked against git worktree list), and `{ sameAs }` puts it in another session's worktree. T3 never creates, recreates, or deletes these worktrees. It inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Pass `handoff` to replace yourself with the new session: it becomes your sibling, takes over every session you spawned, stays in your worktree, and is pinned in the sidebar in your pinned slot. Reports what the session runs on, its branch and worktree path, and which sessions a handoff moved. Fails if an open session already has that name.",
   parameters: SessionSpawnInput,
   success: SessionSpawnResult,
   failure: OrchestrationToolError,
-  dependencies: [...dependencies, ProviderRegistry],
+  dependencies: [
+    ...dependencies,
+    ProviderRegistry,
+    GitWorkflowService,
+    FileSystem.FileSystem,
+    Path.Path,
+  ],
 })
   .annotate(Tool.Title, "Spawn a session")
   .annotate(Tool.Readonly, false)
@@ -74,7 +83,7 @@ export const SessionProjectsTool = Tool.make("session_projects", {
 
 export const SessionListTool = Tool.make("session_list", {
   description:
-    "List the open sessions in your own project with their threadId, group, project and live status, or pass `project` to list another project, or `*` for all of them. Settled sessions are finished work and are left out, so this is what is still in flight, not the whole roster. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on, from any project.",
+    "List the open sessions in your own project with their threadId, group, project, live status, and the branch and worktree path they run in (null on the main checkout), or pass `project` to list another project, or `*` for all of them. Settled sessions are finished work and are left out, so this is what is still in flight, not the whole roster. Status is `stopped` when a session has no running provider process; pass such a session's name or threadId to session_wake to bring it back. The row with `self: true` is you, so its threadId is the address another session can wake you back on, from any project.",
   parameters: SessionListInput,
   success: SessionListResult,
   failure: OrchestrationToolError,

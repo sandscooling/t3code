@@ -15,8 +15,10 @@ With the setting on, every agent session gets seven tools:
 
 - **session_spawn** starts a new session, titled with the name you give it, filed under a group,
   and kicked off with an opening message. It starts in the caller's project unless the agent names
-  another, so one long-lived orchestrator can run work in all of your projects. It runs in that
-  project's directory on its current checkout and inherits the calling session's permission mode. It also inherits the
+  another, so one long-lived orchestrator can run work in all of your projects. It runs on that
+  project's main checkout, or in an existing git worktree (see
+  [Running sessions in worktrees](#running-sessions-in-worktrees)), and inherits the calling
+  session's permission mode. It also inherits the
   caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
   session. The name must be unique among that project's open sessions. With the handoff option,
@@ -24,8 +26,8 @@ With the setting on, every agent session gets seven tools:
 - **session_models** lists the providers and models a spawned session can use, with each model's
   options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_projects** lists the projects on this server that the other tools can reach.
-- **session_list** lists open sessions with their project, their group, and whether each has a
-  running process behind it: the caller's own project by default, or another project, or all of
+- **session_list** lists open sessions with their project, their group, the branch and worktree
+  they run in, and whether each has a running process behind it: the caller's own project by default, or another project, or all of
   them. Settled and archived sessions are not included, so a group's list empties as its sessions
   finish and the agent driving them sees only what is still in flight.
 - **session_wake** sends a message to an existing session. If that session's process had stopped,
@@ -47,6 +49,29 @@ session with the same name. Sessions in other projects are reached by the id `se
 reports, and a session learns its own id the same way, which is how a worker in one project
 reports back to an orchestrator in another. A spawned session shows in the sidebar under the
 project it runs in.
+
+## Running sessions in worktrees
+
+Parallel workers editing one checkout step on each other. To give a line of work its own copy of
+the code, create a git worktree for it yourself (for example with `git worktree add`), then
+attach sessions to it through the `worktree` option of **session_spawn**:
+
+- **The first session of a lane** passes `worktree: { path, branch }`: the worktree's absolute
+  path and the branch checked out there. The spawn is refused unless git lists that path as a
+  worktree of the project, it is not the project's own checkout, and it has that branch checked
+  out.
+- **Every other session in the lane** passes `worktree: { sameAs }` with the name or threadId of a
+  session already there. A session on the main checkout passes that on too.
+- **A handoff successor** stays in the caller's worktree without asking.
+
+Everything the session does, from its turns to its terminal and diffs, happens in that worktree.
+The result of **session_spawn** and each row of **session_list** report the `branch` and
+`worktreePath` a session runs in; both are null on the main checkout.
+
+T3 Code never creates, recreates, or deletes a worktree you attach this way. If the folder
+disappears, the session's next turn fails with a message saying so, instead of T3 Code rebuilding
+it. Deleting such a thread with "delete the worktree too" leaves the folder in place. Remove the
+worktree yourself with `git worktree remove` when the lane is done.
 
 ## What stays stable
 
@@ -81,7 +106,7 @@ Calling **session_spawn** with `handoff: true` does two things in one call:
 
 - **The successor becomes the caller's sibling, not its child.** It takes the caller's own parent,
   or no parent when the caller was started by hand. Settling the old orchestrator therefore never
-  settles its successor.
+  settles its successor. It also runs in the caller's worktree, unless the call passes `worktree`.
 - **Every session the caller started moves to the successor.** This is called adopting. Settled
   sessions move too, so waking one later still ties it to the successor. The sessions move only
   after the successor's first turn has started; if it fails to start, nothing moves.

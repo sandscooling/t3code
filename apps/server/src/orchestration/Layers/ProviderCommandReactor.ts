@@ -66,6 +66,11 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import {
+  AttachedWorktreeMissingError,
+  isAttachedWorktreeMissingError,
+  isInsideT3WorktreesDir,
+} from "../../git/attachedWorktrees.ts";
 const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
@@ -382,7 +387,10 @@ const make = Effect.gen(function* () {
     if (isProviderAdapterValidationError(failReason?.error)) {
       return failReason.error.issue;
     }
-    if (isProviderWorkspaceMissingError(failReason?.error)) {
+    if (
+      isProviderWorkspaceMissingError(failReason?.error) ||
+      isAttachedWorktreeMissingError(failReason?.error)
+    ) {
       return failReason.error.message;
     }
     return Cause.pretty(cause);
@@ -489,6 +497,11 @@ const make = Effect.gen(function* () {
     const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
     if (exists) {
       return;
+    }
+    // Fork: a worktree outside T3's own worktrees dir was attached by an
+    // outside orchestrator. Recreating it would guess at state T3 never owned.
+    if (!(yield* isInsideT3WorktreesDir(worktreePath))) {
+      return yield* new AttachedWorktreeMissingError({ worktreePath });
     }
     const project = yield* resolveProject(thread.projectId);
     if (!project) {
@@ -1335,7 +1348,14 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* ensureThreadWorktree(thread);
+    // Fork: a missing attached worktree fails this turn start visibly.
+    const worktreeReady = yield* ensureThreadWorktree(thread).pipe(
+      Effect.as(true),
+      Effect.catchTag("AttachedWorktreeMissingError", (error) =>
+        recoverTurnStartFailure(Cause.fail(error)).pipe(Effect.as(false)),
+      ),
+    );
+    if (!worktreeReady) return;
 
     const isCompactCommand = isCompactCommandMessage(message);
     if (!hasOtherUserMessages && !isCompactCommand) {

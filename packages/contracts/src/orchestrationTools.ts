@@ -32,6 +32,35 @@ const SessionModelOptionSelection = Schema.Struct({
   value: SessionModelOptionValue,
 });
 
+/**
+ * A worktree an outside tool created. T3 only records it: it never creates,
+ * recreates, or deletes these.
+ */
+const SessionWorktree = Schema.Union([
+  Schema.Struct({
+    path: Schema.String.annotate({
+      description:
+        "Absolute path of a git worktree you already created for the target project, e.g. with `git worktree add`. It must not be the project's own checkout.",
+    }),
+    branch: Schema.String.annotate({
+      description:
+        "Branch checked out in that worktree. The spawn is refused if git reports a different one.",
+    }),
+  }).annotate({
+    description:
+      "Attach to an existing worktree by path. Use this for the first session of a lane.",
+  }),
+  Schema.Struct({
+    sameAs: SessionRef,
+  }).annotate({
+    description:
+      "Run in the same worktree as another session, copying its branch and path. A session on the main checkout passes that on too.",
+  }),
+]).annotate({
+  description:
+    "Existing git worktree the session runs in: `{ path, branch }` for one you created, or `{ sameAs }` to share another session's. T3 never creates, recreates, or deletes these worktrees. Omit to run on the project's main checkout, or, with `handoff`, in your own worktree.",
+});
+
 export const SessionSpawnInput = Schema.Struct({
   name: SessionName.annotate({
     description:
@@ -72,9 +101,10 @@ export const SessionSpawnInput = Schema.Struct({
   handoff: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Hand your work to the new session, to replace yourself when your context has grown too long. The new session becomes your sibling instead of your child, and every session you spawned moves to it, so settling you afterwards leaves them open. Put everything it needs to continue in `message`. You cannot settle yourself; once your turn ends, the new session can settle you with session_settle, retrying if you are still running.",
+        "Hand your work to the new session, to replace yourself when your context has grown too long. The new session becomes your sibling instead of your child, and every session you spawned moves to it, so settling you afterwards leaves them open. It stays in your worktree unless you pass `worktree`. Put everything it needs to continue in `message`. You cannot settle yourself; once your turn ends, the new session can settle you with session_settle, retrying if you are still running.",
     }),
   ),
+  worktree: Schema.optional(SessionWorktree),
 });
 export type SessionSpawnInput = typeof SessionSpawnInput.Type;
 
@@ -89,6 +119,9 @@ export const SessionSpawnResult = Schema.Struct({
   options: Schema.Array(SessionModelOptionSelection),
   /** Names of the sessions a handoff moved to the new session; empty otherwise. */
   adopted: Schema.Array(Schema.String),
+  /** The worktree the session runs in; both null on the project's main checkout. */
+  branch: Schema.NullOr(Schema.String),
+  worktreePath: Schema.NullOr(Schema.String),
 });
 export type SessionSpawnResult = typeof SessionSpawnResult.Type;
 
@@ -187,6 +220,9 @@ export const SessionSummary = Schema.Struct({
   status: OrchestrationSessionStatus,
   /** True on the calling session's own row, so it can pass its threadId as a reply address. */
   self: Schema.Boolean,
+  /** The worktree the session runs in; both null on the project's main checkout. */
+  branch: Schema.NullOr(Schema.String),
+  worktreePath: Schema.NullOr(Schema.String),
 });
 export type SessionSummary = typeof SessionSummary.Type;
 
@@ -248,6 +284,8 @@ export const OrchestrationToolErrorReason = Schema.Literals([
   "invalid-model",
   /** The target session still needs attention, so the server refused to settle it. */
   "settle-blocked",
+  /** The worktree to attach is missing, is the main checkout, or has another branch checked out. */
+  "invalid-worktree",
   "dispatch-failed",
 ]);
 export type OrchestrationToolErrorReason = typeof OrchestrationToolErrorReason.Type;

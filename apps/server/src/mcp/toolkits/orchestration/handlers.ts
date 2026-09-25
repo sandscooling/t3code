@@ -13,6 +13,7 @@ import {
   type ServerProvider,
   type SessionModelOption,
   type SessionSpawnInput,
+  type VcsListRefsResult,
 } from "@t3tools/contracts";
 import {
   createModelSelection,
@@ -24,6 +25,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attachedWorktrees.ts";
+import { GitWorkflowService } from "../../../git/GitWorkflowService.ts";
 import { isOrchestrationThreadSettleBlocked } from "../../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -269,15 +272,84 @@ const resolveSpawnModel = (inherited: ModelSelection, input: SessionSpawnInput) 
     return createModelSelection(provider.instanceId, model.slug, input.options);
   });
 
+/** Every branch git reports checked out in a worktree of the project, paging through listRefs. */
+const listProjectWorktrees = (projectRoot: string) =>
+  Effect.gen(function* () {
+    const git = yield* GitWorkflowService;
+    const worktrees: Array<ListedWorktree> = [];
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      const page: VcsListRefsResult = yield* git.listRefs({
+        cwd: projectRoot,
+        refKind: "local",
+        refresh: cursor === 0,
+        cursor,
+        limit: 200,
+      });
+      if (!page.isRepo) {
+        return yield* toolError("invalid-worktree", `${projectRoot} is not a git repository`);
+      }
+      for (const ref of page.refs) {
+        if (ref.worktreePath !== null) worktrees.push({ branch: ref.name, path: ref.worktreePath });
+      }
+      cursor = page.nextCursor;
+    }
+    return worktrees;
+  }).pipe(
+    Effect.catchTag("GitCommandError", (error) =>
+      toolError("invalid-worktree", `could not list git worktrees: ${error.message}`),
+    ),
+  );
+
+/**
+ * Where a spawned session runs: a worktree the caller created, another
+ * session's worktree, the caller's own on a handoff, or the main checkout.
+ * T3 only records the branch and path; it never creates the worktree.
+ */
+const resolveSpawnWorktree = (input: {
+  readonly spawn: SessionSpawnInput;
+  readonly caller: OrchestrationThreadShell;
+  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  readonly project: OrchestrationProjectShell;
+}) =>
+  Effect.gen(function* () {
+    const worktree = input.spawn.worktree;
+    // A worktree belongs to one repository, so it never follows a session
+    // into another project.
+    if (worktree === undefined) {
+      return input.spawn.handoff === true && input.caller.projectId === input.project.id
+        ? { branch: input.caller.branch, worktreePath: input.caller.worktreePath }
+        : { branch: null, worktreePath: null };
+    }
+    if ("sameAs" in worktree) {
+      const source = yield* resolveSession(input.threads, input.caller, worktree.sameAs);
+      if (source.projectId !== input.project.id && source.worktreePath !== null) {
+        return yield* toolError(
+          "invalid-worktree",
+          `${source.title} runs in a worktree of another project; sameAs only shares a worktree within one project`,
+        );
+      }
+      return { branch: source.branch, worktreePath: source.worktreePath };
+    }
+    const checked = yield* checkAttachedWorktree({
+      projectRoot: input.project.workspaceRoot,
+      path: worktree.path,
+      branch: worktree.branch,
+      worktrees: yield* listProjectWorktrees(input.project.workspaceRoot),
+    });
+    if (!checked.ok) {
+      return yield* toolError("invalid-worktree", checked.detail);
+    }
+    return { branch: checked.branch, worktreePath: checked.worktreePath };
+  });
+
 const handlers = {
   session_spawn: (input) =>
     Effect.gen(function* () {
       yield* requireMessage(input.message);
       const { caller, threads, projects } = yield* requireScope;
-      const projectId =
-        input.project === undefined
-          ? caller.projectId
-          : (yield* resolveProject(projects, input.project)).id;
+      const project = yield* resolveProject(projects, input.project ?? caller.projectId);
+      const projectId = project.id;
       const clash = threads.find(
         (thread) => thread.projectId === projectId && thread.title === input.name,
       );
@@ -293,6 +365,12 @@ const handlers = {
         );
       }
       const modelSelection = yield* resolveSpawnModel(caller.modelSelection, input);
+      const { branch, worktreePath } = yield* resolveSpawnWorktree({
+        spawn: input,
+        caller,
+        threads,
+        project,
+      });
       const engine = yield* OrchestrationEngineService;
 
       // The caller stays out of the group on purpose: one orchestrator drives
@@ -314,8 +392,8 @@ const handlers = {
           modelSelection,
           runtimeMode: caller.runtimeMode,
           interactionMode: caller.interactionMode,
-          branch: null,
-          worktreePath: null,
+          branch,
+          worktreePath,
           group: input.group,
           parentThreadId,
           createdAt,
@@ -328,6 +406,8 @@ const handlers = {
         projectId,
         title: input.name,
         modelSelection,
+        branch,
+        worktreePath,
         group: input.group,
         parentThreadId,
       };
@@ -403,6 +483,8 @@ const handlers = {
         model: modelSelection.model,
         options: modelSelection.options ?? [],
         adopted: adopted.map((child) => child.title),
+        branch,
+        worktreePath,
       };
     }),
 
@@ -487,6 +569,8 @@ const handlers = {
           // its own threadId and can therefore hand another session a reply
           // address. session_wake starts a turn and returns; it carries no answer back.
           self: thread.id === caller.id,
+          branch: thread.branch ?? null,
+          worktreePath: thread.worktreePath ?? null,
         }));
       return { sessions };
     }),

@@ -7965,9 +7965,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-git-" });
       yield* buildAppUnderTest({
         config: {
           cwd: "/tmp/repo",
+          baseDir,
         },
         layers: {
           vcsDriver: {
@@ -8235,10 +8239,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsRemoveWorktree]({
             cwd: "/tmp/repo",
-            path: "/tmp/wt",
+            path: path.join(baseDir, "worktrees", "repo", "wt"),
           }),
         ),
       );
+      // A worktree outside T3's own dir was attached, not created, so it stays.
+      const refusedRemoval = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsRemoveWorktree]({ cwd: "/tmp/repo", path: "/tmp/wt" }),
+        ),
+      ).pipe(Effect.flip);
+      assert.include(String(refusedRemoval.message), "T3 only deletes worktrees it created");
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

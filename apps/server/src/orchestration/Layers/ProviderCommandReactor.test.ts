@@ -201,7 +201,7 @@ describe("ProviderCommandReactor", () => {
     const baseDir =
       input?.baseDir ?? NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-reactor-"));
     createdBaseDirs.add(baseDir);
-    const { stateDir } = deriveServerPathsSync(baseDir, undefined);
+    const { stateDir, worktreesDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     const tryHandlePromptCommand = vi.fn<ProviderAuthService["Service"]["tryHandlePromptCommand"]>(
@@ -641,6 +641,7 @@ describe("ProviderCommandReactor", () => {
       generateThreadTitle,
       runtimeSessions,
       stateDir,
+      worktreesDir,
       drain,
       startReactor,
       runEffect,
@@ -2647,6 +2648,7 @@ describe("ProviderCommandReactor", () => {
   it("generates a worktree branch name for the first turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
+    const worktreePath = NodePath.join(harness.worktreesDir, "provider-project", "1234abcd");
     const prompt = `Add a safer reconnect backoff. ${serializeAssistantCitation(assistantCitation)}`;
     const statusRefreshed = await harness.runEffect(Deferred.make<void>());
     const refreshStatus = harness.refreshStatus.getMockImplementation()!;
@@ -2660,7 +2662,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.make("cmd-thread-branch"),
         threadId: ThreadId.make("thread-1"),
         branch: "t3code/1234abcd",
-        worktreePath: "/tmp/provider-project-worktree",
+        worktreePath,
       }),
     );
 
@@ -2702,7 +2704,7 @@ describe("ProviderCommandReactor", () => {
       `Add a safer reconnect backoff. ${assistantQuoteText}`,
     );
     expect(harness.generateBranchName.mock.calls[0]?.[0].message).not.toContain("t3-citation://");
-    expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
+    expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe(worktreePath);
     const readModel = await harness.readModel();
     expect(
       readModel.threads
@@ -2714,7 +2716,7 @@ describe("ProviderCommandReactor", () => {
   it("recreates a missing worktree from the thread branch before starting a turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
-    const worktreePath = NodePath.join(harness.stateDir, "missing-worktree");
+    const worktreePath = NodePath.join(harness.worktreesDir, "provider-project", "missing");
 
     await harness.runEffect(
       harness.engine.dispatch({
@@ -2756,6 +2758,53 @@ describe("ProviderCommandReactor", () => {
     expect(harness.createWorktree.mock.invocationCallOrder[0]).toBeLessThan(
       harness.startSession.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("fails the turn instead of recreating a missing attached worktree", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const worktreePath = NodePath.join(harness.stateDir, "attached-lane");
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-attached-worktree"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "lane/T-1",
+        worktreePath,
+      }),
+    );
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-attached-worktree"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-attached-worktree"),
+          role: "user",
+          text: "continue",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+
+    const detail = `Attached worktree ${worktreePath} no longer exists. T3 does not recreate worktrees it did not create.`;
+    const thread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(thread?.session).toMatchObject({ status: "error", lastError: detail });
+    const failure = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+    expect(failure?.payload).toMatchObject({ detail });
+    expect(harness.pruneWorktrees).not.toHaveBeenCalled();
+    expect(harness.createWorktree).not.toHaveBeenCalled();
+    expect(harness.startSession).not.toHaveBeenCalled();
+    expect(await harness.readPendingTurnStarts()).toEqual([]);
   });
 
   it("forwards codex model options through session start and turn send", async () => {
