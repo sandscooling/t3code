@@ -3,10 +3,12 @@ import type { SortingStrategy } from "@dnd-kit/sortable";
 import {
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
+  keepSidebarGroupRows,
   moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
 } from "./Sidebar.groups";
+import { orchestratorThreadIds } from "./orchestratorColor.logic";
 import {
   resolveSidebarDropTarget,
   sidebarListItemId,
@@ -77,6 +79,31 @@ describe("grouped sidebar list", () => {
   it("gives group ids no colon, since scoped thread keys own it", () => {
     expect(sidebarGroupId("env-1:project/a b")).not.toContain(":");
     expect(sidebarGroupId("a:b")).not.toBe(sidebarGroupId("a_b"));
+  });
+});
+
+describe("folded group rows", () => {
+  // orch has a child thread, so it is an orchestrator; open is the route thread.
+  const threads = [
+    { id: "orch", parentThreadId: null },
+    { id: "worker", parentThreadId: "orch" },
+    { id: "loose", parentThreadId: null },
+    { id: "open", parentThreadId: null },
+  ];
+  const keep = (collapsed: boolean) =>
+    keepSidebarGroupRows({
+      rows: threads,
+      collapsed,
+      isRoute: (thread) => thread.id === "open",
+      orchestratorIds: orchestratorThreadIds(threads),
+    }).map((thread) => thread.id);
+
+  it("keeps the orchestrator and the open thread when folded, and hides the rest", () => {
+    expect(keep(true)).toEqual(["orch", "open"]);
+  });
+
+  it("keeps every row when expanded", () => {
+    expect(keep(false)).toEqual(["orch", "worker", "loose", "open"]);
   });
 });
 

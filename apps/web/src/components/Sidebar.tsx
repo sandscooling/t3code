@@ -213,6 +213,7 @@ import {
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
   isSidebarGroupMove,
+  keepSidebarGroupRows,
   moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
@@ -3034,7 +3035,7 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   // Fork: rows per project group, in project sort order. A folded group keeps
-  // only the open thread, the same exception the shelves make.
+  // the open thread, the same exception the shelves make, and its orchestrators.
   const [collapsedProjectGroupIds, setCollapsedProjectGroupIds] = useLocalStorage(
     COLLAPSED_PROJECT_GROUPS_KEY,
     [] as readonly string[],
@@ -3083,8 +3084,9 @@ export default function Sidebar() {
       const bucket = buckets.get(id);
       if (bucket === undefined) return [];
       const isCollapsed = collapsed.has(id);
-      const keep = (list: readonly EnvironmentThreadShell[]) =>
-        isCollapsed ? list.filter(isRoute) : list;
+      // Fork: a folded group also keeps its orchestrators.
+      const keep = (rows: readonly EnvironmentThreadShell[]) =>
+        keepSidebarGroupRows({ rows, collapsed: isCollapsed, isRoute, orchestratorIds });
       return [
         {
           id,
@@ -3107,6 +3109,7 @@ export default function Sidebar() {
     collapsedProjectGroupIds,
     groupIdByProjectRef,
     grouped,
+    orchestratorIds,
     pinnedThreads,
     projectGroups,
     routeThreadKey,

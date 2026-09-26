@@ -28,6 +28,19 @@ export interface SidebarThreadGroupRows {
   readonly visibleSnoozed: readonly string[];
 }
 
+/** The rows a group shows: all of them, or when folded only the open thread
+    and the orchestrators, which stay visible so a folded group still shows
+    who is running its work. */
+export function keepSidebarGroupRows<T extends { readonly id: string }>(input: {
+  readonly rows: readonly T[];
+  readonly collapsed: boolean;
+  readonly isRoute: (row: T) => boolean;
+  readonly orchestratorIds: ReadonlySet<string>;
+}): readonly T[] {
+  if (!input.collapsed) return input.rows;
+  return input.rows.filter((row) => input.isRoute(row) || input.orchestratorIds.has(row.id));
+}
+
 export function buildGroupedSidebarListItems(input: {
   readonly groups: readonly SidebarThreadGroupRows[];
   readonly settled: readonly string[];
