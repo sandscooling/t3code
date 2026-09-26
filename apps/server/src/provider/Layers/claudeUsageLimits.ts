@@ -135,19 +135,45 @@ export function claudeRateLimitEventToUpdate(
   info: SDKRateLimitInfo,
   names: ClaudeScopedLimitNames,
 ): ProviderUsageLimitsUpdate | undefined {
+  // Fork: the CLI only sets the top-level `utilization` once the named window
+  // passes a warning threshold, but every event carries each account-wide
+  // window under `unifiedWindows`. Reading those keeps the bars live for an
+  // account with headroom, whose `get_usage` probe may be too slow to land.
+  const windows = new Map<string, ServerProviderUsageWindow>();
+  for (const [id, window] of readUnifiedWindows(info)) {
+    if (id in WINDOWS) {
+      windows.set(
+        id,
+        makeWindow(id, window.utilization * 100, isoFromEpochSeconds(window.resetsAt)),
+      );
+    }
+  }
   const type: string | undefined = info.rateLimitType;
-  if (!type || typeof info.utilization !== "number") {
-    return undefined;
+  if (type && typeof info.utilization === "number") {
+    const usedPercent = info.utilization * 100;
+    const resetsAt = isoFromEpochSeconds(info.resetsAt);
+    if (type in WINDOWS) {
+      windows.set(type, makeWindow(type, usedPercent, resetsAt));
+    } else if (type === OVERAGE_INCLUDED_EVENT_TYPE && names.overageIncluded) {
+      const window = scopedWindow(names.overageIncluded, usedPercent, resetsAt);
+      windows.set(window.id, window);
+    }
   }
-  const usedPercent = info.utilization * 100;
-  const resetsAt = isoFromEpochSeconds(info.resetsAt);
-  if (type in WINDOWS) {
-    return { windows: [makeWindow(type, usedPercent, resetsAt)] };
-  }
-  if (type === OVERAGE_INCLUDED_EVENT_TYPE && names.overageIncluded) {
-    return { windows: [scopedWindow(names.overageIncluded, usedPercent, resetsAt)] };
-  }
-  return undefined;
+  return windows.size > 0 ? { windows: [...windows.values()] } : undefined;
+}
+
+/** Fork: `unifiedWindows` is on the wire but not in the SDK typings we pin. */
+function readUnifiedWindows(
+  info: SDKRateLimitInfo,
+): ReadonlyArray<readonly [string, { readonly utilization: number; readonly resetsAt?: number }]> {
+  const raw = (info as { readonly unifiedWindows?: unknown }).unifiedWindows;
+  if (typeof raw !== "object" || raw === null) return [];
+  return Object.entries(raw).flatMap(([id, window]) => {
+    if (typeof window !== "object" || window === null) return [];
+    const { utilization, resetsAt } = window as { utilization?: unknown; resetsAt?: unknown };
+    if (typeof utilization !== "number") return [];
+    return [[id, { utilization, ...(typeof resetsAt === "number" ? { resetsAt } : {}) }] as const];
+  });
 }
 
 /**
