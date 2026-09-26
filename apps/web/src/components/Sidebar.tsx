@@ -810,7 +810,7 @@ function SidebarProjectGroupHeader(props: {
           <span className="flex shrink-0 items-center gap-1 tabular-nums text-info">
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
             {props.workingCount}
-            <span className="sr-only"> working</span>
+            <span className="sr-only"> working or monitoring</span>
           </span>
         ) : null}
       </button>
@@ -3098,9 +3098,11 @@ export default function Sidebar() {
           visibleSnoozed: snoozedShelfExpanded
             ? keep(bucket.snoozed)
             : bucket.snoozed.filter(isRoute),
-          workingCount: [...bucket.pinned, ...bucket.active, ...bucket.snoozed].filter(
-            (thread) => resolveSidebarThreadStatus(thread) === "working",
-          ).length,
+          // Fork: a thread monitoring a background command still has work in flight.
+          workingCount: [...bucket.pinned, ...bucket.active, ...bucket.snoozed].filter((thread) => {
+            const status = resolveSidebarThreadStatus(thread);
+            return status === "working" || status === "monitoring";
+          }).length,
         },
       ];
     });
