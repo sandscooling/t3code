@@ -552,28 +552,6 @@ export interface BootServiceHost {
   readonly execPath: string;
 }
 
-/**
- * True for the errors a filesystem raises when it cannot flush a directory
- * handle at all, as opposed to a flush that genuinely failed. Windows reports
- * EPERM because FlushFileBuffers rejects directory handles; filesystems
- * without the capability report EINVAL or ENOTSUP, and some surface EISDIR
- * from the open itself.
- */
-function isUnflushableDirectory(error: unknown): boolean {
-  const codes = new Set(["EPERM", "EINVAL", "ENOTSUP", "EISDIR"]);
-  const seen = new Set<unknown>();
-  let current: unknown = error;
-  while (current !== null && current !== undefined && !seen.has(current)) {
-    seen.add(current);
-    const code = (current as { readonly code?: unknown }).code;
-    if (typeof code === "string" && codes.has(code)) {
-      return true;
-    }
-    current = (current as { readonly cause?: unknown }).cause;
-  }
-  return false;
-}
-
 export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly baseDir: string;
   readonly logsDir: string;
