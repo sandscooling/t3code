@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SortingStrategy } from "@dnd-kit/sortable";
 import {
+  arrangeSidebarGroupRows,
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
-  keepSidebarGroupRows,
   moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
@@ -19,6 +19,7 @@ import {
 const group = (
   id: string,
   rows: Partial<{
+    lead: Array<{ row: string; section: "pinned" | "active" }>;
     pinned: string[];
     active: string[];
     visibleSnoozed: string[];
@@ -28,6 +29,7 @@ const group = (
 ) => ({
   id,
   collapsed: rows.collapsed ?? false,
+  lead: rows.lead ?? [],
   pinned: rows.pinned ?? [],
   active: rows.active ?? [],
   hasSnoozed: rows.hasSnoozed ?? (rows.visibleSnoozed ?? []).length > 0,
@@ -82,28 +84,155 @@ describe("grouped sidebar list", () => {
   });
 });
 
-describe("folded group rows", () => {
-  // orch has a child thread, so it is an orchestrator; open is the route thread.
+describe("group rows", () => {
+  // Both orchestrators have a child thread; open is the route thread.
   const threads = [
-    { id: "orch", parentThreadId: null },
-    { id: "worker", parentThreadId: "orch" },
-    { id: "loose", parentThreadId: null },
+    { id: "pinnedOrch", parentThreadId: null },
+    { id: "activeOrch", parentThreadId: null },
+    { id: "worker", parentThreadId: "pinnedOrch" },
+    { id: "helper", parentThreadId: "activeOrch" },
+    { id: "pinnedLoose", parentThreadId: null },
     { id: "open", parentThreadId: null },
+    { id: "snoozed", parentThreadId: null },
   ];
-  const keep = (collapsed: boolean) =>
-    keepSidebarGroupRows({
-      rows: threads,
+  const byId = (id: string) => threads.find((thread) => thread.id === id)!;
+  const arrange = (
+    buckets: { pinned: string[]; active: string[]; snoozed?: string[] },
+    collapsed = false,
+    route = "open",
+  ) => {
+    const rows = arrangeSidebarGroupRows({
+      pinned: buckets.pinned.map(byId),
+      active: buckets.active.map(byId),
+      snoozed: (buckets.snoozed ?? []).map(byId),
       collapsed,
-      isRoute: (thread) => thread.id === "open",
+      isRoute: (thread) => thread.id === route,
       orchestratorIds: orchestratorThreadIds(threads),
-    }).map((thread) => thread.id);
+    });
+    const idsOf = (list: readonly { id: string }[]) => list.map((thread) => thread.id);
+    return {
+      lead: rows.lead.map(({ row, section }) => `${row.id}:${section}`),
+      pinned: idsOf(rows.pinned),
+      active: idsOf(rows.active),
+      snoozed: idsOf(rows.snoozed),
+    };
+  };
+  const buckets = {
+    pinned: ["pinnedLoose", "pinnedOrch"],
+    active: ["worker", "activeOrch", "open"],
+    snoozed: ["snoozed"],
+  };
 
-  it("keeps the orchestrator and the open thread when folded, and hides the rest", () => {
-    expect(keep(true)).toEqual(["orch", "open"]);
+  it("lifts orchestrators to lead the group whether pinned or not, pinned first", () => {
+    expect(arrange(buckets)).toEqual({
+      lead: ["pinnedOrch:pinned", "activeOrch:active"],
+      pinned: ["pinnedLoose"],
+      active: ["worker", "open"],
+      snoozed: ["snoozed"],
+    });
   });
 
-  it("keeps every row when expanded", () => {
-    expect(keep(false)).toEqual(["orch", "worker", "loose", "open"]);
+  it("puts an unpinned orchestrator ahead of the group's pinned threads", () => {
+    expect(arrange({ pinned: ["pinnedLoose"], active: ["worker", "activeOrch"] })).toEqual({
+      lead: ["activeOrch:active"],
+      pinned: ["pinnedLoose"],
+      active: ["worker"],
+      snoozed: [],
+    });
+  });
+
+  it("keeps two orchestrators in their existing order during a handoff", () => {
+    expect(arrange({ pinned: [], active: ["activeOrch", "worker", "pinnedOrch"] }).lead).toEqual([
+      "activeOrch:active",
+      "pinnedOrch:active",
+    ]);
+  });
+
+  it("keeps only the open thread and pinned orchestrators when folded", () => {
+    expect(arrange(buckets, true)).toEqual({
+      lead: ["pinnedOrch:pinned"],
+      pinned: [],
+      active: ["open"],
+      snoozed: [],
+    });
+  });
+
+  it("keeps an unpinned orchestrator in a folded group only while it is open", () => {
+    const folded = { pinned: [], active: ["activeOrch"] };
+    expect(arrange(folded, true).lead).toEqual([]);
+    expect(arrange(folded, true, "activeOrch").lead).toEqual(["activeOrch:active"]);
+  });
+
+  it("leaves a group with no orchestrator exactly as it was", () => {
+    const plain = { pinned: ["pinnedLoose"], active: ["open"], snoozed: ["snoozed"] };
+    expect(arrange(plain)).toEqual({ lead: [], ...plain });
+    expect(arrange(plain, true)).toEqual({ lead: [], pinned: [], active: ["open"], snoozed: [] });
+  });
+});
+
+describe("orchestrator rows in the grouped list", () => {
+  const groups = [
+    group("a", { lead: [{ row: "e:ao", section: "active" }], active: ["e:a1"] }),
+    group("b", { lead: [{ row: "e:bo", section: "pinned" }], pinned: ["e:bp"], active: ["e:b1"] }),
+  ];
+  const lead = new Set(["e:ao", "e:bo"]);
+
+  it("puts each group's orchestrator rows above its header, in their own section", () => {
+    const items = buildGroupedSidebarListItems({ groups, settled: [] });
+    expect(ids(items).slice(0, 7)).toEqual([
+      "e:ao",
+      sidebarMarkerId("group-header", "a"),
+      sidebarMarkerId("pinned-header", "a"),
+      sidebarMarkerId("pinned-divider", "a"),
+      sidebarMarkerId("active-placeholder", "a"),
+      "e:a1",
+      "e:bo",
+    ]);
+    expect(items[0]).toEqual({ kind: "thread", key: "e:ao", section: "active" });
+  });
+
+  it("keeps a folded group's pinned orchestrator above its bare header", () => {
+    const items = buildGroupedSidebarListItems({
+      groups: [
+        group("a", { collapsed: true, lead: [{ row: "e:ao", section: "pinned" }] }),
+        group("b", { active: ["e:b1"] }),
+      ],
+      settled: [],
+    });
+    expect(ids(items).slice(0, 3)).toEqual([
+      "e:ao",
+      sidebarMarkerId("group-header", "a"),
+      sidebarMarkerId("group-header", "b"),
+    ]);
+  });
+
+  it("moves a group together with its orchestrator rows", () => {
+    const order = moveSidebarGroup({
+      order: ["a", "b"],
+      visible: new Set(["a", "b"]),
+      item: "b",
+      move: "up",
+    });
+    const groupById = new Map(groups.map((entry) => [entry.id, entry]));
+    const items = ids(
+      buildGroupedSidebarListItems({ groups: order.map((id) => groupById.get(id)!), settled: [] }),
+    );
+    expect(items.slice(0, 2)).toEqual(["e:bo", sidebarMarkerId("group-header", "b")]);
+    expect(items.indexOf("e:ao")).toBe(items.indexOf(sidebarMarkerId("group-header", "a")) - 1);
+  });
+
+  it("leaves orchestrator rows out of every drag slice", () => {
+    const items = buildGroupedSidebarListItems({ groups, settled: [] });
+    // b's orchestrator sits right after a's rows, before b's header.
+    expect(ids(sliceSidebarGroupForDrag(items, "a", lead))).toEqual([
+      sidebarMarkerId("pinned-header", "a"),
+      sidebarMarkerId("pinned-divider", "a"),
+      sidebarMarkerId("active-placeholder", "a"),
+      "e:a1",
+      sidebarMarkerId("settled-header"),
+      sidebarMarkerId("settled-placeholder"),
+    ]);
+    expect(ids(sliceSidebarGroupForDrag(items, "b", lead))).not.toContain("e:bo");
   });
 });
 

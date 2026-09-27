@@ -213,10 +213,10 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import {
+  arrangeSidebarGroupRows,
   buildGroupedSidebarListItems,
   createGroupedSidebarSortingStrategy,
   isSidebarGroupMove,
-  keepSidebarGroupRows,
   moveSidebarGroup,
   sidebarGroupId,
   sliceSidebarGroupForDrag,
@@ -3066,7 +3066,8 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   // Fork: rows per project group, in project sort order. A folded group keeps
-  // the open thread, the same exception the shelves make, and its orchestrators.
+  // the open thread, the same exception the shelves make, and its pinned
+  // orchestrators.
   const [collapsedProjectGroupIds, setCollapsedProjectGroupIds] = useLocalStorage(
     COLLAPSED_PROJECT_GROUPS_KEY,
     [] as readonly string[],
@@ -3115,20 +3116,23 @@ export default function Sidebar() {
       const bucket = buckets.get(id);
       if (bucket === undefined) return [];
       const isCollapsed = collapsed.has(id);
-      // Fork: a folded group also keeps its orchestrators.
-      const keep = (rows: readonly EnvironmentThreadShell[]) =>
-        keepSidebarGroupRows({ rows, collapsed: isCollapsed, isRoute, orchestratorIds });
+      // Fork: orchestrators lead the group; a folded group keeps the pinned ones.
+      const rows = arrangeSidebarGroupRows({
+        ...bucket,
+        collapsed: isCollapsed,
+        isRoute,
+        orchestratorIds,
+      });
       return [
         {
           id,
           project,
           collapsed: isCollapsed,
-          pinned: keep(bucket.pinned),
-          active: keep(bucket.active),
+          lead: rows.lead,
+          pinned: rows.pinned,
+          active: rows.active,
           snoozedCount: bucket.snoozed.length,
-          visibleSnoozed: snoozedShelfExpanded
-            ? keep(bucket.snoozed)
-            : bucket.snoozed.filter(isRoute),
+          visibleSnoozed: snoozedShelfExpanded ? rows.snoozed : bucket.snoozed.filter(isRoute),
           // Fork: a thread monitoring a background command still has work in flight.
           workingCount: [...bucket.pinned, ...bucket.active, ...bucket.snoozed].filter((thread) => {
             const status = resolveSidebarThreadStatus(thread);
@@ -3151,6 +3155,17 @@ export default function Sidebar() {
   ]);
   const threadGroupById = useMemo(
     () => new Map((threadGroups ?? []).map((group) => [group.id, group])),
+    [threadGroups],
+  );
+  // Fork: orchestrator rows above a group header are not drag handles and stay
+  // out of every drag slice.
+  const leadThreadKeys = useMemo(
+    () =>
+      new Set(
+        (threadGroups ?? []).flatMap((group) =>
+          group.lead.map(({ row }) => scopedThreadKey(scopeThreadRef(row.environmentId, row.id))),
+        ),
+      ),
     [threadGroups],
   );
   // Fork: groups keep the saved project order; this header menu is how it changes.
@@ -3238,6 +3253,7 @@ export default function Sidebar() {
         ? [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads]
         : [
             ...threadGroups.flatMap((group) => [
+              ...group.lead.map(({ row }) => row),
               ...group.pinned,
               ...group.active,
               ...group.visibleSnoozed,
@@ -3858,12 +3874,14 @@ export default function Sidebar() {
       return [];
     }
     if (threadGroups !== null) {
-      const keysOf = (list: readonly EnvironmentThreadShell[]) =>
-        list.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+      const keyOf = (thread: EnvironmentThreadShell) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      const keysOf = (list: readonly EnvironmentThreadShell[]) => list.map(keyOf);
       return buildGroupedSidebarListItems({
         groups: threadGroups.map((group) => ({
           id: group.id,
           collapsed: group.collapsed,
+          lead: group.lead.map(({ row, section }) => ({ row: keyOf(row), section })),
           pinned: keysOf(group.pinned),
           active: keysOf(group.active),
           hasSnoozed: group.snoozedCount > 0,
@@ -3940,8 +3958,12 @@ export default function Sidebar() {
     (activeKey: string) =>
       groupIdByThreadKey === null
         ? sidebarListItems
-        : sliceSidebarGroupForDrag(sidebarListItems, groupIdByThreadKey.get(activeKey)),
-    [groupIdByThreadKey, sidebarListItems],
+        : sliceSidebarGroupForDrag(
+            sidebarListItems,
+            groupIdByThreadKey.get(activeKey),
+            leadThreadKeys,
+          ),
+    [groupIdByThreadKey, leadThreadKeys, sidebarListItems],
   );
   // Grouped snoozed rows wake from their button, and a row whose group shows no
   // markers (folded) has nowhere to land.
@@ -3958,9 +3980,11 @@ export default function Sidebar() {
     (keys: readonly string[], activeKey: string) => {
       if (groupIdByThreadKey === null) return keys;
       const group = groupIdByThreadKey.get(activeKey);
-      return keys.filter((key) => groupIdByThreadKey.get(key) === group);
+      return keys.filter(
+        (key) => groupIdByThreadKey.get(key) === group && !leadThreadKeys.has(key),
+      );
     },
-    [groupIdByThreadKey],
+    [groupIdByThreadKey, leadThreadKeys],
   );
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
@@ -4000,10 +4024,11 @@ export default function Sidebar() {
     // Fork: a grouped drag previews only its own group and the settled shelf.
     return dragGroup === undefined
       ? createSidebarSortingStrategy(input)
-      : createGroupedSidebarSortingStrategy({ ...input, group: dragGroup });
+      : createGroupedSidebarSortingStrategy({ ...input, group: dragGroup, lead: leadThreadKeys });
   }, [
     dragGroup,
     draggedSettledOrder,
+    leadThreadKeys,
     routeThreadKey,
     settledShelfExpanded,
     settledVisibleCount,
@@ -5355,7 +5380,8 @@ export default function Sidebar() {
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null ||
                               (groupIdByThreadKey !== null &&
-                                !canDragInProjectGroup(threadKey, section))
+                                !canDragInProjectGroup(threadKey, section)) ||
+                              leadThreadKeys.has(threadKey)
                             }
                           >
                             {(bag) => renderThreadRowInner(thread, section, bag)}

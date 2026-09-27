@@ -1,8 +1,10 @@
 // Fork: group the default sidebar by project.
 //
-// Each project gets a header followed by its own pinned, active and snoozed
-// rows; one settled shelf sits below every group. The upstream drag code
-// (Sidebar.drag, Sidebar.logic) assumes one flat list, so a drag only ever
+// Each project gets its orchestrator rows, then a header followed by its own
+// pinned, active and snoozed rows; one settled shelf sits below every group.
+// Orchestrator rows are not drag handles and stay out of every drag slice.
+// The upstream drag code (Sidebar.drag, Sidebar.logic) assumes one flat
+// list, so a drag only ever
 // sees a slice of the grouped list: the dragged thread's own group plus the
 // settled shelf. Other groups can never be a drop target, which keeps every
 // order write inside one project.
@@ -21,6 +23,8 @@ export interface SidebarThreadGroupRows {
   readonly id: string;
   /** Folded groups render only rows the caller kept (the open thread). */
   readonly collapsed: boolean;
+  /** Orchestrator rows, drawn above the header like a title bar. */
+  readonly lead: ReadonlyArray<SidebarGroupLead<string>>;
   readonly pinned: readonly string[];
   readonly active: readonly string[];
   /** Whether the group has snoozed threads, even when the shelf is closed. */
@@ -28,17 +32,42 @@ export interface SidebarThreadGroupRows {
   readonly visibleSnoozed: readonly string[];
 }
 
-/** The rows a group shows: all of them, or when folded only the open thread
-    and the orchestrators, which stay visible so a folded group still shows
-    who is running its work. */
-export function keepSidebarGroupRows<T extends { readonly id: string }>(input: {
-  readonly rows: readonly T[];
+export interface SidebarGroupLead<T> {
+  readonly row: T;
+  readonly section: "pinned" | "active";
+}
+
+/** Splits a group's pinned and active orchestrators out to lead the group,
+    pinned first, each keeping its order. A folded group keeps the open
+    thread and its pinned orchestrators; everything else hides. */
+export function arrangeSidebarGroupRows<T extends { readonly id: string }>(input: {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly snoozed: readonly T[];
   readonly collapsed: boolean;
   readonly isRoute: (row: T) => boolean;
   readonly orchestratorIds: ReadonlySet<string>;
-}): readonly T[] {
-  if (!input.collapsed) return input.rows;
-  return input.rows.filter((row) => input.isRoute(row) || input.orchestratorIds.has(row.id));
+}): {
+  lead: ReadonlyArray<SidebarGroupLead<T>>;
+  pinned: readonly T[];
+  active: readonly T[];
+  snoozed: readonly T[];
+} {
+  const isLead = (row: T) => input.orchestratorIds.has(row.id);
+  const keep = (rows: readonly T[], keepAll = false) =>
+    input.collapsed && !keepAll ? rows.filter(input.isRoute) : rows;
+  return {
+    lead: [
+      ...keep(input.pinned.filter(isLead), true).map((row) => ({
+        row,
+        section: "pinned" as const,
+      })),
+      ...keep(input.active.filter(isLead)).map((row) => ({ row, section: "active" as const })),
+    ],
+    pinned: keep(input.pinned.filter((row) => !isLead(row))),
+    active: keep(input.active.filter((row) => !isLead(row))),
+    snoozed: keep(input.snoozed),
+  };
 }
 
 export function buildGroupedSidebarListItems(input: {
@@ -47,6 +76,7 @@ export function buildGroupedSidebarListItems(input: {
 }): SidebarListItem[] {
   const items: SidebarListItem[] = [];
   for (const group of input.groups) {
+    for (const { row, section } of group.lead) items.push({ kind: "thread", key: row, section });
     items.push({ kind: "marker", marker: "group-header", group: group.id });
     const rowCount = group.pinned.length + group.active.length + group.visibleSnoozed.length;
     if (group.collapsed && rowCount === 0) continue;
@@ -99,10 +129,13 @@ export function moveSidebarGroup<T>(input: {
 
 /** The part of a grouped list one drag can reach: the group's pinned and
     active rows, then the shared settled shelf. Snoozed rows are left out, so
-    grouped snoozed rows wake from their button rather than by dragging. */
+    grouped snoozed rows wake from their button rather than by dragging, and so
+    are orchestrator rows (`lead`): they sit above the next group's header, so
+    they would otherwise read as the tail of the group before them. */
 export function sliceSidebarGroupForDrag(
   items: readonly SidebarListItem[],
   group: string | undefined,
+  lead: ReadonlySet<string> = new Set(),
 ): SidebarListItem[] {
   const slice: SidebarListItem[] = [];
   let current: string | undefined;
@@ -113,6 +146,7 @@ export function sliceSidebarGroupForDrag(
       continue;
     }
     if (item.kind === "marker" && item.marker === "settled-header") settled = true;
+    if (item.kind === "thread" && lead.has(item.key)) continue;
     if (settled) {
       slice.push(item);
       continue;
@@ -131,9 +165,12 @@ export function sliceSidebarGroupForDrag(
     list; the groups between them then shift by the same amount the settled
     shelf does, which keeps a growing group from covering the next one. */
 export function createGroupedSidebarSortingStrategy(
-  input: Parameters<typeof createSidebarSortingStrategy>[0] & { readonly group: string },
+  input: Parameters<typeof createSidebarSortingStrategy>[0] & {
+    readonly group: string;
+    readonly lead?: ReadonlySet<string>;
+  },
 ): SortingStrategy {
-  const slice = sliceSidebarGroupForDrag(input.items, input.group);
+  const slice = sliceSidebarGroupForDrag(input.items, input.group, input.lead);
   const fullIndexById = new Map(input.items.map((item, index) => [sidebarListItemId(item), index]));
   const fullIndexes = slice.map((item) => fullIndexById.get(sidebarListItemId(item))!);
   const sliceIndexByFull = new Map(fullIndexes.map((full, index) => [full, index]));
