@@ -76,7 +76,7 @@ pnpm install
 pnpm dist:desktop:win
 ```
 
-The installer lands in `release/`. A local build replaces an installed official build, and a rebuild of the same version overwrites the previous installer. There is no `.env`, so cloud features do not work in a local build.
+The installer lands in `release/`. A local build replaces an installed official build, and a rebuild of the same version overwrites the previous installer. Copy `.env.example` to `.env` first to build with T3 Connect (remote access and phone alerts); without it, cloud features are off. Let Connect install its own cloudflared rather than installing one system-wide.
 
 ## Links
 
