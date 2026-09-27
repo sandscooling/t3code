@@ -27,6 +27,7 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -159,6 +160,9 @@ const selectorDiagnosticsFromInput = (
   }
   return {};
 };
+
+// Fork: a desktop evicted on a timeout re-registers within about 20 s.
+export const HOST_RESET_RECONNECT_WINDOW_MS = 60_000;
 
 const hostAssignmentKey = (scope: McpInvocationContext.McpInvocationScope): string =>
   `${scope.environmentId}\u0000${scope.providerSessionId}`;
@@ -324,6 +328,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     requestSequence: 0,
     focusSequence: 0,
   });
+  // Fork: when each environment last evicted a host on a timeout, so the no-host
+  // error can tell agents the desktop is reconnecting instead of "Do not retry".
+  const timeoutEvictedAt = new Map<ClientConnection["environmentId"], number>();
 
   const closeConnection = Effect.fn("PreviewAutomationBroker.closeConnection")(function* (
     queue: ClientConnection["queue"],
@@ -402,6 +409,8 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     if (registration.previousConnection) {
       yield* closeConnection(registration.previousConnection.queue, registration.disconnected);
     }
+    // Fork: the reset is over once a host registers again.
+    timeoutEvictedAt.delete(host.environmentId);
     return registration.registeredConnection;
   });
 
@@ -563,12 +572,18 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       ] as const;
     });
     if (!route) {
+      // Fork: see timeoutEvictedAt.
+      const evictedAt = timeoutEvictedAt.get(input.scope.environmentId);
+      const hostResetAfterTimeout =
+        evictedAt !== undefined &&
+        (yield* Clock.currentTimeMillis) - evictedAt < HOST_RESET_RECONNECT_WINDOW_MS;
       return yield* new PreviewAutomationNoAvailableHostError({
         operation: input.operation,
         environmentId: input.scope.environmentId,
         threadId: input.scope.threadId,
         providerSessionId: input.scope.providerSessionId,
         providerInstanceId: input.scope.providerInstanceId,
+        ...(hostResetAfterTimeout ? { hostResetAfterTimeout } : {}),
       });
     }
     const { connection, requestId, requestContext, requestSequence } = route;
@@ -617,6 +632,8 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             // An unanswered request invalidates this connection. Do not replay
             // actions: the client may have applied them before becoming unreachable.
             yield* disconnect(connection.clientId, connection.queue, true);
+            // Fork: see timeoutEvictedAt.
+            timeoutEvictedAt.set(connection.environmentId, yield* Clock.currentTimeMillis);
             return yield* new PreviewAutomationTimeoutError(requestContext);
           }),
         onSome: (value) => Effect.succeed(value as A),

@@ -62,6 +62,7 @@ Behind the **Agent orchestration** setting, off by default:
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
 - Agents are told to wrap image paths that contain spaces in angle brackets, so the image renders instead of showing as text. Remove when upstream PR [#12815](https://github.com/pingdotgg/t3code/pull/12815) lands.
 - The terminal opens on Windows: node-pty stays on 1.1.0, because upstream's 1.2.0 beta reports no process id for a new Windows terminal. Remove when upstream fixes it.
+- Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
 
 ### Windows test suite
 

@@ -16,11 +16,17 @@ const BoundedUrl = Schema.String.check(Schema.isTrimmed())
   .check(Schema.isMaxLength(2048));
 const URL_GUIDANCE =
   "Absolute http(s) URL or a schemeless host such as t3.chat or localhost:5173. Schemeless public hosts use https; loopback hosts use http.";
+// Fork: MCP clients such as Claude Code abort a tool call at 60 s, so a 60 s
+// host wait plus the round trip always died client-side. The server caps the
+// wait here, leaving 15 s for relay latency and the follow-up status read.
+// The schema still accepts 60000 so older agents are capped, not rejected.
+export const PREVIEW_AUTOMATION_MAX_TIMEOUT_MS = 45_000;
+const TIMEOUT_MS_DESCRIPTION = `Maximum wait in milliseconds. Defaults to 15000; values above ${PREVIEW_AUTOMATION_MAX_TIMEOUT_MS} are capped at ${PREVIEW_AUTOMATION_MAX_TIMEOUT_MS} so the call returns before the 60 s tool-call limit.`;
 const OptionalTimeoutMs = Schema.optional(
   Schema.Int.check(Schema.isGreaterThan(0))
     .check(Schema.isLessThanOrEqualTo(60_000))
-    .annotate({ description: "Maximum wait in milliseconds. Defaults to 15000; maximum 60000." }),
-).annotate({ description: "Maximum wait in milliseconds. Defaults to 15000; maximum 60000." });
+    .annotate({ description: TIMEOUT_MS_DESCRIPTION }),
+).annotate({ description: TIMEOUT_MS_DESCRIPTION });
 
 /** Operations understood by desktop hosts predating viewport resizing. */
 export const PREVIEW_AUTOMATION_V1_OPERATIONS = [
@@ -719,11 +725,17 @@ export class PreviewAutomationNoAvailableHostError extends Schema.TaggedError<Pr
     requestId: Schema.optional(TrimmedNonEmptyString),
     tabId: Schema.optional(PreviewTabId),
     timeoutMs: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+    // Fork: set when the broker evicted this environment's host on a timeout moments ago.
+    hostResetAfterTimeout: Schema.optional(Schema.Boolean),
     ...PreviewAutomationOptionalRemoteDiagnosticFields,
   },
 ) {
   override get message(): string {
-    return `No preview automation host is available for ${this.operation} in environment ${this.environmentId}. Preview tools run in a T3 Code desktop app that is open and connected to this environment; a headless server has no browser of its own. Do not retry. To check a page, use a headless browser from the shell, such as Playwright, or curl, or ask the user to open this thread in the T3 Code desktop app.`;
+    // Fork: an evicted desktop re-registers within seconds, so "Do not retry" would abandon it.
+    if (this.hostResetAfterTimeout) {
+      return `No preview automation host is available for ${this.operation} in environment ${this.environmentId} right now: the T3 Code desktop app's preview host was reset after a request timed out and is reconnecting. Wait about 20 seconds, then call preview_status once. If it still reports no host, stop using preview tools and use a headless browser from the shell, such as Playwright, or curl.`;
+    }
+    return `No preview automation host is available for ${this.operation} in environment ${this.environmentId}. Preview tools run only in a T3 Code desktop app that is open and connected to this environment; a web or mobile client cannot host them, and a headless server has no browser of its own. Do not retry. To check a page, use a headless browser from the shell, such as Playwright, or curl, or ask the user to open this thread in the T3 Code desktop app.`;
   }
 }
 

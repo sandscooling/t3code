@@ -3,6 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+  PREVIEW_AUTOMATION_MAX_TIMEOUT_MS,
   PREVIEW_RECORDING_STOP_TIMEOUT_MS,
   PreviewAutomationRecordingTransferError,
   PreviewAutomationRecordingDesktopUpdateRequiredError,
@@ -102,9 +103,16 @@ const invokeTargeted = <A extends object>(
     readonly tabId?: PreviewTabId | undefined;
     readonly [key: string]: unknown;
   },
-  timeoutMs?: number,
+  requestedTimeoutMs?: number,
 ) => {
-  const { tabId, ...operationInput } = input;
+  const { tabId, ...requestedInput } = input;
+  // Fork: the desktop waits on the input's timeoutMs, so cap it there as well as the broker's.
+  const timeoutMs =
+    requestedTimeoutMs === undefined
+      ? undefined
+      : Math.min(requestedTimeoutMs, PREVIEW_AUTOMATION_MAX_TIMEOUT_MS);
+  const operationInput =
+    timeoutMs === undefined ? requestedInput : { ...requestedInput, timeoutMs };
   return invoke<A>(operation, operationInput, timeoutMs, tabId).pipe(
     Effect.map(({ result, toolIcon }) => ({
       ...result,
