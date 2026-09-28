@@ -177,21 +177,23 @@ describe("orchestrator rows in the grouped list", () => {
   ];
   const lead = new Set(["e:ao", "e:bo"]);
 
-  it("puts each group's orchestrator rows above its header, in their own section", () => {
+  it("puts each group's orchestrator rows first under its header, in their own section", () => {
     const items = buildGroupedSidebarListItems({ groups, settled: [] });
-    expect(ids(items).slice(0, 7)).toEqual([
-      "e:ao",
+    expect(ids(items).slice(0, 9)).toEqual([
       sidebarMarkerId("group-header", "a"),
+      "e:ao",
       sidebarMarkerId("pinned-header", "a"),
       sidebarMarkerId("pinned-divider", "a"),
       sidebarMarkerId("active-placeholder", "a"),
       "e:a1",
+      sidebarMarkerId("group-header", "b"),
       "e:bo",
+      sidebarMarkerId("pinned-header", "b"),
     ]);
-    expect(items[0]).toEqual({ kind: "thread", key: "e:ao", section: "active" });
+    expect(items[1]).toEqual({ kind: "thread", key: "e:ao", section: "active" });
   });
 
-  it("keeps a folded group's pinned orchestrator above its bare header", () => {
+  it("keeps a folded group's pinned orchestrator under its bare header", () => {
     const items = buildGroupedSidebarListItems({
       groups: [
         group("a", { collapsed: true, lead: [{ row: "e:ao", section: "pinned" }] }),
@@ -200,8 +202,8 @@ describe("orchestrator rows in the grouped list", () => {
       settled: [],
     });
     expect(ids(items).slice(0, 3)).toEqual([
-      "e:ao",
       sidebarMarkerId("group-header", "a"),
+      "e:ao",
       sidebarMarkerId("group-header", "b"),
     ]);
   });
@@ -217,13 +219,13 @@ describe("orchestrator rows in the grouped list", () => {
     const items = ids(
       buildGroupedSidebarListItems({ groups: order.map((id) => groupById.get(id)!), settled: [] }),
     );
-    expect(items.slice(0, 2)).toEqual(["e:bo", sidebarMarkerId("group-header", "b")]);
-    expect(items.indexOf("e:ao")).toBe(items.indexOf(sidebarMarkerId("group-header", "a")) - 1);
+    expect(items.slice(0, 2)).toEqual([sidebarMarkerId("group-header", "b"), "e:bo"]);
+    expect(items.indexOf("e:ao")).toBe(items.indexOf(sidebarMarkerId("group-header", "a")) + 1);
   });
 
   it("leaves orchestrator rows out of every drag slice", () => {
     const items = buildGroupedSidebarListItems({ groups, settled: [] });
-    // b's orchestrator sits right after a's rows, before b's header.
+    // a's orchestrator sits between a's header and its pinned header.
     expect(ids(sliceSidebarGroupForDrag(items, "a", lead))).toEqual([
       sidebarMarkerId("pinned-header", "a"),
       sidebarMarkerId("pinned-divider", "a"),
@@ -308,6 +310,7 @@ describe("grouped sidebar sorting strategy", () => {
     groupId: string,
     active: string,
     over: string,
+    lead: ReadonlySet<string> = new Set(),
   ) {
     let top = 100;
     const rects = items.map((item) => {
@@ -327,6 +330,7 @@ describe("grouped sidebar sorting strategy", () => {
     const strategy = createGroupedSidebarSortingStrategy({
       items,
       group: groupId,
+      lead,
       settledOrder: [],
       settledExpanded: true,
       boundaryLabelHeight: 24,
@@ -359,5 +363,21 @@ describe("grouped sidebar sorting strategy", () => {
     expect(transforms.get(sidebarMarkerId("group-header", "top"))).toBeNull();
     expect(transforms.get("e:t1")).toBeNull();
     expect(transforms.get(sidebarMarkerId("group-header", "a"))).toBeNull();
+  });
+
+  it("keeps the dragged group's orchestrator in place and moves later ones with the shelf", () => {
+    const withLead = buildGroupedSidebarListItems({
+      groups: [
+        group("a", { lead: [{ row: "e:ao", section: "active" }], active: ["e:a1", "e:a2"] }),
+        group("b", { lead: [{ row: "e:bo", section: "active" }], active: ["e:b1"] }),
+      ],
+      settled: ["e:x1"],
+    });
+    const lead = new Set(["e:ao", "e:bo"]);
+    const transforms = preview(withLead, "a", "e:a1", sidebarMarkerId("settled-header"), lead);
+    const shelfY = transforms.get(sidebarMarkerId("settled-header"))?.y;
+    expect(shelfY).not.toBe(0);
+    expect(transforms.get("e:ao")).toBeNull();
+    expect(transforms.get("e:bo")?.y).toBe(shelfY);
   });
 });

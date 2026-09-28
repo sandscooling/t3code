@@ -1,6 +1,6 @@
 // Fork: group the default sidebar by project.
 //
-// Each project gets its orchestrator rows, then a header followed by its own
+// Each project gets a header followed by its orchestrator rows, then its own
 // pinned, active and snoozed rows; one settled shelf sits below every group.
 // Orchestrator rows are not drag handles and stay out of every drag slice.
 // The upstream drag code (Sidebar.drag, Sidebar.logic) assumes one flat
@@ -23,7 +23,7 @@ export interface SidebarThreadGroupRows {
   readonly id: string;
   /** Folded groups render only rows the caller kept (the open thread). */
   readonly collapsed: boolean;
-  /** Orchestrator rows, drawn above the header like a title bar. */
+  /** Orchestrator rows, drawn first under the header. */
   readonly lead: ReadonlyArray<SidebarGroupLead<string>>;
   readonly pinned: readonly string[];
   readonly active: readonly string[];
@@ -76,8 +76,8 @@ export function buildGroupedSidebarListItems(input: {
 }): SidebarListItem[] {
   const items: SidebarListItem[] = [];
   for (const group of input.groups) {
-    for (const { row, section } of group.lead) items.push({ kind: "thread", key: row, section });
     items.push({ kind: "marker", marker: "group-header", group: group.id });
+    for (const { row, section } of group.lead) items.push({ kind: "thread", key: row, section });
     const rowCount = group.pinned.length + group.active.length + group.visibleSnoozed.length;
     if (group.collapsed && rowCount === 0) continue;
     const marker = (name: "pinned-header" | "pinned-divider" | "active-placeholder") =>
@@ -130,8 +130,8 @@ export function moveSidebarGroup<T>(input: {
 /** The part of a grouped list one drag can reach: the group's pinned and
     active rows, then the shared settled shelf. Snoozed rows are left out, so
     grouped snoozed rows wake from their button rather than by dragging, and so
-    are orchestrator rows (`lead`): they sit above the next group's header, so
-    they would otherwise read as the tail of the group before them. */
+    are orchestrator rows (`lead`), which are not drag handles and sit ahead of
+    the group's pinned header, outside any section the drag code knows. */
 export function sliceSidebarGroupForDrag(
   items: readonly SidebarListItem[],
   group: string | undefined,

@@ -35,7 +35,7 @@ Behind the **Agent orchestration** setting, off by default:
 
 ### Threads and sidebar
 
-- A setting to group the sidebar by project (Settings, Appearance, "Group threads by project"). Each project folds and shows how many of its threads are working or monitoring, and a project's orchestrator sits above its header like a title bar, staying visible when the project is folded only while it is pinned; settled threads stay in one list. Groups keep a fixed order that activity never changes; right-click a group header to move it.
+- A setting to group the sidebar by project (Settings, Appearance, "Group threads by project"). Each project folds and shows how many of its threads are working or monitoring, and a project's orchestrator leads its group as the first row under the header, staying visible when the project is folded only while it is pinned; settled threads stay in one list. Groups keep a fixed order that activity never changes; right-click a group header to move it.
 - A globe on sidebar rows that pulses while an agent is using the browser.
 - Plan progress as a meter on thread hover.
 - Per-thread Claude output style.

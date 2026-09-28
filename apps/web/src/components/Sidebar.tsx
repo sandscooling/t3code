@@ -3157,7 +3157,7 @@ export default function Sidebar() {
     () => new Map((threadGroups ?? []).map((group) => [group.id, group])),
     [threadGroups],
   );
-  // Fork: orchestrator rows above a group header are not drag handles and stay
+  // Fork: orchestrator rows leading a group are not drag handles and stay
   // out of every drag slice.
   const leadThreadKeys = useMemo(
     () =>
