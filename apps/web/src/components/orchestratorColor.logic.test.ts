@@ -18,6 +18,15 @@ describe("orchestratorThreadIds", () => {
     ]);
     expect([...ids]).toEqual(["orchestrator"]);
   });
+
+  it("counts a top-level thread titled Orchestrator even with no spawned sessions", () => {
+    const ids = orchestratorThreadIds([
+      { id: "named", title: "Orchestrator", parentThreadId: null },
+      { id: "retired", title: "Orchestrator-2026-09-28", parentThreadId: null },
+      { id: "nested", title: "Orchestrator", parentThreadId: "named" },
+    ]);
+    expect([...ids]).toEqual(["named"]);
+  });
 });
 
 describe("orchestrator color menu", () => {

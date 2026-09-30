@@ -95,12 +95,15 @@ export function parseOrchestratorColorMenuId(
 
 /**
  * Ids of the threads that are orchestrators: a top-level thread that has
- * spawned at least one session. A handoff successor takes over the spawned
- * sessions, so it inherits the tint with them.
+ * spawned at least one session, or one titled exactly "Orchestrator". The
+ * title covers an orchestrator whose spawned sessions were all pruned, and a
+ * retired "Orchestrator-<date>" keeps no tint. A handoff successor takes over
+ * the spawned sessions, so it inherits the tint with them before the rename.
  */
 export function orchestratorThreadIds(
   threads: ReadonlyArray<{
     readonly id: string;
+    readonly title?: string | undefined;
     readonly parentThreadId?: string | null | undefined;
   }>,
 ): ReadonlySet<string> {
@@ -110,7 +113,8 @@ export function orchestratorThreadIds(
   }
   const orchestrators = new Set<string>();
   for (const thread of threads) {
-    if (thread.parentThreadId == null && parents.has(thread.id)) orchestrators.add(thread.id);
+    if (thread.parentThreadId != null) continue;
+    if (parents.has(thread.id) || thread.title === "Orchestrator") orchestrators.add(thread.id);
   }
   return orchestrators;
 }
