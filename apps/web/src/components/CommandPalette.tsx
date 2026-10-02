@@ -196,15 +196,12 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
+import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
 import {
-  primaryServerKeybindingsAtom,
-  primaryServerProvidersAtom,
-  primaryServerSettingsAtom,
-} from "../state/server";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
-import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
-import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  type ProviderInstanceEntry,
+} from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
@@ -224,58 +221,6 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
-
-const APPEARANCE_OPTIONS = [
-  { mode: "system", label: "System", icon: MonitorIcon },
-  { mode: "light", label: "Light", icon: SunIcon },
-  { mode: "dark", label: "Dark", icon: MoonIcon },
-] as const;
-
-function notifyThemeSaveFailure(): void {
-  toastManager.add(
-    stackedThreadToast({
-      type: "error",
-      title: "Couldn't save theme selection",
-      description: "Try again.",
-    }),
-  );
-}
-
-function projectFavicon(project: Project) {
-  return <ProjectFavicon project={project} className="size-4" />;
-}
-
-function ProjectSearchDescription(props: {
-  readonly environmentLabels: ReadonlyArray<string>;
-  readonly grouped: boolean;
-  readonly location: {
-    readonly kind: "local" | "remote";
-    readonly label: string;
-    readonly machine: EnvironmentMachineKind;
-  };
-  readonly workspaceRoot: string;
-}) {
-  if (!props.grouped) {
-    return (
-      <span className="flex min-w-0 items-center gap-1">
-        <span className="inline-flex min-w-0 items-center gap-1">
-          {props.location.kind === "remote" ? (
-            <EnvironmentMachineIcon
-              aria-hidden
-              kind={props.location.machine}
-              className={COMMAND_PALETTE_META_ICON_CLASS}
-            />
-          ) : null}
-          <span className="truncate">{props.location.label}</span>
-        </span>
-        <CommandPaletteMetaDot />
-        <span className="truncate">{props.workspaceRoot}</span>
-      </span>
-    );
-  }
-
-  return <span className="truncate">{props.environmentLabels.join(" · ")}</span>;
-}
 
 function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
   if (os === "windows") {
@@ -392,6 +337,10 @@ function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: stri
   }
 }
 
+function projectFaviconIcon(project: Project): ReactNode {
+  return <ProjectFavicon project={project} className={ITEM_ICON_CLASS} />;
+}
+
 function remoteProjectInputPlaceholder(flow: AddProjectCloneFlow | null): string | null {
   if (!flow) return null;
   if (flow.step === "confirm") return null;
@@ -493,6 +442,26 @@ function overlayModeForCommand(command: string | null): SearchOverlayMode | null
   return command in OVERLAY_MODE_BY_COMMAND
     ? OVERLAY_MODE_BY_COMMAND[command as keyof typeof OVERLAY_MODE_BY_COMMAND]
     : null;
+}
+
+const APPEARANCE_OPTIONS = [
+  { mode: "system", label: "System", icon: MonitorIcon },
+  { mode: "light", label: "Light", icon: SunIcon },
+  { mode: "dark", label: "Dark", icon: MoonIcon },
+] as const;
+
+function notifyThemeSaveFailure(): void {
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title: "Couldn't save theme selection",
+      description: "Try again.",
+    }),
+  );
+}
+
+function projectFavicon(project: Project) {
+  return <ProjectFavicon project={project} className="size-4" />;
 }
 
 export function CommandPalette({ children }: { children: ReactNode }) {
@@ -845,10 +814,17 @@ function OpenCommandPaletteDialog(props: {
   const providerEntryByEnvironmentAndInstanceId = useMemo(() => {
     const map = new Map<string, ProviderInstanceEntry>();
     for (const environment of environments) {
+      const serverConfig = environment.serverConfig;
       const environmentProviders =
-        environment.serverConfig?.providers ??
+        serverConfig?.providers ??
         (environment.environmentId === primaryEnvironmentId ? providers : []);
-      for (const entry of deriveProviderInstanceEntries(environmentProviders)) {
+      const derived = deriveProviderInstanceEntries(environmentProviders);
+      // Settings fill the ACP registry identity (agent id, icon URL) the
+      // derived entries alone do not carry.
+      const entries = serverConfig
+        ? applyProviderInstanceSettings(derived, serverConfig.settings)
+        : derived;
+      for (const entry of entries) {
         map.set(`${environment.environmentId}:${entry.instanceId}`, entry);
       }
     }
@@ -1332,7 +1308,7 @@ function OpenCommandPaletteDialog(props: {
             />
           );
         },
-        icon: projectFavicon,
+        icon: projectFaviconIcon,
         runProject: openProjectFromSearch,
       }),
     [
@@ -1476,7 +1452,7 @@ function OpenCommandPaletteDialog(props: {
               </span>
             );
           },
-          icon: projectFavicon,
+          icon: projectFaviconIcon,
           runProject: async (project) => {
             const fleetCount = sessionSpawnCountRef.current;
             if (fleetCount !== null) {
@@ -1537,7 +1513,7 @@ function OpenCommandPaletteDialog(props: {
         renderTrailingContent: (thread) => <ThreadRowTrailingStatus thread={thread} />,
         renderDescription: (thread, { projectTitle }) => {
           const modelInstanceId =
-            thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+            thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
           const providerEntry =
             providerEntryByEnvironmentAndInstanceId.get(
               `${thread.environmentId}:${modelInstanceId}`,
@@ -1554,8 +1530,10 @@ function OpenCommandPaletteDialog(props: {
               isCurrent={thread.id === activeThreadId}
               driverKind={providerEntry?.driverKind ?? null}
               providerDisplayName={
-                thread.session?.providerName ?? providerEntry?.displayName ?? modelInstanceId
+                thread.runtime?.providerName ?? providerEntry?.displayName ?? modelInstanceId
               }
+              acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
+              acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
             />
           );
         },
@@ -1585,6 +1563,7 @@ function OpenCommandPaletteDialog(props: {
       activeThreadId,
       clientSettings.sidebarThreadSortOrder,
       navigate,
+      projectCwdById,
       projectByKey,
       projectEnvironmentLocationById,
       projectTitleById,
@@ -2117,7 +2096,7 @@ function OpenCommandPaletteDialog(props: {
       // Failures throw into executeItem's error toast.
       run: async () => {
         const { environmentId } = thread;
-        if (thread.session && thread.session.status !== "stopped") {
+        if (thread.runtime !== null) {
           const stopped = await stopThreadSession({
             environmentId,
             input: { threadId: thread.id },
@@ -2136,7 +2115,7 @@ function OpenCommandPaletteDialog(props: {
         const refreshed = await refreshProviders({
           environmentId,
           input: {
-            instanceId: thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
+            instanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
             cwd: thread.worktreePath ?? project.workspaceRoot,
             fresh: true,
           },
@@ -3642,4 +3621,36 @@ function OpenCommandPaletteDialog(props: {
       />
     </CommandPaletteContent>
   );
+}
+
+function ProjectSearchDescription(props: {
+  readonly environmentLabels: ReadonlyArray<string>;
+  readonly grouped: boolean;
+  readonly location: {
+    readonly kind: "local" | "remote";
+    readonly label: string;
+    readonly machine: EnvironmentMachineKind;
+  };
+  readonly workspaceRoot: string;
+}) {
+  if (!props.grouped) {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1">
+          {props.location.kind === "remote" ? (
+            <EnvironmentMachineIcon
+              aria-hidden
+              kind={props.location.machine}
+              className={COMMAND_PALETTE_META_ICON_CLASS}
+            />
+          ) : null}
+          <span className="truncate">{props.location.label}</span>
+        </span>
+        <CommandPaletteMetaDot />
+        <span className="truncate">{props.workspaceRoot}</span>
+      </span>
+    );
+  }
+
+  return <span className="truncate">{props.environmentLabels.join(" · ")}</span>;
 }

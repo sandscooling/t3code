@@ -1,12 +1,14 @@
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Option from "effect/Option";
 import { CircleAlertIcon, MessageCircleQuestionIcon, ShieldQuestionIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
-import { useEnvironments } from "../state/environments";
+import { useEnvironmentIds } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
   hasDesktopNotifications,
@@ -28,7 +30,7 @@ function attentionToastId(environmentId: EnvironmentId, threadId: ThreadId): str
 }
 
 export function ThreadNotificationCoordinator() {
-  const { environments } = useEnvironments();
+  const environmentIds = useEnvironmentIds();
   const mode = useClientSettings((settings) => settings.notificationMode);
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
@@ -43,7 +45,7 @@ export function ThreadNotificationCoordinator() {
   }, []);
 
   useEffect(() => {
-    const activeIds = new Set(environments.map(({ environmentId }) => environmentId));
+    const activeIds = new Set(environmentIds);
     const count = pending.current.size;
     for (const [tag, { environmentId, notification }] of pending.current) {
       if (activeIds.has(environmentId)) continue;
@@ -51,7 +53,7 @@ export function ThreadNotificationCoordinator() {
       pending.current.delete(tag);
     }
     if (count !== pending.current.size) setNotificationBadge(pending.current.size);
-  }, [environments]);
+  }, [environmentIds]);
 
   useEffect(() => {
     const clear = () => {
@@ -82,10 +84,10 @@ export function ThreadNotificationCoordinator() {
 
   if (mode === "off" && !inAppNotificationsEnabled) return null;
 
-  return environments.map((environment) => (
+  return environmentIds.map((environmentId) => (
     <EnvironmentNotifications
-      key={environment.environmentId}
-      environmentId={environment.environmentId}
+      key={environmentId}
+      environmentId={environmentId}
       onNotification={onNotification}
     />
   ));
@@ -117,34 +119,55 @@ function EnvironmentNotifications({
       return;
     }
     const next = new Map<ThreadId, { attention: string | null; completion: number | null }>();
-    for (const thread of shell.snapshot.value.threads) {
+    for (const rawThread of shell.snapshot.value.threads) {
+      if (rawThread.lineage.relationshipToParent === "subagent") continue;
+      const thread = presentThreadShell(environmentId, rawThread);
       let status = resolveSidebarThreadStatus(thread);
-      if (status === "ready" && thread.latestTurn?.state === "error") status = "failed";
+      if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
       const prior = previous.current.get(thread.id);
       const attention =
-        status === "input" || status === "approval" || status === "failed"
-          ? `${thread.latestTurn?.turnId ?? ""}:${status}`
+        status === "input" || status === "approval" || status === "failed" || status === "limited"
+          ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
-      // A toast that waits for an answer becomes a stale label the moment the
-      // thread stops asking, so retire it wherever the answer came from.
-      if (prior && prior.attention !== null && attention === null) {
-        toastManager.close(attentionToastId(environmentId, thread.id));
-      }
-      const completedAt = Date.parse(thread.latestTurn?.completedAt ?? "");
+      const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
+      // Waiting only on commands (a dev server) is done; subagents and monitors wake the agent.
+      const settled =
+        status === "ready" ||
+        (status === "waiting" && !backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks));
       const completion =
-        status === "ready" &&
-        thread.latestTurn?.state === "completed" &&
-        Number.isFinite(completedAt)
+        settled && thread.latestRun?.status === "completed" && Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
       next.set(thread.id, { attention, completion });
-      if (thread.archivedAt !== null) continue;
-      // Only threads that want the reader get a toast. Questions and approvals
-      // stand until answered; failures fall away on their own. Completions have
-      // no toast at all, only their sound and background system popup.
-      const awaitsAnswer = status === "input" || status === "approval";
-      const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
-      const showToast = (title: string) => {
+      if (!prior || thread.archivedAt !== null) continue;
+      const kind =
+        attention && attention !== prior.attention
+          ? "input"
+          : completion !== null && (prior.completion === null || completion > prior.completion)
+            ? "completion"
+            : null;
+      if (!kind) continue;
+      const title =
+        kind === "completion"
+          ? "Thread completed"
+          : status === "approval"
+            ? "Approval needed"
+            : status === "limited"
+              ? "Usage limit reached"
+              : status === "failed"
+                ? "Thread failed"
+                : "Input needed";
+      if (hasNotificationSound(mode)) {
+        void playNotificationSound(kind, () =>
+          hasNotificationSound(getClientSettings().notificationMode),
+        );
+      }
+      if (
+        inAppNotificationsEnabled &&
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
+      ) {
         const toastId = toastManager.add({
           ...(awaitsAnswer
             ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
@@ -175,7 +198,7 @@ function EnvironmentNotifications({
             },
           },
         });
-      };
+      }
       if (!prior) {
         // First sight, on load or after a reconnect: a thread already waiting on
         // an answer gets its standing toast back, quietly. The stable id means an
