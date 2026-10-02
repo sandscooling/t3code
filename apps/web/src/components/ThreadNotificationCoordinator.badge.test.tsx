@@ -237,13 +237,14 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
   },
 );
 
-it("shows in-app alerts without adding a badge while focused", async () => {
+// Fork: a finished thread raises no toast, so a focused completion stays silent.
+it("raises no toast or badge for a completion while focused", async () => {
   state.inApp = true;
   focused = true;
   await render();
   complete();
   await render();
-  expect(state.toast).toHaveBeenCalledOnce();
+  expect(state.toast).not.toHaveBeenCalled();
   expect(TestNotification.sent).toHaveLength(0);
   expect(state.badge.mock.calls.every(([count]) => count === 0)).toBe(true);
 });
