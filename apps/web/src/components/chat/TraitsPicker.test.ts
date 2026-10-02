@@ -21,7 +21,7 @@ function fastModeDescriptor(
 }
 
 function serviceTierDescriptor(
-  currentValue: "default" | "priority" | "flex",
+  currentValue: "default" | "priority" | "ultrafast" | "flex",
 ): Extract<ProviderOptionDescriptor, { type: "select" }> {
   return {
     id: "serviceTier",
@@ -30,6 +30,7 @@ function serviceTierDescriptor(
     options: [
       { id: "default", label: "Standard", isDefault: true },
       { id: "priority", label: "Fast" },
+      { id: "ultrafast", label: "Ultrafast" },
       { id: "flex", label: "Flex" },
     ],
     currentValue,
@@ -79,43 +80,86 @@ describe("buildTraitsTriggerDisplay", () => {
   it("omits fast mode from the label entirely when it is off", () => {
     expect(display([EFFORT, fastModeDescriptor(false), CONTEXT_WINDOW])).toEqual({
       label: "High · 1M",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
   });
 
   it("shows the bolt instead of a text label when fast mode is on", () => {
     expect(display([EFFORT, fastModeDescriptor(true), CONTEXT_WINDOW])).toEqual({
       label: "High · 1M",
-      showFastModeIcon: true,
+      speedIcon: "fast",
     });
   });
 
   it("treats Codex standard and fast service tiers as fast mode states", () => {
     expect(display([EFFORT, serviceTierDescriptor("default")])).toEqual({
       label: "High",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
     expect(display([EFFORT, serviceTierDescriptor("priority")])).toEqual({
       label: "High",
-      showFastModeIcon: true,
+      speedIcon: "fast",
+    });
+  });
+
+  it("uses a distinct double bolt for Codex Ultrafast", () => {
+    expect(display([EFFORT, serviceTierDescriptor("ultrafast")])).toEqual({
+      label: "High",
+      speedIcon: "ultrafast",
+    });
+  });
+
+  it("uses Ultrafast without requiring a Fast tier", () => {
+    const descriptor = serviceTierDescriptor("ultrafast");
+    expect(
+      display([
+        EFFORT,
+        { ...descriptor, options: descriptor.options.filter(({ id }) => id !== "priority") },
+      ]),
+    ).toEqual({
+      label: "High",
+      speedIcon: "ultrafast",
     });
   });
 
   it("keeps other Codex service tiers in the label", () => {
     expect(display([EFFORT, serviceTierDescriptor("flex")])).toEqual({
       label: "High · Flex",
-      showFastModeIcon: false,
+      speedIcon: null,
+    });
+  });
+
+  it("keeps Standard as text for models without speed tiers", () => {
+    const descriptor = serviceTierDescriptor("default");
+    const nonSpeedDescriptor = {
+      ...descriptor,
+      options: descriptor.options.filter(({ id }) => id === "default" || id === "flex"),
+    };
+    expect(display([EFFORT, nonSpeedDescriptor])).toEqual({
+      label: "High · Standard",
+      speedIcon: null,
+    });
+    expect(display([nonSpeedDescriptor])).toEqual({
+      label: "Standard",
+      speedIcon: null,
     });
   });
 
   it("keeps the Codex service tier readable when it is the only trait", () => {
     expect(display([serviceTierDescriptor("default")])).toEqual({
       label: "Standard",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
     expect(display([serviceTierDescriptor("priority")])).toEqual({
       label: "Fast",
-      showFastModeIcon: false,
+      speedIcon: null,
+    });
+  });
+
+  it("keeps Ultrafast readable when it is the only trait", () => {
+    expect(display([serviceTierDescriptor("ultrafast")])).toEqual({
+      label: "Ultrafast",
+      speedIcon: null,
     });
   });
 
@@ -128,18 +172,18 @@ describe("buildTraitsTriggerDisplay", () => {
     };
     expect(display([EFFORT, thinking])).toEqual({
       label: "High · Thinking On",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
   });
 
   it("falls back to a text label when fast mode is the only trait", () => {
     expect(display([fastModeDescriptor(true)])).toEqual({
       label: "Fast",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
     expect(display([fastModeDescriptor(false)])).toEqual({
       label: "Normal",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
   });
 
@@ -156,7 +200,7 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "high", label: "High" },
       ],
     };
-    expect(display([unresolved])).toEqual({ label: "", showFastModeIcon: false });
+    expect(display([unresolved])).toEqual({ label: "", speedIcon: null });
   });
 
   it("omits the output style from the label while it is the default", () => {
@@ -164,14 +208,14 @@ describe("buildTraitsTriggerDisplay", () => {
     // not spend horizontal space the way a deliberate style does.
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("default")])).toEqual({
       label: "High · 1M",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
   });
 
   it("shows the output style once it is set to something deliberate", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")])).toEqual({
       label: "High · 1M · Explanatory",
-      showFastModeIcon: false,
+      speedIcon: null,
     });
   });
 
@@ -187,7 +231,7 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "Learning", label: "Learning" },
       ],
     };
-    expect(display([EFFORT, unset])).toEqual({ label: "High", showFastModeIcon: false });
+    expect(display([EFFORT, unset])).toEqual({ label: "High", speedIcon: null });
   });
 
   it("drops an excluded trait so it cannot be the only reason controls render", () => {
@@ -226,7 +270,7 @@ describe("buildTraitsTriggerDisplay", () => {
         primarySelectDescriptorId: "reasoningEffort",
         ultrathinkPromptControlled: true,
       }),
-    ).toEqual({ label: "Ultrathink", showFastModeIcon: true });
+    ).toEqual({ label: "Ultrathink", speedIcon: "fast" });
   });
 });
 
