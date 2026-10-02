@@ -104,16 +104,16 @@ export function orchestratorThreadIds(
   threads: ReadonlyArray<{
     readonly id: string;
     readonly title?: string | undefined;
-    readonly parentThreadId?: string | null | undefined;
+    readonly spawnedByThreadId?: string | null | undefined;
   }>,
 ): ReadonlySet<string> {
   const parents = new Set<string>();
   for (const thread of threads) {
-    if (thread.parentThreadId != null) parents.add(thread.parentThreadId);
+    if (thread.spawnedByThreadId != null) parents.add(thread.spawnedByThreadId);
   }
   const orchestrators = new Set<string>();
   for (const thread of threads) {
-    if (thread.parentThreadId != null) continue;
+    if (thread.spawnedByThreadId != null) continue;
     if (parents.has(thread.id) || thread.title === "Orchestrator") orchestrators.add(thread.id);
   }
   return orchestrators;

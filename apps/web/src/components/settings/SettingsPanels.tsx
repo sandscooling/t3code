@@ -701,6 +701,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleOnMerge,
       settings.autoResumeLimitedThreads,
       settings.snoozeLimitedThreads,
+      settings.sidebarGroupThreadsByProject, // Fork
       settings.sidebarProjectGroupingMode,
       settings.sidebarWorkingShelfEnabled,
       settings.sidebarThreadPreviewCount,

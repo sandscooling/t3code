@@ -10,20 +10,25 @@ import {
 describe("orchestratorThreadIds", () => {
   it("counts only top-level threads that spawned a session", () => {
     const ids = orchestratorThreadIds([
-      { id: "orchestrator", parentThreadId: null },
-      { id: "dev", parentThreadId: "orchestrator" },
-      { id: "helper", parentThreadId: "dev" },
-      { id: "lone", parentThreadId: null },
+      { id: "orchestrator", spawnedByThreadId: null },
+      { id: "dev", spawnedByThreadId: "orchestrator" },
+      { id: "helper", spawnedByThreadId: "dev" },
+      { id: "lone", spawnedByThreadId: null },
       { id: "legacy" },
     ]);
     expect([...ids]).toEqual(["orchestrator"]);
   });
 
+  it("counts a spawner created in v2, whose own spawnedByThreadId key is absent", () => {
+    const ids = orchestratorThreadIds([{ id: "boss" }, { id: "dev", spawnedByThreadId: "boss" }]);
+    expect([...ids]).toEqual(["boss"]);
+  });
+
   it("counts a top-level thread titled Orchestrator even with no spawned sessions", () => {
     const ids = orchestratorThreadIds([
-      { id: "named", title: "Orchestrator", parentThreadId: null },
-      { id: "retired", title: "Orchestrator-2026-09-28", parentThreadId: null },
-      { id: "nested", title: "Orchestrator", parentThreadId: "named" },
+      { id: "named", title: "Orchestrator", spawnedByThreadId: null },
+      { id: "retired", title: "Orchestrator-2026-09-28", spawnedByThreadId: null },
+      { id: "nested", title: "Orchestrator", spawnedByThreadId: "named" },
     ]);
     expect([...ids]).toEqual(["named"]);
   });

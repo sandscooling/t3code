@@ -87,13 +87,13 @@ describe("grouped sidebar list", () => {
 describe("group rows", () => {
   // Both orchestrators have a child thread; open is the route thread.
   const threads = [
-    { id: "pinnedOrch", parentThreadId: null },
-    { id: "activeOrch", parentThreadId: null },
-    { id: "worker", parentThreadId: "pinnedOrch" },
-    { id: "helper", parentThreadId: "activeOrch" },
-    { id: "pinnedLoose", parentThreadId: null },
-    { id: "open", parentThreadId: null },
-    { id: "snoozed", parentThreadId: null },
+    { id: "pinnedOrch", spawnedByThreadId: null },
+    { id: "activeOrch", spawnedByThreadId: null },
+    { id: "worker", spawnedByThreadId: "pinnedOrch" },
+    { id: "helper", spawnedByThreadId: "activeOrch" },
+    { id: "pinnedLoose", spawnedByThreadId: null },
+    { id: "open", spawnedByThreadId: null },
+    { id: "snoozed", spawnedByThreadId: null },
   ];
   const byId = (id: string) => threads.find((thread) => thread.id === id)!;
   const arrange = (

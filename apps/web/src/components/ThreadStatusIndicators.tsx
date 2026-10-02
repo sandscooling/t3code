@@ -762,6 +762,28 @@ export function resolveDisplayedThreadPrProvider(input: {
   return undefined;
 }
 
+// Fork: the globe a row shows while its thread has a browser tab, lit while an agent drives it.
+export function browserStatusIndicator(input: {
+  readonly hasPreviewSession: boolean;
+  readonly isAutomating: boolean;
+}): BrowserStatusIndicator | null {
+  if (input.isAutomating) {
+    return {
+      label: "Agent using browser",
+      colorClass: "text-sky-600 dark:text-sky-300/90",
+      pulse: true,
+    };
+  }
+  if (input.hasPreviewSession) {
+    return {
+      label: "Browser tab open",
+      colorClass: "text-muted-foreground/40",
+      pulse: false,
+    };
+  }
+  return null;
+}
+
 export function terminalStatusFromRunningIds(
   runningTerminalIds: ReadonlyArray<string>,
 ): TerminalStatusIndicator | null {

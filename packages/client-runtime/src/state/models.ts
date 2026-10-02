@@ -137,6 +137,12 @@ export interface EnvironmentThreadShell {
   readonly lastVisitedAt?: string | null;
   /** Pending title regeneration marker; null when no request is in flight. */
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
+  // Fork: session lane, spawn lineage, handoff successor and the plan meter.
+  // Absent when the server omits them (a thread created in v2 has no lane).
+  readonly group?: OrchestrationV2ThreadShell["group"];
+  readonly spawnedByThreadId?: OrchestrationV2ThreadShell["spawnedByThreadId"];
+  readonly successorThreadId?: OrchestrationV2ThreadShell["successorThreadId"];
+  readonly planProgress?: OrchestrationV2ThreadShell["planProgress"];
   readonly deletedAt: string | null;
   readonly source: OrchestrationV2ThreadShell;
 }
@@ -269,6 +275,15 @@ export function presentThreadShell(
             requestId: thread.titleRegeneration.requestId,
             startedAt: iso(thread.titleRegeneration.startedAt),
           },
+    // Fork: copied only when present, so upstream-shaped shells are unchanged.
+    ...(thread.group === undefined ? {} : { group: thread.group }),
+    ...(thread.spawnedByThreadId === undefined
+      ? {}
+      : { spawnedByThreadId: thread.spawnedByThreadId }),
+    ...(thread.successorThreadId === undefined
+      ? {}
+      : { successorThreadId: thread.successorThreadId }),
+    ...(thread.planProgress === undefined ? {} : { planProgress: thread.planProgress }),
     deletedAt: nullableIso(thread.deletedAt),
     source: thread,
   };

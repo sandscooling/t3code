@@ -62,6 +62,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronDownIcon, // Fork: project group fold chevron
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -246,6 +247,7 @@ import {
   ThreadPullRequestBadgeControl,
   ThreadPullRequestsMiniList,
   ThreadWorktreeIndicator,
+  browserStatusIndicator, // Fork: the globe
   nextThreadChangeRequestSnapshot,
   prStatusIndicator,
   resolveThreadPullRequestBadge,
@@ -500,6 +502,31 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
+        {/* Fork: plan progress leads, gated on the thread being in flight at all
+            (approval and input outrank working, and a paused plan still wants its
+            step shown). The gate only guards a stale shell; the server clears
+            planProgress once no run is running. */}
+        {isSidebarThreadInFlight(resolveSidebarThreadStatus(thread)) && thread.planProgress ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <ListChecksIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+            <div
+              className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={planProgressPercent(thread.planProgress)}
+              aria-label={`Plan progress: ${thread.planProgress.completedSteps} of ${thread.planProgress.totalSteps} steps complete`}
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${planProgressPercent(thread.planProgress)}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-foreground/75 tabular-nums">
+              {planProgressPercent(thread.planProgress)}%
+            </span>
+          </div>
+        ) : null}
         {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
@@ -569,6 +596,13 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">
               {terminalProcessLabel(terminalProcessCount)}
             </div>
+          </div>
+        ) : null}
+        {/* Fork: the browser tab line, beside the terminal one. */}
+        {browserStatus ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <GlobeIcon aria-hidden className={cn("size-3 shrink-0", browserStatus.colorClass)} />
+            <div className="min-w-0 truncate text-foreground/75">{browserStatus.label}</div>
           </div>
         ) : null}
         {thread.runtime?.lastError ? (
@@ -892,7 +926,7 @@ function SidebarProjectGroupHeader(props: {
           <span className="flex shrink-0 items-center gap-1 tabular-nums text-info">
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
             {props.workingCount}
-            <span className="sr-only"> working or monitoring</span>
+            <span className="sr-only"> working or waiting</span>
           </span>
         ) : null}
       </button>
@@ -1135,17 +1169,6 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   );
 });
 
-/**
- * Present only on an orchestrator card: the roster it drives, and the control
- * that shows or hides that roster.
- */
-type SidebarRowNest = {
-  readonly expanded: boolean;
-  readonly liveCount: number;
-  readonly threadCount: number;
-  readonly onToggle: () => void;
-};
-
 // Verb and icon on the lifted row while it hovers over another section. Uses
 // the same icons as the row actions and context menu so the drop reads as the
 // action it performs.
@@ -1185,10 +1208,6 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
-  // How far the row is nested: 0 top level, 1 under an orchestrator, 2 under
-  // a group inside one. Indentation is the only thing depth changes.
-  depth?: 0 | 1 | 2;
-  nest?: SidebarRowNest | undefined;
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -1283,9 +1302,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     [thread.environmentId, thread.id],
   );
   const threadKey = scopedThreadKey(threadRef);
-  // One step per level, on the list item rather than the row surface, so the
-  // hover and route highlights still start at the row's own left edge.
-  const nestIndentClassName = props.depth === 2 ? "pl-6" : props.depth === 1 ? "pl-3" : undefined;
   const { leaseLiveStatus, rowRef } = useSidebarRowSubscriptionLease(props.isActive);
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
@@ -1364,7 +1380,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
   // Upstream owns the recede rule now; it subsumes the fork's in-flight
-  // clause by receding working and monitoring rows outright. `isInFlight`
+  // clause by receding working rows outright (waiting rows are tinted). `isInFlight`
   // above still stands, because the row surface dims an in-flight card.
   const shouldRecede = shouldRecedeSidebarThread({
     status,
@@ -1798,43 +1814,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       data-testid={`sidebar-browser-status-${thread.id}`}
       className={cn("inline-flex shrink-0 items-center justify-center", browserStatus.colorClass)}
     >
-      <GlobeIcon className={cn("size-3.5", browserStatus.pulse && "animate-status-pulse")} />
+      <GlobeIcon
+        className={cn("size-3.5", browserStatus.pulse && "motion-safe:animate-status-pulse")}
+        onAnimationStart={synchronizeTerminalPulse}
+      />
     </span>
-  ) : null;
-  // The orchestrator's roster control. It reads the same as a group header
-  // (live count, then a chevron) so both kinds of nest open the same way, and
-  // it swallows the click so opening the roster never opens the thread.
-  const nest = props.nest;
-  const nestToggle = nest ? (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-expanded={nest.expanded}
-            aria-label={nest.expanded ? "Hide spawned sessions" : "Show spawned sessions"}
-            data-testid={`sidebar-nest-toggle-${thread.id}`}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              nest.onToggle();
-            }}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm bg-transparent text-muted-foreground/60 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        }
-      >
-        <span className="tabular-nums">
-          {nest.liveCount}/{nest.threadCount}
-        </span>
-        <ChevronDownIcon
-          aria-hidden
-          className={cn("size-3 transition-transform", nest.expanded && "rotate-180")}
-        />
-      </TooltipTrigger>
-      <TooltipPopup>
-        {nest.expanded ? "Hide spawned sessions" : "Show spawned sessions"}
-      </TooltipPopup>
-    </Tooltip>
   ) : null;
   // Same pen the new-thread draft rows lead with, so both kinds of unsent
   // work read the same way in the list.
@@ -1892,7 +1876,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         className={cn(
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
-          nestIndentClassName,
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -2051,7 +2034,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
-        nestIndentClassName,
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -2249,7 +2231,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
-              {nestToggle}
               {terminalStatusIcon}
               {browserStatusIcon}
               {prBadge}
@@ -2651,8 +2632,12 @@ export default function Sidebar() {
     ],
   );
   const projectGroups = useMemo(
-    () => sortSidebarV2ProjectGroups(unsortedProjectGroups, threads, sidebarProjectSortOrder),
-    [sidebarProjectSortOrder, threads, unsortedProjectGroups],
+    () =>
+      // Fork: grouped mode keeps the saved order, so activity never reorders groups.
+      groupThreadsByProject
+        ? unsortedProjectGroups
+        : sortSidebarV2ProjectGroups(unsortedProjectGroups, threads, sidebarProjectSortOrder),
+    [groupThreadsByProject, sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
@@ -3223,10 +3208,10 @@ export default function Sidebar() {
           active: rows.active,
           snoozedCount: bucket.snoozed.length,
           visibleSnoozed: snoozedShelfExpanded ? rows.snoozed : bucket.snoozed.filter(isRoute),
-          // Fork: a thread monitoring a background command still has work in flight.
+          // Fork: a thread waiting on background work (v1's "monitoring") is still in flight.
           workingCount: [...bucket.pinned, ...bucket.active, ...bucket.snoozed].filter((thread) => {
             const status = resolveSidebarThreadStatus(thread);
-            return status === "working" || status === "monitoring";
+            return status === "working" || status === "waiting";
           }).length,
         },
       ];
@@ -3763,9 +3748,12 @@ export default function Sidebar() {
     readonly activationY: number | null;
     readonly targetSection: SidebarSection | null;
     readonly contextDrag: boolean;
+    /** Fork: the dragged thread's project group; undefined while flat. */
+    readonly group: string | undefined;
   } | null>(null);
   const isContextDrag = dragState?.contextDrag === true;
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
+  const dragGroup = dragState?.group; // Fork
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
   const contextDragKeyRef = useRef<string | null>(null);
   const finishThreadDrag = useCallback((started: boolean) => {
