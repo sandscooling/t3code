@@ -6,8 +6,10 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
@@ -16,6 +18,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
 // Fork: the session lane, spawner, and handoff successor on v2 threads.
@@ -160,4 +163,67 @@ it.effect("refuses a spawner or successor that is the thread itself, missing, or
     assert.isUndefined(unchanged.spawnedByThreadId);
     assert.isUndefined(unchanged.successorThreadId);
   }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("settles a spawned session under its own lock, after the parent's settle", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+    const parent = ThreadId.make("thread:cascade-parent");
+    const child = ThreadId.make("thread:cascade-child");
+    yield* createThread(parent);
+    yield* createThread(child);
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("cascade-spawner"),
+      threadId: child,
+      spawnedByThreadId: parent,
+    });
+
+    // Something else (a wake, say) holds the child's lock.
+    const held = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const holder = yield* executor
+      .withLock(
+        child,
+        Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      )
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(held);
+
+    const settle = yield* orchestrator
+      .dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("cascade-settle"),
+        threadId: parent,
+      })
+      .pipe(Effect.forkChild);
+    let attempts = 0;
+    while ((yield* projections.getThread(parent)).settledOverride !== "settled") {
+      assert.isBelow(++attempts, 10_000, "the parent's settle never committed");
+      yield* Effect.yieldNow;
+    }
+    // The parent committed without the child's lock; the child waits for it.
+    assert.isNull((yield* projections.getThread(child)).settledOverride);
+
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(holder);
+    yield* Fiber.join(settle);
+    assert.equal((yield* projections.getThread(child)).settledOverride, "settled");
+
+    // A retried settle replays the child's receipt instead of settling it again.
+    yield* orchestrator.dispatch({
+      type: "thread.unsettle",
+      commandId: CommandId.make("cascade-reopen"),
+      threadId: child,
+      reason: "user",
+    });
+    yield* orchestrator.dispatch({
+      type: "thread.settle",
+      commandId: CommandId.make("cascade-settle"),
+      threadId: parent,
+    });
+    assert.notEqual((yield* projections.getThread(child)).settledOverride, "settled");
+  }).pipe(Effect.provide(Layer.merge(testLayer, ThreadCommandExecutor.layer))),
 );

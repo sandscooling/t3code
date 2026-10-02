@@ -6,6 +6,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime"; // Fork: startedAt
 
 const BACKGROUND_TURN_ITEM_TYPES = new Set<OrchestrationV2TurnItem["type"]>([
   "command_execution",
@@ -104,6 +105,7 @@ type PendingBackgroundWorkTurnItem = {
   readonly input?: unknown;
   readonly prompt?: string | undefined;
   readonly childThreadId?: ThreadId | null;
+  readonly startedAt?: OrchestrationV2TurnItem["startedAt"]; // Fork: elapsed time
 };
 
 function isLatestRunSettledForBackgroundWait(
@@ -148,7 +150,11 @@ function pendingTaskFromTurnItem(
   item: PendingBackgroundWorkTurnItem,
 ): PendingBackgroundWorkTask {
   const description = descriptionFromTurnItem(item);
-  const named = { taskId, ...(description === undefined ? {} : { description }) };
+  const named = {
+    taskId,
+    ...(description === undefined ? {} : { description }),
+    ...(item.startedAt == null ? {} : { startedAt: DateTime.formatIso(item.startedAt) }), // Fork
+  };
   switch (item.type) {
     case "subagent":
       return {
@@ -257,7 +263,12 @@ export function derivePendingBackgroundWork(input: {
 
   for (const item of pendingBackgroundTurnItems(input)) {
     const taskId = nativeTaskIdFromTurnItem(item);
-    if (byTaskId.has(taskId)) {
+    const listed = byTaskId.get(taskId);
+    if (listed !== undefined) {
+      // Fork: a roster entry without a start time takes its item's.
+      if (listed.startedAt === undefined && item.startedAt != null) {
+        byTaskId.set(taskId, { ...listed, startedAt: DateTime.formatIso(item.startedAt) });
+      }
       continue;
     }
 

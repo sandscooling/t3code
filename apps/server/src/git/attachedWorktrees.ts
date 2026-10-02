@@ -4,10 +4,14 @@
  * deletes them. Its own worktrees live under `ServerConfig.worktreesDir`, so
  * that directory is the line between the two.
  */
+// @effect-diagnostics nodeBuiltinImport:off - native realpath; see realPathOfNearestAncestor.
+import * as NodeFSP from "node:fs/promises";
+
 import { GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
@@ -26,15 +30,34 @@ export class AttachedWorktreeMissingError extends Schema.TaggedError<AttachedWor
 export const isAttachedWorktreeMissingError = Schema.is(AttachedWorktreeMissingError);
 
 /**
- * Canonical form for comparing paths: the real path when it resolves, else the
- * normalized absolute path, without a trailing separator, and lowercased on
- * Windows where paths are case-insensitive.
+ * The real path of `resolved`, or for a missing path the real path of its
+ * nearest existing ancestor with the missing tail re-appended, so a gone
+ * worktree under a junction still lands where its root does. Native realpath,
+ * because Effect's FileSystem.realPath is Node's JS one, which leaves Windows
+ * 8.3 short names (C:\Users\KEVINL~1) unexpanded.
+ */
+const realPathOfNearestAncestor = Effect.fnUntraced(function* (resolved: string) {
+  const path = yield* Path.Path;
+  const missing: Array<string> = [];
+  let current = resolved;
+  for (;;) {
+    const real = yield* Effect.tryPromise(() => NodeFSP.realpath(current)).pipe(Effect.option);
+    if (Option.isSome(real)) return path.join(real.value, ...missing.toReversed());
+    const parent = path.dirname(current);
+    if (parent === current) return resolved;
+    missing.push(path.basename(current));
+    current = parent;
+  }
+});
+
+/**
+ * Canonical form for comparing paths: the real path (see above), normalized,
+ * without a trailing separator, and lowercased on Windows where paths are
+ * case-insensitive.
  */
 export const comparablePath = Effect.fnUntraced(function* (target: string) {
-  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const resolved = path.resolve(target);
-  const real = yield* fs.realPath(resolved).pipe(Effect.orElseSucceed(() => resolved));
+  const real = yield* realPathOfNearestAncestor(path.resolve(target));
   const trimmed = path.normalize(real).replace(/[\\/]+$/, "");
   const key =
     trimmed.length === 0 || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}${path.sep}` : trimmed;

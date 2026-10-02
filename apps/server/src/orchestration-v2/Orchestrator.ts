@@ -3116,46 +3116,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
   });
 
-  // Fork: an explicit settle also settles the sessions this thread spawned,
-  // one level deep, in the same commit, as the v1 decider did. A child the
-  // settle guard refuses (active or blocked work) stays open. Automatic
-  // settlement never reaches this, since each child settles on its own clock.
-  const settleSpawnedThreads = Effect.fn("orchestrationV2.dispatch.settleSpawnedThreads")(
-    function* (
-      command: Extract<OrchestrationV2Command, { readonly type: "thread.settle" }>,
-      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
-    ) {
-      const childIds = yield* projectionStore
-        .getSpawnedThreadIds(command.threadId)
-        .pipe(
-          Effect.mapError(
-            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
-          ),
-        );
-      for (const childId of childIds) {
-        const child = yield* projectionStore.getThread(childId).pipe(Effect.option);
-        if (Option.isNone(child) || child.value.settledOverride === "settled") continue;
-        const settledEvents = yield* Ref.get(events);
-        const settledEffects = yield* Ref.get(effects);
-        yield* dispatchThreadMutation(
-          {
-            type: "thread.settle",
-            commandId: CommandId.make(`${command.commandId}:spawned:${childId}`),
-            threadId: childId,
-            ...(command.settledAt === undefined ? {} : { settledAt: command.settledAt }),
-          },
-          events,
-          effects,
-        ).pipe(
-          Effect.catch(() =>
-            Ref.set(events, settledEvents).pipe(Effect.andThen(Ref.set(effects, settledEffects))),
-          ),
-        );
-      }
-    },
-  );
-
   const dispatchProviderSessionDetach = Effect.fn("orchestrationV2.dispatch.providerSessionDetach")(
     function* (
       command: Extract<OrchestrationV2Command, { readonly type: "provider-session.detach" }>,
@@ -9163,13 +9123,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           }),
         );
       }
-      // Fork: an explicit settle cascades to the sessions this thread spawned.
-      case "thread.settle":
-        yield* dispatchThreadMutation(command, events, effects);
-        yield* settleSpawnedThreads(command, events, effects);
-        break;
       case "thread.archive":
       case "thread.unarchive":
+      case "thread.settle":
       case "thread.unsettle":
       case "thread.snooze":
       case "thread.unsnooze":
@@ -9529,8 +9485,54 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     } satisfies OrchestratorV2DispatchResult;
   });
 
+  // Fork: an explicit settle also settles the sessions this thread spawned,
+  // one level deep, as v1 did. Each child settles as its own command under its
+  // own lock once the parent's settle has committed and released its lock, so
+  // a concurrent wake on a child is ordered against that settle rather than
+  // overwritten by it. A child the settle guard refuses (active or blocked
+  // work) stays open. A retried parent replays each child's receipt. Automatic
+  // settlement is thread.auto-settle and never reaches this.
+  const settleSpawnedThreads = (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.settle" }>,
+  ) =>
+    Effect.gen(function* () {
+      const childIds = yield* projectionStore.getSpawnedThreadIds(command.threadId);
+      for (const childId of childIds) {
+        yield* threadDispatch
+          .withLock(
+            childId,
+            Effect.gen(function* () {
+              const child = yield* projectionStore.getThread(childId).pipe(Effect.option);
+              if (Option.isNone(child) || child.value.settledOverride === "settled") return;
+              yield* dispatchWithReceiptEffect({
+                type: "thread.settle",
+                commandId: CommandId.make(`${command.commandId}:spawned:${childId}`),
+                threadId: childId,
+                ...(command.settledAt === undefined ? {} : { settledAt: command.settledAt }),
+              });
+            }),
+          )
+          .pipe(Effect.ignore);
+      }
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Failed to settle spawned sessions", {
+          threadId: command.threadId,
+          cause,
+        }),
+      ),
+    );
+
   const dispatchWithReceipt = (command: OrchestrationV2ServerCommand) =>
-    threadDispatch.withLock(commandThreadId(command), dispatchWithReceiptEffect(command));
+    threadDispatch.withLock(commandThreadId(command), dispatchWithReceiptEffect(command)).pipe(
+      // Fork: the settle cascade runs after the parent's lock is released, and a
+      // cancelled request cannot stop it halfway.
+      Effect.tap(() =>
+        command.type === "thread.settle"
+          ? Effect.uninterruptible(settleSpawnedThreads(command))
+          : Effect.void,
+      ),
+    );
 
   const handleTerminalRun = (stored: OrchestrationV2StoredEvent) =>
     Effect.gen(function* () {

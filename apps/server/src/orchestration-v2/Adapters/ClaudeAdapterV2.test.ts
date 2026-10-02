@@ -43,6 +43,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock"; // Fork: roster startedAt test
 import { Tool } from "effect/unstable/ai";
 import { formatClaudeResumeCompactionQuestion } from "@t3tools/shared/claudeCompaction";
 
@@ -190,6 +191,35 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.isUndefined(options.thinking);
     assert.isUndefined(options.extraArgs?.["thinking-display"]);
     assert.include(options.settings, { alwaysThinkingEnabled: false });
+  });
+
+  // Fork: per-thread output style rides this thread's session-scoped settings.
+  it("forwards the selected output style into SDK settings", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: {
+        ...CLAUDE_TEST_MODEL_SELECTION,
+        options: [{ id: "outputStyle", value: "Explanatory" }],
+      },
+      nativeThreadId: "output-style-thread",
+      resume: false,
+      cwd: "/workspace",
+    });
+    // Other settings (thinking summaries) share this object.
+    assert.include(options.settings, { outputStyle: "Explanatory", showThinkingSummaries: true });
+  });
+
+  // Fork: "default" is the CLI zero state; forwarding it would pin a style.
+  it("sends the default output style as absence rather than a value", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: {
+        ...CLAUDE_TEST_MODEL_SELECTION,
+        options: [{ id: "outputStyle", value: "default" }],
+      },
+      nativeThreadId: "output-style-thread",
+      resume: false,
+      cwd: "/workspace",
+    });
+    assert.notProperty(options.settings ?? {}, "outputStyle");
   });
 
   it.each([
@@ -3442,8 +3472,87 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         const roster = providerThreadRosterEvents(harness.events).at(-1)?.providerThread
           .pendingBackgroundTasks;
         assert.deepEqual(roster, [
-          { taskId: longRunning.taskId, kind: "monitor", description: "Monitor 0" },
+          // Fork: startedAt, for the monitoring elapsed time.
+          {
+            taskId: longRunning.taskId,
+            kind: "monitor",
+            description: "Monitor 0",
+            startedAt: DateTime.formatIso(now),
+          },
         ]);
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  // Fork: a client shows how long background work has run from startedAt.
+  it.effect("keeps a background task's first start time when Claude resends the roster", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const startedAt = yield* DateTime.now;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: startedAt,
+            attemptId: RunAttemptId.make("attempt-claude-roster-started-at"),
+            text: "Start the build in the background.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: "task-build",
+            tool_use_id: "toolu-build",
+            description: "build",
+            is_backgrounded: true,
+            task_type: "local_bash",
+            uuid: "00000000-0000-4000-8000-000000000701",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(
+          () =>
+            providerThreadRosterEvents(harness.events).some((event) =>
+              (event.providerThread.pendingBackgroundTasks ?? []).some(
+                (task) => task.taskId === "task-build",
+              ),
+            ),
+          "build task on the roster",
+        );
+        yield* TestClock.adjust("5 minutes");
+        const laterAt = yield* DateTime.now;
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "background_tasks_changed",
+            tasks: [
+              { task_id: "task-build", task_type: "local_bash", description: "build" },
+              { task_id: "task-tests", task_type: "local_bash", description: "tests" },
+            ],
+            uuid: "00000000-0000-4000-8000-000000000702",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000703", result: "Running." }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "turn terminal");
+
+        const roster = providerThreadRosterEvents(harness.events).at(-1)?.providerThread
+          .pendingBackgroundTasks;
+        assert.deepEqual(
+          roster?.map((task) => [task.taskId, task.startedAt]),
+          [
+            ["task-build", DateTime.formatIso(startedAt)],
+            ["task-tests", DateTime.formatIso(laterAt)],
+          ],
+        );
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
   );
@@ -3931,7 +4040,13 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             (event) => event.providerThread.id === providerThreadA.id,
           )?.providerThread.pendingBackgroundTasks;
           assert.deepEqual(rosterAAfterSettle ?? [], [
-            { taskId: taskA, description: "work on A", kind: "command" },
+            // Fork: startedAt, for the monitoring elapsed time.
+            {
+              taskId: taskA,
+              description: "work on A",
+              kind: "command",
+              startedAt: DateTime.formatIso(now),
+            },
           ]);
           assert.isTrue(yield* hasPendingBackgroundWork);
           assert.isTrue(yield* hasPendingBackgroundWorkForThread(providerThreadA));

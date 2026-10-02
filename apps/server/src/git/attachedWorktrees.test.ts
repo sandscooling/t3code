@@ -102,3 +102,23 @@ it.effect("accepts only a listed worktree with the named branch checked out", ()
     });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("places a missing worktree by its nearest existing ancestor's real path", () =>
+  Effect.gen(function* () {
+    // A worktrees dir reached through a junction: the root resolves, and so
+    // must the missing worktree below it, or T3's own worktree reads as attached.
+    const realRoot = tempDir();
+    const linked = NodePath.join(tempDir(), "linked");
+    NodeFS.symlinkSync(realRoot, linked, "junction");
+    expect(yield* isInsideDirectory(linked, NodePath.join(linked, "repo", "gone"))).toBe(true);
+    expect(yield* isInsideDirectory(realRoot, NodePath.join(linked, "repo", "gone"))).toBe(true);
+    expect(yield* isInsideDirectory(linked, NodePath.join(tempDir(), "repo", "gone"))).toBe(false);
+
+    // The same directory spelled two ways (an 8.3 short name and its long
+    // form on Windows; identical elsewhere) is one place.
+    const spelled = tempDir();
+    const long = NodeFS.realpathSync.native(spelled);
+    expect(yield* isInsideDirectory(spelled, NodePath.join(long, "repo", "gone"))).toBe(true);
+    expect(yield* isInsideDirectory(long, NodePath.join(spelled, "repo", "gone"))).toBe(true);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

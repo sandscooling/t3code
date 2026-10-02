@@ -1709,6 +1709,17 @@ function claudePendingBackgroundTask(input: {
   };
 }
 
+// Fork: a task keeps the time it first joined the roster, since Claude resends
+// the whole roster on every change.
+function withRosterStartedAt(
+  task: OrchestrationV2PendingBackgroundTask,
+  roster: ReadonlyMap<string, OrchestrationV2PendingBackgroundTask>,
+  now: DateTime.Utc,
+): OrchestrationV2PendingBackgroundTask {
+  const startedAt = roster.get(task.taskId)?.startedAt ?? task.startedAt ?? DateTime.formatIso(now);
+  return { ...task, startedAt };
+}
+
 function claudeTaskTypeFromSdkMessage(message: SDKMessage): string | null {
   if (typeof message !== "object" || message === null) {
     return null;
@@ -3412,14 +3423,20 @@ export function makeClaudeAdapterV2(
           tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
         ) =>
           Effect.gen(function* () {
+            const now = yield* DateTime.now; // Fork: elapsed time
             yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
               const updated = new Map(current);
               if (tasks.length === 0) {
                 updated.delete(nativeThreadId);
               } else {
+                const previous = rosterForNativeThread(current, nativeThreadId);
                 updated.set(
                   nativeThreadId,
-                  new Map(tasks.map((task) => [task.taskId, task] as const)),
+                  new Map(
+                    tasks.map(
+                      (task) => [task.taskId, withRosterStartedAt(task, previous, now)] as const,
+                    ),
+                  ),
                 );
               }
               return updated;
@@ -3441,9 +3458,10 @@ export function makeClaudeAdapterV2(
           task: OrchestrationV2PendingBackgroundTask,
         ) =>
           Effect.gen(function* () {
+            const now = yield* DateTime.now; // Fork: elapsed time
             yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
               const roster = new Map(rosterForNativeThread(current, nativeThreadId));
-              roster.set(task.taskId, task);
+              roster.set(task.taskId, withRosterStartedAt(task, roster, now));
               return new Map(current).set(nativeThreadId, roster);
             });
             yield* rememberOpaqueTasks([task]);

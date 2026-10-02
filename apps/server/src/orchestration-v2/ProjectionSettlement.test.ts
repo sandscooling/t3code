@@ -462,5 +462,12 @@ it.effect("shell failure lookups stay on the thread's own turn items", () =>
     const itemLookups = plan.filter((row) => row.detail.startsWith("SEARCH item "));
     assert.lengthOf(itemLookups, 2);
     assert.isTrue(itemLookups.every((row) => row.detail.includes("turn_items_thread_run_idx")));
+    // Fork: the plan meter's todo-list lookup stays on the run's index too.
+    const todoLookups = plan.filter((row) => row.detail.startsWith("SEARCH todo "));
+    assert.isNotEmpty(todoLookups);
+    assert.isTrue(
+      todoLookups.every((row) => row.detail.includes("turn_items_run_ordinal_idx")),
+      todoLookups.map((row) => row.detail).join("; "),
+    );
   }).pipe(Effect.provide(SqlLayer)),
 );

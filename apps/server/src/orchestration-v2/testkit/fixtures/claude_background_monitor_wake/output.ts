@@ -39,7 +39,11 @@ export function assertClaudeBackgroundMonitorWakeOutput(
   // that links the task to its Monitor call, so only that entry reads command.
   assert.isAbove(rosterTasks.length, 1);
   for (const task of rosterTasks.slice(1)) {
-    assert.deepEqual(task, {
+    // Fork: startedAt is the first snapshot's, kept through every resend.
+    const { startedAt, ...named } = task;
+    assert.isString(startedAt);
+    assert.equal(startedAt, rosterTasks[0]?.startedAt);
+    assert.deepEqual(named, {
       taskId: MONITOR_TASK_ID,
       description: "Background monitor test",
       kind: "monitor",

@@ -913,6 +913,7 @@ type ShellThreadRow = {
   readonly pending_request_payload_json: string | null;
   readonly latest_user_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
+  readonly plan_progress_json: string | null; // Fork: plan meter
   readonly item_count: number;
   readonly runless_item_count: number;
 };
@@ -1293,6 +1294,44 @@ function buildVisibleTurnItems(input: {
   ]);
 }
 
+// Fork: plan meter. The running run's latest todo list, as step counts; null
+// once every step is completed. The SQL shell path computes the same counts.
+function planProgressFromCounts(
+  completedSteps: number,
+  totalSteps: number,
+): OrchestrationV2ThreadShell["planProgress"] {
+  return totalSteps > 0 && completedSteps < totalSteps ? { completedSteps, totalSteps } : null;
+}
+
+function planProgressOfRun(
+  turnItems: OrchestrationV2ThreadProjection["turnItems"],
+  runId: RunId | null,
+): OrchestrationV2ThreadShell["planProgress"] {
+  if (runId === null) return null;
+  let latest: Extract<(typeof turnItems)[number], { readonly type: "todo_list" }> | null = null;
+  for (const item of turnItems) {
+    if (item.type === "todo_list" && item.runId === runId) {
+      if (latest === null || item.ordinal >= latest.ordinal) latest = item;
+    }
+  }
+  if (latest === null) return null;
+  return planProgressFromCounts(
+    latest.steps.filter((step) => step.status === "completed").length,
+    latest.steps.length,
+  );
+}
+
+function planProgressFromJson(json: string | null): OrchestrationV2ThreadShell["planProgress"] {
+  if (json === null) return null;
+  const counts: unknown = JSON.parse(json);
+  if (typeof counts !== "object" || counts === null) return null;
+  const completed = Reflect.get(counts, "completed");
+  const total = Reflect.get(counts, "total");
+  return typeof completed === "number" && typeof total === "number"
+    ? planProgressFromCounts(completed, total)
+    : null;
+}
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadShell {
@@ -1397,6 +1436,7 @@ export function threadShellFromProjection(
     hasActionableProposedPlan: projection.plans.some(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
+    planProgress: planProgressOfRun(projection.turnItems, activeRun?.id ?? null), // Fork
     pendingBackgroundTasks: [...pendingBackgroundTasks],
     providerInstanceHistory: providerInstanceHistoryForShell({
       threadId: projection.thread.id,
@@ -1479,6 +1519,7 @@ type ShellThreadState = {
   readonly pendingRuntimeRequest: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
+  readonly planProgress: OrchestrationV2ThreadShell["planProgress"]; // Fork: plan meter
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly itemCount: number;
@@ -1628,6 +1669,7 @@ function shellFromState(input: {
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
+    planProgress: input.state.planProgress, // Fork: plan meter
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     itemCount: input.state.itemCount,
@@ -4878,6 +4920,31 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND plan.kind = 'proposed_plan'
                   AND plan.status = 'active'
               ) AS has_actionable_proposed_plan,
+              -- Fork: step counts of the running run's latest todo list.
+              (
+                SELECT json_object(
+                  'completed',
+                  (
+                    SELECT COUNT(*)
+                    FROM json_each(todo.payload_json, '$.steps') step
+                    WHERE json_extract(step.value, '$.status') = 'completed'
+                  ),
+                  'total',
+                  json_array_length(todo.payload_json, '$.steps')
+                )
+                FROM orchestration_v2_projection_turn_items todo
+                WHERE todo.run_id = (
+                    SELECT r.run_id
+                    FROM orchestration_v2_projection_runs r
+                    WHERE r.thread_id = t.thread_id
+                      AND r.status IN ('preparing', 'starting', 'running')
+                    ORDER BY r.ordinal DESC, r.run_id DESC
+                    LIMIT 1
+                  )
+                  AND todo.type = 'todo_list'
+                ORDER BY todo.ordinal DESC, todo.turn_item_id DESC
+                LIMIT 1
+              ) AS plan_progress_json,
               (
                 SELECT COUNT(*)
                 FROM orchestration_v2_projection_turn_items i
@@ -5293,6 +5360,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               ? null
               : DateTime.makeUnsafe(row.latest_user_message_at),
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
+          planProgress: planProgressFromJson(row.plan_progress_json), // Fork: plan meter
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

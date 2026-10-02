@@ -107,6 +107,11 @@ const make = Effect.gen(function* () {
         yield* serverSettings.getSettings,
         projection.thread.projectId,
       ).settings;
+      // Fork: with automatic titles off the thread keeps its seed title. An
+      // explicit "Regenerate title" still runs.
+      if (input.kind.type === "initial" && !settings.generateThreadTitles) {
+        return { type: "complete" as const };
+      }
       const result = yield* textGeneration.generateThreadTitle({
         cwd: projection.thread.worktreePath ?? project.value.workspaceRoot,
         message: context.message,

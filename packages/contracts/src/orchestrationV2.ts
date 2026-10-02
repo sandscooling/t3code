@@ -754,6 +754,9 @@ const PendingBackgroundTaskFields = {
   taskId: TrimmedNonEmptyString,
   /** The work's name: a subagent's title, a command's description, a monitor's. */
   description: Schema.optional(TrimmedNonEmptyString),
+  // Fork: when the work started, so a client can show how long it has run.
+  // Absent from adapters and rosters that predate it.
+  startedAt: Schema.optional(IsoDateTime),
 };
 
 /**
@@ -776,9 +779,10 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
   (kind) => Schema.Struct({ ...PendingBackgroundTaskFields, kind }),
-  ({ taskId, description }) => ({
+  ({ taskId, description, startedAt }) => ({
     taskId,
     ...(description === undefined ? {} : { description }),
+    ...(startedAt === undefined ? {} : { startedAt }), // Fork: elapsed time
     kind: "background_task",
   }),
 );
@@ -1715,6 +1719,11 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   // Empty when the latest root run is still active or no pending work remains.
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // Fork: the running run's latest todo list, for the sidebar's plan meter.
+  // Null when no run is running or its list has every step completed.
+  planProgress: Schema.optional(
+    Schema.NullOr(Schema.Struct({ completedSteps: NonNegativeInt, totalSteps: PositiveInt })),
   ),
   // Distinct provider instances that have owned a root provider thread here,
   // in first-use order, so lists can show where a handed-off thread has been.

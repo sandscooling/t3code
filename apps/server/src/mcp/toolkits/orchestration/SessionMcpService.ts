@@ -741,8 +741,9 @@ const make = Effect.gen(function* () {
       );
     }
     // The server owns settle eligibility, and an explicit settle also settles
-    // the sessions the target spawned, in the same command, as every other
-    // way of settling does. This only reports what that did.
+    // the sessions the target spawned, one command each right after the
+    // target's, as every other way of settling does. That finishes before
+    // dispatch returns, so this only reports what it did.
     yield* threads
       .dispatch({ type: "thread.settle", commandId: yield* newCommandId, threadId: target.id })
       .pipe(

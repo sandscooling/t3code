@@ -20,6 +20,7 @@ import {
   RunId,
   ThreadId,
   TurnItemId,
+  PlanId, // Fork: plan progress test
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -2067,6 +2068,82 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
       assert.include(recoveryThreadIds, orphanedThreadId);
       assert.notInclude(recoveryThreadIds, settledThreadId);
       assert.notInclude(recoveryThreadIds, rolledBackThreadId);
+    }),
+  );
+
+  // Fork: the sidebar plan meter reads planProgress off the shell.
+  it.effect("projects the running run's latest todo list progress into SQL and memory shells", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = yield* addRolledBackRecoveryCandidate("plan-progress");
+      const original = (yield* store.getThreadProjection(threadId)).runs[0]!;
+      const now = yield* DateTime.now;
+      let eventNumber = 0;
+      const applyRun = (status: typeof original.status) =>
+        store.apply({
+          id: EventId.make(`event:plan-progress:run:${++eventNumber}`),
+          type: "run.updated",
+          threadId,
+          occurredAt: now,
+          payload: { ...original, status },
+        });
+      const applyTodoList = (ordinal: number, statuses: ReadonlyArray<string>) =>
+        store.apply({
+          id: EventId.make(`event:plan-progress:todo:${++eventNumber}`),
+          type: "turn-item.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`plan-progress:todo:${ordinal}`),
+            threadId,
+            runId: original.id,
+            nodeId: original.rootNodeId,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal,
+            status: "completed" as const,
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "todo_list" as const,
+            planId: PlanId.make(`plan-progress:plan:${ordinal}`),
+            steps: statuses.map((status, index) => ({
+              id: `step-${index}`,
+              text: `Step ${index}`,
+              status: status as "pending" | "running" | "completed",
+            })),
+          },
+        });
+      const assertProgress = Effect.fnUntraced(function* (
+        expected: { readonly completedSteps: number; readonly totalSteps: number } | null,
+      ) {
+        const memoryShell = ProjectionStore.threadShellFromProjection(
+          yield* store.getThreadProjection(threadId),
+        );
+        const sqlShell = (yield* store.getShellSnapshot()).threads.find(
+          (row) => row.id === threadId,
+        )!;
+        assert.deepEqual(memoryShell.planProgress, expected);
+        assert.deepEqual(sqlShell.planProgress, expected);
+      });
+
+      yield* applyRun("running");
+      yield* assertProgress(null);
+      // An older list in the same run loses to the newest one.
+      yield* applyTodoList(2, ["completed", "pending", "pending"]);
+      yield* applyTodoList(3, ["completed", "completed", "running", "pending"]);
+      yield* assertProgress({ completedSteps: 2, totalSteps: 4 });
+      // A finished list shows no meter, even with an older unfinished one.
+      yield* applyTodoList(3, ["completed", "completed", "completed", "completed"]);
+      yield* assertProgress(null);
+      yield* applyTodoList(3, ["completed", "running", "pending", "pending"]);
+      yield* assertProgress({ completedSteps: 1, totalSteps: 4 });
+      // Only while the run runs.
+      yield* applyRun("completed");
+      yield* assertProgress(null);
     }),
   );
 

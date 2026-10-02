@@ -15,12 +15,18 @@ import {
   resolveClaudeCatalogEffort,
   type ClaudeModelCatalog,
 } from "./provider/ClaudeModelCatalog.ts";
+// Fork: per-thread output style (see the settings block below).
+import {
+  CLAUDE_OUTPUT_STYLE_OPTION_ID,
+  DEFAULT_CLAUDE_OUTPUT_STYLE,
+} from "./provider/Layers/ClaudeProvider.ts";
 
 export interface CompiledClaudeModelSelection {
   readonly apiModelId: string;
   readonly effort: string | undefined;
   readonly promptEffort: string | undefined;
-  readonly settings: Readonly<Record<string, boolean>>;
+  // Fork: string widens for outputStyle.
+  readonly settings: Readonly<Record<string, boolean | string>>;
   readonly queryIdentity: string;
 }
 
@@ -42,10 +48,22 @@ export function compileClaudeModelSelection(
   const thinking = supportsBoolean("thinking")
     ? getModelSelectionBooleanOptionValue(selection, "thinking")
     : undefined;
+  // Fork: the thread's output style rides the session-scoped settings on its
+  // own CLI process, so it never leaks into another thread or settings.json.
+  // "default" is the CLI zero state and is sent as absence, not a value.
+  const rawOutputStyle = getModelSelectionStringOptionValue(
+    selection,
+    CLAUDE_OUTPUT_STYLE_OPTION_ID,
+  );
+  const outputStyle =
+    rawOutputStyle && rawOutputStyle.toLowerCase() !== DEFAULT_CLAUDE_OUTPUT_STYLE
+      ? rawOutputStyle
+      : undefined;
   const settings = {
     ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
     ...(typeof fastMode === "boolean" ? { fastMode } : {}),
     ...(isClaudeCatalogUltracodeEffort(resolvedEffort) ? { ultracode: true } : {}),
+    ...(outputStyle ? { outputStyle } : {}), // Fork: per-thread output style
   };
   const apiModelId = resolveClaudeCatalogApiModelId(catalog, selection);
   const promptEffort = resolvePromptInjectedEffort(capabilities, rawEffort) ?? undefined;
