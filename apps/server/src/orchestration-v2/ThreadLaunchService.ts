@@ -88,6 +88,8 @@ export interface ThreadLaunchInput {
   };
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  // Fork: session_spawn launches never run the project's setup script.
+  readonly skipSetupScript?: boolean;
 }
 
 export interface ThreadLaunchResult {
@@ -423,7 +425,12 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
       }
       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
-      const setup = yield* setupScripts
+      // Fork: a launch that skips setup runs as if the project had no script.
+      const setup = yield* (
+        input.skipSetupScript === true
+          ? { runForThread: () => Effect.succeed({ status: "no-script" as const }) }
+          : setupScripts
+      )
         .runForThread({
           threadId,
           projectId: input.projectId,

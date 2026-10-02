@@ -35,6 +35,8 @@ export * from "./pullRequest.ts";
 export * from "./orchestrationDispatch.ts";
 export * from "./orchestrationProject.ts";
 export * from "./orchestrationV2.ts";
+// Fork: the session_* MCP tools.
+export * from "./orchestrationTools.ts";
 export * from "./applicationEvent.ts";
 export * from "./orchestratorMcp.ts";
 export * from "./threadMetadataMcp.ts";

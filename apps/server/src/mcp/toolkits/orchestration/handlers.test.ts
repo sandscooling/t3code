@@ -4,1184 +4,1138 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodePathLayer from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  CommandId,
   EnvironmentId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationThreadShell,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2ServerCommand,
+  type OrchestrationV2ThreadProjection,
   type ServerProvider,
 } from "@t3tools/contracts";
-import * as Data from "effect/Data";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/unstable/ai";
 
-import { GitWorkflowService } from "../../../git/GitWorkflowService.ts";
-import { OrchestrationThreadSettleBlockedError } from "../../../orchestration/Errors.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "../../../orchestration/Services/OrchestrationEngine.ts";
-import {
-  ProjectionSnapshotQuery,
-  type ProjectionSnapshotQueryShape,
-} from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ServerConfig from "../../../config.ts";
+import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
+import { CodexProviderCapabilitiesV2 } from "../../../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import * as CommandReceiptStore from "../../../orchestration-v2/CommandReceiptStore.ts";
+import * as ContextHandoffService from "../../../orchestration-v2/ContextHandoffService.ts";
+import * as EventSink from "../../../orchestration-v2/EventSink.ts";
+import * as IdAllocator from "../../../orchestration-v2/IdAllocator.ts";
+import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
+import type { ProviderAdapterV2Shape } from "../../../orchestration-v2/ProviderAdapter.ts";
+import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ProviderSessionManager from "../../../orchestration-v2/ProviderSessionManager.ts";
+import * as ProviderTurnStart from "../../../orchestration-v2/ProviderTurnStartService.ts";
+import * as RunExecutionService from "../../../orchestration-v2/RunExecutionService.ts";
+import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
+import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
+import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
+import * as WorktreeSetupTracker from "../../../project/WorktreeSetupTracker.ts";
+import * as ProviderAuthService from "../../../provider/Services/ProviderAuthService.ts";
 import { makeProviderRegistryLayer } from "../../../provider/testUtils/providerRegistryMock.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
+import * as TerminalManager from "../../../terminal/Manager.ts";
+import * as TextGeneration from "../../../textGeneration/TextGeneration.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
-const environmentId = EnvironmentId.make("environment-orchestration-test");
-const projectId = ProjectId.make("project-1");
-const otherProjectId = ProjectId.make("project-2");
-const callerId = ThreadId.make("thread-orchestrator");
+// Fork: the session_* tools, end to end through the MCP server, on a real v2
+// orchestrator with an in-memory database. Provider processes never start, so
+// a launched session stays in its first run, which is what "running" means here.
 
-const invocation = (capabilities: ReadonlyArray<"preview" | "orchestration">) => ({
-  environmentId,
-  threadId: callerId,
-  providerSessionId: "provider-session-orchestration-test",
-  providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-  capabilities: new Set(capabilities),
-  issuedAt: 1,
-});
+const projectId = ProjectId.make("project:t3code");
+const otherProjectId = ProjectId.make("project:fleet");
+const projectRoot = NodePath.join(NodeOS.tmpdir(), "t3-session-tools-root");
+const projects = [
+  { id: projectId, title: "t3code", workspaceRoot: projectRoot },
+  { id: otherProjectId, title: "fleet", workspaceRoot: "/work/fleet" },
+].map((project) => ({
+  ...project,
+  repositoryIdentity: null,
+  faviconPath: null,
+  defaultModelSelection: null,
+  defaultThreadEnvMode: null,
+  scripts: [],
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+  deletedAt: null,
+}));
 
-const client = McpSchema.McpServerClient.of({
-  clientId: 1,
-  clientCapabilities: {},
-  clientInfo: { name: "orchestration-test", version: "1.0.0" },
-  protocolVersion: "2025-06-18",
-  initializePayload: {
-    protocolVersion: "2025-06-18",
-    capabilities: {},
-    clientInfo: { name: "orchestration-test", version: "1.0.0" },
-  },
-  getClient: Effect.die("unused"),
-});
+const claude = ProviderInstanceId.make("claudeAgent");
+const codex = ProviderInstanceId.make("codex");
+const callerModel = { instanceId: claude, model: "claude-opus-5" };
 
-function shell(input: {
-  readonly id: string;
-  readonly title: string;
-  readonly projectId?: ProjectId;
-  readonly group?: string | null;
-  readonly parentThreadId?: string | null;
-  readonly archivedAt?: string | null;
-  readonly status?: "running" | "ready" | "stopped";
-  readonly settled?: boolean;
-  readonly pinOrderKey?: string;
-  readonly branch?: string;
-  readonly worktreePath?: string;
-}): OrchestrationThreadShell {
-  return {
-    id: ThreadId.make(input.id),
-    projectId: input.projectId ?? projectId,
-    title: input.title,
-    modelSelection: { instanceId: ProviderInstanceId.make("claudeAgent"), model: "claude-opus-5" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: input.branch ?? null,
-    worktreePath: input.worktreePath ?? null,
-    group: input.group ?? null,
-    parentThreadId: input.parentThreadId == null ? null : ThreadId.make(input.parentThreadId),
-    latestTurn: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    archivedAt: input.archivedAt ?? null,
-    settledOverride: input.settled === true ? "settled" : null,
-    settledAt: input.settled === true ? "2026-01-03T00:00:00.000Z" : null,
-    snoozedUntil: null,
-    snoozedAt: null,
-    pinnedAt: input.pinOrderKey === undefined ? null : "2026-01-02T00:00:00.000Z",
-    pinOrderKey: input.pinOrderKey ?? null,
-    deletedAt: null,
-    session:
-      input.status === undefined
-        ? null
-        : ({ threadId: ThreadId.make(input.id), status: input.status } as never),
-  } as unknown as OrchestrationThreadShell;
-}
+const adapter = (instanceId: ProviderInstanceId) =>
+  ({
+    instanceId,
+    driver: ProviderDriverKind.make(instanceId),
+    getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+    planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
+    openSession: () => Effect.die("provider processes never start in these tests"),
+  }) as ProviderAdapterV2Shape;
 
-const effortOption = (choices: ReadonlyArray<string>, fallback: string) => ({
+const effortOption = {
   id: "effort",
   label: "Effort",
   type: "select" as const,
-  options: choices.map((id) => ({
+  options: ["low", "medium", "high"].map((id) => ({
     id,
     label: id,
-    ...(id === fallback ? { isDefault: true } : {}),
+    ...(id === "medium" ? { isDefault: true } : {}),
   })),
-});
+};
 
-function provider(input: {
-  readonly instanceId: string;
-  readonly driver: string;
-  readonly enabled?: boolean;
-  readonly models: ReadonlyArray<{ readonly slug: string; readonly isDefault?: boolean }>;
-}): ServerProvider {
-  return {
-    instanceId: ProviderInstanceId.make(input.instanceId),
-    driver: ProviderDriverKind.make(input.driver),
-    enabled: input.enabled ?? true,
+const provider = (
+  instanceId: string,
+  models: ReadonlyArray<{ readonly slug: string; readonly isDefault?: boolean }>,
+  enabled = true,
+) =>
+  ({
+    instanceId: ProviderInstanceId.make(instanceId),
+    driver: ProviderDriverKind.make(instanceId),
+    enabled,
     installed: true,
     status: "ready",
-    models: input.models.map((model) => ({
+    models: models.map((model) => ({
       slug: model.slug,
       name: model.slug,
       isCustom: false,
       ...(model.isDefault ? { isDefault: true } : {}),
-      capabilities: { optionDescriptors: [effortOption(["low", "medium", "high"], "medium")] },
+      capabilities: { optionDescriptors: [effortOption] },
     })),
-  } as unknown as ServerProvider;
-}
+  }) as unknown as ServerProvider;
 
-const baseProviders = [
-  provider({
-    instanceId: "claudeAgent",
-    driver: "claudeAgent",
-    models: [{ slug: "claude-opus-5", isDefault: true }, { slug: "claude-sonnet-5" }],
-  }),
-  provider({
-    instanceId: "codex",
-    driver: "codex",
-    models: [{ slug: "gpt-5.5" }, { slug: "gpt-5.6", isDefault: true }],
-  }),
-  provider({ instanceId: "cursor", driver: "cursor", enabled: false, models: [{ slug: "auto" }] }),
+const providers = [
+  provider("claudeAgent", [
+    { slug: "claude-opus-5", isDefault: true },
+    { slug: "claude-sonnet-5" },
+  ]),
+  provider("codex", [{ slug: "gpt-5.5" }, { slug: "gpt-5.6", isDefault: true }]),
+  provider("cursor", [{ slug: "auto" }], false),
 ];
 
-class RefusedByTest extends Data.TaggedError("RefusedByTest")<{ readonly message: string }> {}
-
 /**
- * Stub engine that records what was dispatched and can be told to fail a
- * given command type once.
+ * `worktrees` is what `git worktree list` reports for the project, as listRefs
+ * carries it. `setupRuns` collects the directory of every setup-script run.
+ * A launch titled with a name in `failLaunchOnce` creates its thread and then
+ * fails, once, as a launch can after its thread exists.
  */
 function makeHarness(
-  threads: ReadonlyArray<OrchestrationThreadShell>,
-  providers: ReadonlyArray<ServerProvider> = baseProviders,
-  // What `git worktree list` reports for the project, as listRefs carries it.
-  worktrees: ReadonlyArray<{ readonly branch: string; readonly path: string }> = [],
+  worktrees: ReadonlyArray<{ readonly branch: string; readonly path: string }>,
+  setupRuns: Array<string> = [],
+  failLaunchOnce: Set<string> = new Set(),
 ) {
-  const dispatched: Array<OrchestrationCommand> = [];
-  const failing = new Set<OrchestrationCommand["type"]>();
-  // Command types the decider would refuse as "still needs attention", which
-  // the tools report differently from a generic dispatch failure.
-  const blocking = new Set<OrchestrationCommand["type"]>();
-  const engine = {
-    dispatch: (command: OrchestrationCommand) =>
-      Effect.suspend(
-        (): Effect.Effect<
-          { sequence: number },
-          RefusedByTest | OrchestrationThreadSettleBlockedError
-        > => {
-          dispatched.push(command);
-          if (failing.has(command.type)) {
-            failing.delete(command.type);
-            return Effect.fail(
-              new RefusedByTest({ message: `dispatch of ${command.type} refused by test` }),
-            );
-          }
-          if (blocking.has(command.type)) {
-            blocking.delete(command.type);
-            return Effect.fail(
-              new OrchestrationThreadSettleBlockedError({
-                threadId: (command as { threadId: ThreadId }).threadId,
-              }),
-            );
-          }
-          return Effect.succeed({ sequence: dispatched.length });
-        },
-      ),
-  } as unknown as OrchestrationEngineShape;
-  const query = {
-    getThreadShellById: (threadId: ThreadId) =>
-      Effect.succeed(Option.fromNullishOr(threads.find((thread) => thread.id === threadId))),
-    getShellSnapshot: () =>
-      Effect.succeed({
-        snapshotSequence: 1,
-        projects: [
-          { id: projectId, title: "t3code", workspaceRoot: "C:/source/t3code" },
-          { id: otherProjectId, title: "fleet", workspaceRoot: "C:/source/fleet" },
-        ],
-        threads,
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
-  } as unknown as ProjectionSnapshotQueryShape;
-
-  const layer = McpHttpServer.OrchestrationToolkitRegistrationLive.pipe(
-    Layer.provideMerge(McpServer.McpServer.layer),
-    Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engine)),
-    Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, query)),
-    Layer.provideMerge(makeProviderRegistryLayer(providers)),
-    Layer.provideMerge(
-      Layer.mock(GitWorkflowService, {
-        listRefs: () =>
-          Effect.succeed({
-            refs: worktrees.map((worktree) => ({
-              name: worktree.branch,
-              current: false,
-              isDefault: false,
-              worktreePath: worktree.path,
-            })),
-            isRepo: true,
-            hasPrimaryRemote: true,
-            nextCursor: null,
-            totalCount: worktrees.length,
-          }),
-      }),
-    ),
-    Layer.provideMerge(NodeServices.layer),
+  const database = SqlitePersistenceMemory;
+  const orchestrator = makeOrchestratorV2ReplayLayerWithRegistry(
+    { name: "session-tools" },
+    ProviderAdapterRegistry.makeLayer([adapter(claude), adapter(codex)]),
+    { databaseLayer: database, runEffectWorker: false },
   );
-  return { dispatched, failing, blocking, layer };
+  const threadManagement = ThreadManagement.layer.pipe(Layer.provide(orchestrator));
+  const external = Layer.mergeAll(
+    WorktreeSetupTracker.layer,
+    Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
+    Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
+    Layer.mock(ProjectService.ProjectService)({
+      getById: (id) =>
+        Effect.succeed(Option.fromNullishOr(projects.find((project) => project.id === id))),
+      snapshot: Effect.succeed({ projects, updatedAt: "2026-10-01T00:00:00.000Z" }),
+    }),
+    Layer.mock(GitWorkflow.GitWorkflowService)({
+      listRefs: () =>
+        Effect.succeed({
+          refs: worktrees.map((worktree) => ({
+            name: worktree.branch,
+            current: false,
+            isDefault: false,
+            worktreePath: worktree.path,
+          })),
+          isRepo: true,
+          hasPrimaryRemote: true,
+          nextCursor: null,
+          totalCount: worktrees.length,
+        }),
+      createWorktree: () => Effect.die("spawn never creates a worktree"),
+    }),
+    Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
+      runForThread: (input) =>
+        Effect.sync(() => {
+          setupRuns.push(input.worktreePath);
+          return { status: "no-script" as const };
+        }),
+    }),
+    Layer.mock(TextGeneration.TextGeneration)({}),
+    ServerSettings.layerTest(),
+    makeProviderRegistryLayer(providers),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/projects",
+      folderForThread: () => Effect.succeed(Option.none()),
+    }),
+  );
+  const realLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        external,
+        threadManagement,
+        CommandReceiptStore.layer.pipe(Layer.provide(database)),
+        IdAllocator.layer,
+      ),
+    ),
+  );
+  const launch = Layer.effect(
+    ThreadLaunch.ThreadLaunchService,
+    Effect.gen(function* () {
+      const real = yield* ThreadLaunch.ThreadLaunchService;
+      return ThreadLaunch.ThreadLaunchService.of({
+        launch: (input) =>
+          real.launch(input).pipe(
+            Effect.flatMap((result) =>
+              failLaunchOnce.delete(input.title)
+                ? Effect.fail(
+                    new ThreadLaunch.ThreadLaunchError({
+                      operation: "dispatch-message",
+                      commandId: input.commandId,
+                      projectId: input.projectId,
+                      threadId: result.threadId,
+                      cause: "failed by the test",
+                    }),
+                  )
+                : Effect.succeed(result),
+            ),
+          ),
+      });
+    }),
+  ).pipe(Layer.provide(realLaunch));
+  return McpHttpServer.OrchestrationToolkitRegistrationLive.pipe(
+    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(
+      Layer.mergeAll(threadManagement, launch, external, NodeServices.layer, NodeCrypto.layer),
+    ),
+  );
 }
 
+const client = McpSchema.McpServerClient.of({
+  clientId: 1,
+  clientCapabilities: {},
+  clientInfo: { name: "session-tools-test", version: "1.0.0" },
+  protocolVersion: "2025-06-18",
+  initializePayload: {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "session-tools-test", version: "1.0.0" },
+  },
+  getClient: Effect.die("unused"),
+});
+
 const callTool = (
+  caller: ThreadId,
   name: string,
   args: Record<string, unknown>,
   capabilities: ReadonlyArray<"preview" | "orchestration"> = ["orchestration"],
 ) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
-    return yield* server
-      .callTool({ name, arguments: args })
-      .pipe(
-        Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
-        Effect.provideService(McpSchema.McpServerClient, client),
-      );
+    return yield* server.callTool({ name, arguments: args }).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment-session-tools"),
+        threadId: caller,
+        providerSessionId: "provider-session-session-tools",
+        providerInstanceId: claude,
+        capabilities: new Set(capabilities),
+        issuedAt: 1,
+      }),
+      Effect.provideService(McpSchema.McpServerClient, client),
+    );
   });
 
-const errorText = (result: { readonly content: unknown }) => JSON.stringify(result.content);
+/** The text parts of a tool result, where an error's reason and detail land. */
+const contentText = (result: { readonly content: ReadonlyArray<unknown> }) =>
+  result.content.map((part) => (part as { readonly text?: string }).text ?? "").join("\n");
 
-const baseThreads = [
-  shell({ id: "thread-orchestrator", title: "orchestrator", status: "running" }),
-  shell({ id: "thread-dev", title: "T-1234-dev", group: "T-1234", status: "ready" }),
-  shell({ id: "thread-review", title: "T-1234-review", group: "T-1234" }),
-  shell({
-    id: "thread-archived",
-    title: "T-1234-tests",
-    group: "T-1234",
-    archivedAt: "2026-01-02T00:00:00.000Z",
-  }),
-  shell({
-    id: "thread-elsewhere",
-    title: "T-1234-dev",
-    projectId: otherProjectId,
-    group: "T-1234",
-  }),
-];
+/** A tool call that must succeed, returning its structured result. */
+const ok = (caller: ThreadId, name: string, args: Record<string, unknown> = {}) =>
+  callTool(caller, name, args).pipe(
+    Effect.map((result) => {
+      expect(result.isError, contentText(result)).toBe(false);
+      return result.structuredContent as Record<string, any>;
+    }),
+  );
+
+/** A tool call that must fail, returning its error text. */
+const refused = (caller: ThreadId, name: string, args: Record<string, unknown>) =>
+  callTool(caller, name, args).pipe(
+    Effect.map((result) => {
+      expect(result.isError).toBe(true);
+      return contentText(result);
+    }),
+  );
+
+let commandCount = 0;
+const dispatch = (command: (commandId: CommandId) => OrchestrationV2ServerCommand) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    commandCount += 1;
+    yield* threads.dispatch(command(CommandId.make(`test:${commandCount}`)));
+  });
+
+/** A thread the user made, idle unless something sends it a message. */
+const seed = (input: {
+  readonly id: string;
+  readonly title: string;
+  readonly projectId?: ProjectId;
+  readonly spawnedBy?: ThreadId;
+  readonly group?: string;
+  readonly worktree?: { readonly branch: string; readonly path: string };
+  readonly pinKey?: string;
+  readonly settled?: boolean;
+}) =>
+  Effect.gen(function* () {
+    const threadId = ThreadId.make(input.id);
+    yield* dispatch((commandId) => ({
+      type: "thread.create",
+      commandId,
+      threadId,
+      projectId: input.projectId ?? projectId,
+      title: input.title,
+      modelSelection: callerModel,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: input.worktree?.branch ?? null,
+      worktreePath: input.worktree?.path ?? null,
+      createdBy: "user",
+      creationSource: "web",
+    }));
+    if (input.spawnedBy !== undefined || input.group !== undefined) {
+      yield* dispatch((commandId) => ({
+        type: "thread.metadata.update",
+        commandId,
+        threadId,
+        ...(input.spawnedBy === undefined ? {} : { spawnedByThreadId: input.spawnedBy }),
+        ...(input.group === undefined ? {} : { group: input.group }),
+      }));
+    }
+    if (input.pinKey !== undefined) {
+      yield* dispatch((commandId) => ({
+        type: "thread.pin",
+        commandId,
+        threadId,
+        orderKey: input.pinKey!,
+      }));
+    }
+    if (input.settled === true) {
+      yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId }));
+    }
+    return threadId;
+  });
+
+const shellOf = (threadId: string) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const shell = yield* threads.getThreadShell(ThreadId.make(threadId));
+    expect(shell).not.toBeNull();
+    return shell!;
+  });
+
+const projectionOf = (threadId: string) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    return yield* threads.getThreadProjection(ThreadId.make(threadId));
+  });
+
+const tempDir = (prefix: string) =>
+  Effect.acquireRelease(
+    Effect.sync(() => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), prefix))),
+    (dir) => Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+  );
+
+const orchestratorId = ThreadId.make("thread:orchestrator");
+const seedOrchestrator = seed({ id: orchestratorId, title: "Orchestrator" });
 
 it.effect("refuses every tool without the orchestration capability", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const result = yield* callTool("session_list", {}, ["preview"]);
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("capability-unavailable");
-    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
-  ),
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const result = yield* callTool(orchestratorId, "session_list", {}, ["preview"]);
+    expect(result.isError).toBe(true);
+    expect(contentText(result)).toContain("capability-unavailable");
+  }).pipe(Effect.provide(makeHarness([]))),
 );
 
-it.effect("lists the caller's project only, skipping archived threads", () =>
-  Effect.scoped(
+it.effect(
+  "spawns a watched, grouped session sent by the caller, leaving the caller ungrouped",
+  () =>
     Effect.gen(function* () {
-      const result = yield* callTool("session_list", {});
-      expect(result.isError).toBe(false);
-      expect(result.structuredContent).toEqual({
-        sessions: [
-          {
-            threadId: "thread-orchestrator",
-            name: "orchestrator",
-            group: null,
-            projectId: "project-1",
-            project: "t3code",
-            status: "running",
-            self: true,
-            branch: null,
-            worktreePath: null,
-          },
-          {
-            threadId: "thread-dev",
-            name: "T-1234-dev",
-            group: "T-1234",
-            projectId: "project-1",
-            project: "t3code",
-            status: "ready",
-            self: false,
-            branch: null,
-            worktreePath: null,
-          },
-          {
-            threadId: "thread-review",
-            name: "T-1234-review",
-            group: "T-1234",
-            projectId: "project-1",
-            project: "t3code",
-            status: "stopped",
-            self: false,
-            branch: null,
-            worktreePath: null,
-          },
-        ],
+      yield* seedOrchestrator;
+      const spawned = yield* ok(orchestratorId, "session_spawn", {
+        name: "L2-dev",
+        group: "L2",
+        message: "Build the lane.",
       });
-
-      const grouped = yield* callTool("session_list", { group: "T-1234" });
-      expect((grouped.structuredContent as { sessions: unknown[] }).sessions).toHaveLength(2);
-    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
-  ),
-);
-
-it.effect("spawns by creating the thread and starting its turn, leaving the caller ungrouped", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-tests",
-        group: "T-1234",
-        message: "Session tests. Standby.",
-      }).pipe(Effect.provide(harness.layer));
-
-      expect(result.isError).toBe(false);
-      expect(result.structuredContent).toMatchObject({ name: "T-1234-tests", group: "T-1234" });
-
-      const types = harness.dispatched.map((command) => command.type);
-      // One orchestrator drives many tickets, so it must never be pulled
-      // into a ticket's group.
-      expect(types).toEqual(["thread.create", "thread.turn.start"]);
-
-      const [create, turn] = harness.dispatched;
-      expect(create).toMatchObject({
+      expect(spawned).toMatchObject({
+        name: "L2-dev",
+        group: "L2",
         projectId,
-        title: "T-1234-tests",
-        group: "T-1234",
+        instanceId: "claudeAgent",
+        model: "claude-opus-5",
+        adopted: [],
         branch: null,
         worktreePath: null,
+      });
+
+      const thread = yield* shellOf(spawned.threadId);
+      expect(thread).toMatchObject({
+        title: "L2-dev",
+        group: "L2",
+        spawnedByThreadId: orchestratorId,
         runtimeMode: "full-access",
-        // No model inputs: an exact copy of the caller's selection.
-        modelSelection: { instanceId: "claudeAgent", model: "claude-opus-5" },
-        parentThreadId: callerId,
+        createdBy: "agent",
+        creationSource: "mcp",
+        lineage: { relationshipToParent: null },
       });
-      expect(result.structuredContent).toMatchObject({ adopted: [] });
-      expect(String(create?.commandId)).toMatch(/^server:orchestration-thread-create:/);
-      // No titleSeed: the title must never be eligible for auto-replacement.
-      expect(turn).not.toHaveProperty("titleSeed");
-      expect(turn).toMatchObject({
-        message: { role: "user", text: "Session tests. Standby.", attachments: [] },
+      expect(thread.pinnedAt == null).toBe(true);
+      const projection = yield* projectionOf(spawned.threadId);
+      expect(projection.messages[0]).toMatchObject({
+        text: "Build the lane.",
+        senderThreadId: orchestratorId,
+        createdBy: "agent",
       });
-      if (turn?.type === "thread.turn.start" && create?.type === "thread.create") {
-        expect(turn.threadId).toBe(create.threadId);
-      }
-    }),
-  ),
+      expect((yield* shellOf(orchestratorId)).group == null).toBe(true);
+    }).pipe(Effect.provide(makeHarness([]))),
 );
 
-it.effect("hands off: the successor is the caller's sibling and takes over its roster", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        shell({
-          id: "thread-orchestrator",
-          title: "orchestrator",
-          parentThreadId: "thread-root",
-          status: "running",
-        }),
-        shell({ id: "thread-dev", title: "T-1234-dev", parentThreadId: "thread-orchestrator" }),
-        shell({
-          id: "thread-review",
-          title: "T-1234-review",
-          parentThreadId: "thread-orchestrator",
-          settled: true,
-        }),
-        shell({ id: "thread-other", title: "other", parentThreadId: "thread-root" }),
-      ]);
-      const result = yield* callTool("session_spawn", {
-        name: "orchestrator-2",
-        group: "ops",
-        message: "Take over from orchestrator.",
-        handoff: true,
-      }).pipe(Effect.provide(harness.layer));
+it.effect("refuses a name an open or settled session holds, an empty message, and a bad name", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    yield* seed({ id: "thread:open", title: "L2-dev" });
+    yield* seed({ id: "thread:settled", title: "L2-review", settled: true });
+    const before = (yield* ok(orchestratorId, "session_list", { project: "*" })).sessions.length;
 
-      expect(result.isError).toBe(false);
-      expect(result.structuredContent).toMatchObject({
-        adopted: ["T-1234-dev", "T-1234-review"],
-      });
-      const [create, turn, ...moves] = harness.dispatched;
-      expect(turn?.type).toBe("thread.turn.start");
-      // Sibling: settling the old orchestrator must not reach its successor.
-      expect(create).toMatchObject({ type: "thread.create", parentThreadId: "thread-root" });
-      const successorId = create?.type === "thread.create" ? create.threadId : null;
-      expect(moves).toEqual([
-        expect.objectContaining({
-          type: "thread.meta.update",
-          threadId: "thread-dev",
-          parentThreadId: successorId,
-        }),
-        expect.objectContaining({
-          type: "thread.meta.update",
-          threadId: "thread-review",
-          parentThreadId: successorId,
-        }),
-        expect.objectContaining({ type: "thread.pin", threadId: successorId }),
-        // The row a client watching the old orchestrator follows to the new one.
-        expect.objectContaining({
-          type: "thread.activity.append",
-          threadId: "thread-orchestrator",
-          activity: expect.objectContaining({
-            kind: "session.handoff",
-            payload: { successorThreadId: successorId, successorTitle: "orchestrator-2" },
-          }),
-        }),
-      ]);
-      // An unpinned predecessor has no slot to hand over.
-      expect(moves.at(-2)).not.toHaveProperty("orderKey");
-    }),
-  ),
+    const open = yield* refused(orchestratorId, "session_spawn", {
+      name: "L2-dev",
+      group: "L2",
+      message: "Again.",
+    });
+    expect(open).toContain("already-exists");
+    expect(open).toContain("use session_wake");
+    const settled = yield* refused(orchestratorId, "session_spawn", {
+      name: "L2-review",
+      group: "L2",
+      message: "Again.",
+    });
+    expect(settled).toContain("a settled session named L2-review still holds that name");
+    expect(
+      yield* refused(orchestratorId, "session_spawn", { name: "L2-x", group: "L2", message: " " }),
+    ).toContain("message must not be empty");
+    // The MCP server rejects a malformed name before the tool runs.
+    const badName = yield* callTool(orchestratorId, "session_spawn", {
+      name: "has spaces",
+      group: "L2",
+      message: "Go.",
+    }).pipe(Effect.flip);
+    expect(badName._tag).toBe("InvalidParams");
+
+    // The same name is free in another project, checked against that project.
+    const elsewhere = yield* ok(orchestratorId, "session_spawn", {
+      name: "L2-dev",
+      group: "L2",
+      message: "Go.",
+      project: "fleet",
+    });
+    expect(elsewhere.projectId).toBe(otherProjectId);
+    expect((yield* ok(orchestratorId, "session_list", { project: "*" })).sessions.length).toBe(
+      before + 1,
+    );
+  }).pipe(Effect.provide(makeHarness([]))),
 );
 
-it.effect("hands off: the successor takes a pinned predecessor's pinned slot", () =>
-  Effect.scoped(
+/**
+ * Launch preparation runs on a background fiber with no receipt to wait on, so
+ * this yields to it until the condition holds, as ThreadLaunchService's tests do.
+ */
+const waitUntil = <E, R>(predicate: Effect.Effect<boolean, E, R>) =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (yield* predicate) return;
+      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+    }
+    expect.fail("condition was not reached");
+  });
+
+const prepared = (threadId: string) =>
+  waitUntil(
+    projectionOf(threadId).pipe(
+      Effect.map((projection) => !projection.runs.some((run) => run.status === "preparing")),
+    ),
+  );
+
+it.effect(
+  "never runs the project's setup script for a spawn, while upstream's launch still does",
+  () =>
     Effect.gen(function* () {
-      const harness = makeHarness([
-        shell({
-          id: "thread-orchestrator",
-          title: "orchestrator",
-          parentThreadId: "thread-root",
-          status: "running",
-          pinOrderKey: "a0",
-        }),
-      ]);
-      const result = yield* callTool("session_spawn", {
-        name: "orchestrator-2",
-        group: "ops",
-        message: "Take over from orchestrator.",
-        handoff: true,
-      }).pipe(Effect.provide(harness.layer));
+      const lane = yield* tempDir("t3-setup-lane-");
+      const setupRuns: Array<string> = [];
+      yield* Effect.gen(function* () {
+        yield* seedOrchestrator;
+        for (const spawn of [
+          { name: "S-main" },
+          { name: "S-dev", worktree: { path: lane, branch: "lane/S" } },
+          { name: "S-review", worktree: { sameAs: "S-dev" } },
+        ]) {
+          const spawned = yield* ok(orchestratorId, "session_spawn", {
+            group: "S",
+            message: "Go.",
+            ...spawn,
+          });
+          yield* prepared(spawned.threadId);
+        }
+        expect(setupRuns).toEqual([]);
 
-      expect(result.isError).toBe(false);
-      const create = harness.dispatched[0];
-      const successorId = create?.type === "thread.create" ? create.threadId : null;
-      expect(harness.dispatched.find((command) => command.type === "thread.pin")).toMatchObject({
-        type: "thread.pin",
-        threadId: successorId,
-        orderKey: "a0",
-      });
-    }),
-  ),
-);
-
-it.effect("does not pin an ordinary spawn", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-docs",
-        group: "T-1234",
-        message: "Write the docs.",
-      }).pipe(Effect.provide(harness.layer));
-
-      expect(result.isError).toBe(false);
-      expect(harness.dispatched.map((command) => command.type)).not.toContain("thread.pin");
-    }),
-  ),
-);
-
-it.effect("spawns on another provider with its default model when only instanceId is given", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-review-codex",
-        group: "T-1234",
-        message: "Review the diff.",
-        instanceId: "codex",
-      }).pipe(Effect.provide(harness.layer));
-
-      expect(result.isError).toBe(false);
-      expect(result.structuredContent).toMatchObject({
-        instanceId: "codex",
-        model: "gpt-5.6",
-        options: [],
-      });
-      const [create, turn] = harness.dispatched;
-      // The first turn must run on the same selection the thread was created with,
-      // or the provider process starts on the caller's model instead.
-      expect(create).toMatchObject({ modelSelection: { instanceId: "codex", model: "gpt-5.6" } });
-      expect(turn).toMatchObject({ modelSelection: { instanceId: "codex", model: "gpt-5.6" } });
-    }),
-  ),
-);
-
-it.effect("spawns with a chosen model and effort, and refuses an effort the model lacks", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const refused = yield* callTool("session_spawn", {
-        name: "sonnet-max",
-        group: "bakeoff",
-        message: "go",
-        model: "claude-sonnet-5",
-        options: [{ id: "effort", value: "max" }],
-      }).pipe(Effect.provide(harness.layer));
-      expect(refused.isError).toBe(true);
-      expect(errorText(refused)).toContain("invalid-model");
-      expect(errorText(refused)).toContain("high");
-      expect(harness.dispatched).toHaveLength(0);
-
-      const accepted = yield* callTool("session_spawn", {
-        name: "sonnet-high",
-        group: "bakeoff",
-        message: "go",
-        model: "claude-sonnet-5",
-        options: [{ id: "effort", value: "high" }],
-      }).pipe(Effect.provide(harness.layer));
-      expect(accepted.isError).toBe(false);
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.create",
-        modelSelection: {
-          instanceId: "claudeAgent",
-          model: "claude-sonnet-5",
-          options: [{ id: "effort", value: "high" }],
-        },
-      });
-    }),
-  ),
-);
-
-it.effect("refuses a provider that is unknown or disabled, before touching the engine", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      for (const instanceId of ["gemini", "cursor"]) {
-        const result = yield* callTool("session_spawn", {
-          name: "T-1234-other",
-          group: "T-1234",
-          message: "go",
-          instanceId,
-        }).pipe(Effect.provide(harness.layer));
-        expect(result.isError).toBe(true);
-        expect(errorText(result)).toContain("invalid-model");
-        expect(errorText(result)).toContain("claudeAgent, codex");
-      }
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("lists usable providers with each model's options, marking the caller's", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const all = yield* callTool("session_models", {});
-      expect(all.isError).toBe(false);
-      const { providers } = all.structuredContent as {
-        providers: ReadonlyArray<{ instanceId: string; current: boolean }>;
-      };
-      expect(providers.map((entry) => [entry.instanceId, entry.current])).toEqual([
-        ["claudeAgent", true],
-        ["codex", false],
-      ]);
-
-      const codex = yield* callTool("session_models", { instanceId: "codex" });
-      expect(codex.structuredContent).toMatchObject({
-        providers: [
-          {
-            instanceId: "codex",
-            models: [
-              { slug: "gpt-5.5", isDefault: false },
-              {
-                slug: "gpt-5.6",
-                isDefault: true,
-                options: [
-                  {
-                    id: "effort",
-                    type: "select",
-                    choices: ["low", "medium", "high"],
-                    default: "medium",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      });
-    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
-  ),
-);
-
-it.effect("refuses a name that is already open in the project", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-dev",
-        group: "T-1234",
-        message: "go",
-      }).pipe(Effect.provide(harness.layer));
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("already-exists");
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("rejects a malformed name before touching the engine", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const malformed = yield* callTool("session_spawn", {
-        name: "has space",
-        group: "T-1234",
-        message: "go",
-      }).pipe(Effect.provide(harness.layer), Effect.flip);
-      expect(malformed._tag).toBe("InvalidParams");
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("deletes the created thread when its first turn fails to start", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      harness.failing.add("thread.turn.start");
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-tests",
-        group: "T-1234",
-        message: "go",
-      }).pipe(Effect.provide(harness.layer));
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("dispatch-failed");
-      expect(harness.dispatched.map((command) => command.type)).toEqual([
-        "thread.create",
-        "thread.turn.start",
-        "thread.delete",
-      ]);
-    }),
-  ),
-);
-
-it.effect("wakes exactly one matching session and reports zero or many", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const woken = yield* callTool("session_wake", {
-        name: "T-1234-review",
-        message: "Resume review.",
-      }).pipe(Effect.provide(harness.layer));
-      expect(woken.isError).toBe(false);
-      expect(woken.structuredContent).toEqual({ threadId: "thread-review", name: "T-1234-review" });
-      expect(harness.dispatched.map((command) => command.type)).toEqual(["thread.turn.start"]);
-      expect(harness.dispatched[0]).toMatchObject({ threadId: "thread-review" });
-
-      const missing = yield* callTool("session_wake", { name: "nobody", message: "hi" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(missing.isError).toBe(true);
-      expect(errorText(missing)).toContain("thread-not-found");
-
-      const ambiguousHarness = makeHarness([
-        ...baseThreads,
-        shell({ id: "thread-dev-2", title: "T-1234-dev", group: "T-1234" }),
-      ]);
-      const ambiguous = yield* callTool("session_wake", { name: "T-1234-dev", message: "hi" }).pipe(
-        Effect.provide(ambiguousHarness.layer),
-      );
-      expect(ambiguous.isError).toBe(true);
-      expect(errorText(ambiguous)).toContain("ambiguous-name");
-      expect(ambiguousHarness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("wakes a prose-titled session by the threadId session_list reports", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        ...baseThreads,
-        shell({ id: "thread-prose", title: "Create ticket 23.9D." }),
-      ]);
-      const woken = yield* callTool("session_wake", {
-        name: "thread-prose",
-        message: "Where are the acceptance criteria?",
-      }).pipe(Effect.provide(harness.layer));
-      expect(woken.isError).toBe(false);
-      expect(woken.structuredContent).toEqual({
-        threadId: "thread-prose",
-        name: "Create ticket 23.9D.",
-      });
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.turn.start",
-        threadId: "thread-prose",
-      });
-    }),
-  ),
-);
-
-it.effect("leaves settled sessions out of the list, so a group empties as it finishes", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        ...baseThreads,
-        shell({ id: "thread-done", title: "T-1234-tests-2", group: "T-1234", settled: true }),
-      ]);
-      const result = yield* callTool("session_list", { group: "T-1234" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(result.isError).toBe(false);
-      const { sessions } = result.structuredContent as {
-        sessions: ReadonlyArray<{ name: string }>;
-      };
-      // Without this an orchestrator polling its group reads the settled row
-      // as still running and settles it again on every pass.
-      expect(sessions.map((session) => session.name)).toEqual(["T-1234-dev", "T-1234-review"]);
-    }),
-  ),
-);
-
-it.effect("keeps the caller's own row even if the caller is settled", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        shell({ id: "thread-orchestrator", title: "orchestrator", settled: true }),
-        shell({ id: "thread-dev", title: "T-1234-dev", group: "T-1234", settled: true }),
-      ]);
-      const result = yield* callTool("session_list", {}).pipe(Effect.provide(harness.layer));
-      expect(result.structuredContent).toEqual({
-        sessions: [
-          {
-            threadId: "thread-orchestrator",
-            name: "orchestrator",
-            group: null,
-            projectId: "project-1",
-            project: "t3code",
-            status: "stopped",
-            self: true,
-            branch: null,
-            worktreePath: null,
-          },
-        ],
-      });
-    }),
-  ),
-);
-
-it.effect("says a settled session is holding a name that spawn cannot reuse", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        ...baseThreads,
-        shell({ id: "thread-done", title: "T-1234-docs", group: "T-1234", settled: true }),
-      ]);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1234-docs",
-        group: "T-1234",
-        message: "go",
-      }).pipe(Effect.provide(harness.layer));
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("already-exists");
-      expect(errorText(result)).toContain("settled session");
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("settles a finished session by name and by threadId", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const byName = yield* callTool("session_settle", { name: "T-1234-review" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(byName.isError).toBe(false);
-      expect(byName.structuredContent).toEqual({
-        threadId: "thread-review",
-        name: "T-1234-review",
-      });
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.settle",
-        threadId: "thread-review",
-      });
-      expect(String(harness.dispatched[0]?.commandId)).toMatch(
-        /^server:orchestration-thread-settle:/,
-      );
-
-      const byId = yield* callTool("session_settle", { name: "thread-dev" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(byId.isError).toBe(false);
-      expect(harness.dispatched[1]).toMatchObject({
-        type: "thread.settle",
-        threadId: "thread-dev",
-      });
-    }),
-  ),
-);
-
-it.effect("renames a session by name and by threadId, including the caller itself", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const byName = yield* callTool("session_rename", {
-        session: "T-1234-review",
-        name: "T-1234-review-old",
-      }).pipe(Effect.provide(harness.layer));
-      expect(byName.isError).toBe(false);
-      expect(byName.structuredContent).toEqual({
-        threadId: "thread-review",
-        name: "T-1234-review-old",
-        previousName: "T-1234-review",
-      });
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.meta.update",
-        threadId: "thread-review",
-        title: "T-1234-review-old",
-      });
-
-      const self = yield* callTool("session_rename", {
-        session: "thread-orchestrator",
-        name: "Orchestrator",
-      }).pipe(Effect.provide(harness.layer));
-      expect(self.isError).toBe(false);
-      expect(harness.dispatched[1]).toMatchObject({
-        type: "thread.meta.update",
-        threadId: "thread-orchestrator",
-        title: "Orchestrator",
-      });
-
-      // Renaming to the name it already has writes nothing.
-      const unchanged = yield* callTool("session_rename", {
-        session: "T-1234-dev",
-        name: "T-1234-dev",
-      }).pipe(Effect.provide(harness.layer));
-      expect(unchanged.isError).toBe(false);
-      expect(harness.dispatched).toHaveLength(2);
-    }),
-  ),
-);
-
-it.effect("refuses a rename onto a name another session holds, settled or open", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness([
-        shell({ id: "thread-orchestrator", title: "orchestrator-2", status: "running" }),
-        shell({ id: "thread-old", title: "Orchestrator", settled: true }),
-        shell({ id: "thread-dev", title: "T-1234-dev" }),
-      ]);
-      const settledClash = yield* callTool("session_rename", {
-        session: "orchestrator-2",
-        name: "Orchestrator",
-      }).pipe(Effect.provide(harness.layer));
-      expect(settledClash.isError).toBe(true);
-      expect(errorText(settledClash)).toContain("already-exists");
-      // Points the agent at the way out: rename the settled holder first.
-      expect(errorText(settledClash)).toContain("thread-old");
-
-      const openClash = yield* callTool("session_rename", {
-        session: "orchestrator-2",
-        name: "T-1234-dev",
-      }).pipe(Effect.provide(harness.layer));
-      expect(openClash.isError).toBe(true);
-      expect(errorText(openClash)).toContain("already-exists");
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("refuses to settle the caller, which is running by definition", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const result = yield* callTool("session_settle", { name: "orchestrator" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("settle-blocked");
-      expect(harness.dispatched).toHaveLength(0);
-    }),
-  ),
-);
-
-it.effect("reports the server's settle refusal as settle-blocked, not a dispatch failure", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      harness.blocking.add("thread.settle");
-      const result = yield* callTool("session_settle", { name: "T-1234-dev" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(result.isError).toBe(true);
-      expect(errorText(result)).toContain("settle-blocked");
-      expect(errorText(result)).not.toContain("dispatch-failed");
-    }),
-  ),
-);
-
-it.effect("reaches another project's session by threadId, while a name stays in the caller's", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const byId = yield* callTool("session_wake", {
-        name: "thread-elsewhere",
-        message: "hi",
-      }).pipe(Effect.provide(harness.layer));
-      expect(byId.isError).toBe(false);
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.turn.start",
-        threadId: "thread-elsewhere",
-      });
-
-      // Both projects hold a T-1234-dev; a bare name must never pick the other one.
-      const byName = yield* callTool("session_wake", { name: "T-1234-dev", message: "hi" }).pipe(
-        Effect.provide(harness.layer),
-      );
-      expect(byName.structuredContent).toEqual({ threadId: "thread-dev", name: "T-1234-dev" });
-    }),
-  ),
-);
-
-it.effect("spawns into another project, checking the name against that project", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(baseThreads);
-      const clash = yield* callTool("session_spawn", {
-        name: "T-1234-dev",
-        group: "T-1234",
-        message: "go",
-        project: "fleet",
-      }).pipe(Effect.provide(harness.layer));
-      expect(clash.isError).toBe(true);
-      expect(errorText(clash)).toContain("already-exists");
-      expect(harness.dispatched).toHaveLength(0);
-
-      // Taken in the caller's project, free in fleet, which is named by path here.
-      const spawned = yield* callTool("session_spawn", {
-        name: "T-1234-review",
-        group: "T-1234",
-        message: "go",
-        project: "C:/source/fleet",
-      }).pipe(Effect.provide(harness.layer));
-      expect(spawned.isError).toBe(false);
-      expect(spawned.structuredContent).toMatchObject({ projectId: "project-2" });
-      expect(harness.dispatched[0]).toMatchObject({
-        type: "thread.create",
-        projectId: "project-2",
-        parentThreadId: "thread-orchestrator",
-      });
-
-      const missing = yield* callTool("session_spawn", {
-        name: "T-1234-docs",
-        group: "T-1234",
-        message: "go",
-        project: "nowhere",
-      }).pipe(Effect.provide(harness.layer));
-      expect(missing.isError).toBe(true);
-      expect(errorText(missing)).toContain("project-not-found");
-      expect(errorText(missing)).toContain("t3code, fleet");
-    }),
-  ),
-);
-
-it.effect("lists the projects, then sessions in one other project or in all of them", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const projects = yield* callTool("session_projects", {});
-      expect(projects.structuredContent).toEqual({
-        projects: [
-          { projectId: "project-1", name: "t3code", path: "C:/source/t3code", current: true },
-          { projectId: "project-2", name: "fleet", path: "C:/source/fleet", current: false },
-        ],
-      });
-      const matched = yield* callTool("session_projects", { match: "FLE" });
-      expect(matched.structuredContent).toMatchObject({ projects: [{ projectId: "project-2" }] });
-      expect((matched.structuredContent as { projects: unknown[] }).projects).toHaveLength(1);
-
-      const ids = (result: { readonly structuredContent?: unknown }) =>
-        (
-          result.structuredContent as { sessions: ReadonlyArray<{ threadId: string }> }
-        ).sessions.map((session) => session.threadId);
-      const fleet = yield* callTool("session_list", { project: "fleet" });
-      expect(ids(fleet)).toEqual(["thread-elsewhere"]);
-      expect(fleet.structuredContent).toMatchObject({
-        sessions: [{ projectId: "project-2", project: "fleet", self: false }],
-      });
-
-      const all = yield* callTool("session_list", { project: "*" });
-      expect(ids(all)).toEqual([
-        "thread-orchestrator",
-        "thread-dev",
-        "thread-review",
-        "thread-elsewhere",
-      ]);
-    }).pipe(Effect.provide(makeHarness(baseThreads).layer)),
-  ),
-);
-
-const laneThreads = [
-  shell({
-    id: "thread-orchestrator",
-    title: "orchestrator",
-    status: "running",
-    branch: "lane/T-1",
-    worktreePath: "C:/lanes/T-1",
-  }),
-  shell({
-    id: "thread-dev",
-    title: "T-1-dev",
-    group: "T-1",
-    branch: "lane/T-2",
-    worktreePath: "C:/lanes/T-2",
-  }),
-  shell({ id: "thread-main", title: "T-1-main", group: "T-1" }),
-  shell({
-    id: "thread-elsewhere",
-    title: "fleet-dev",
-    projectId: otherProjectId,
-    branch: "lane/F-1",
-    worktreePath: "C:/fleet-lanes/F-1",
-  }),
-];
-
-const createdWorktree = (dispatched: ReadonlyArray<OrchestrationCommand>) => {
-  const create = dispatched.find((command) => command.type === "thread.create");
-  return create?.type === "thread.create"
-    ? { branch: create.branch, worktreePath: create.worktreePath }
-    : null;
-};
-
-it.effect("spawns into another session's worktree with sameAs, main checkout included", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = makeHarness(laneThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "T-1-review",
-        group: "T-1",
-        message: "Review the lane.",
-        worktree: { sameAs: "T-1-dev" },
-      }).pipe(Effect.provide(harness.layer));
-      expect(result.isError).toBe(false);
-      expect(result.structuredContent).toMatchObject({
-        branch: "lane/T-2",
-        worktreePath: "C:/lanes/T-2",
-      });
-      expect(createdWorktree(harness.dispatched)).toEqual({
-        branch: "lane/T-2",
-        worktreePath: "C:/lanes/T-2",
-      });
-
-      const onMain = makeHarness(laneThreads);
-      yield* callTool("session_spawn", {
-        name: "T-1-tests",
-        group: "T-1",
-        message: "Tests.",
-        worktree: { sameAs: "thread-main" },
-      }).pipe(Effect.provide(onMain.layer));
-      expect(createdWorktree(onMain.dispatched)).toEqual({ branch: null, worktreePath: null });
-
-      // A worktree belongs to one repository, so it never crosses projects.
-      const crossProject = makeHarness(laneThreads);
-      const refused = yield* callTool("session_spawn", {
-        name: "T-1-fleet",
-        group: "T-1",
-        message: "Nope.",
-        worktree: { sameAs: "thread-elsewhere" },
-      }).pipe(Effect.provide(crossProject.layer));
-      expect(refused.isError).toBe(true);
-      expect(errorText(refused)).toContain("invalid-worktree");
-      expect(crossProject.dispatched).toEqual([]);
-    }),
-  ),
-);
-
-it.effect("keeps a handoff in the caller's worktree, and a plain spawn on the main checkout", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const handoff = makeHarness(laneThreads);
-      const result = yield* callTool("session_spawn", {
-        name: "orchestrator-2",
-        group: "ops",
-        message: "Take over.",
-        handoff: true,
-      }).pipe(Effect.provide(handoff.layer));
-      expect(result.structuredContent).toMatchObject({
-        branch: "lane/T-1",
-        worktreePath: "C:/lanes/T-1",
-      });
-      expect(createdWorktree(handoff.dispatched)).toEqual({
-        branch: "lane/T-1",
-        worktreePath: "C:/lanes/T-1",
-      });
-
-      const plain = makeHarness(laneThreads);
-      const spawned = yield* callTool("session_spawn", {
-        name: "T-1-plain",
-        group: "T-1",
-        message: "Main checkout.",
-      }).pipe(Effect.provide(plain.layer));
-      expect(spawned.structuredContent).toMatchObject({ branch: null, worktreePath: null });
-      expect(createdWorktree(plain.dispatched)).toEqual({ branch: null, worktreePath: null });
-    }),
-  ),
-);
-
-it.effect("lists each session's branch and worktree path", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const result = yield* callTool("session_list", {});
-      expect(result.structuredContent).toMatchObject({
-        sessions: [
-          { name: "orchestrator", branch: "lane/T-1", worktreePath: "C:/lanes/T-1" },
-          { name: "T-1-dev", branch: "lane/T-2", worktreePath: "C:/lanes/T-2" },
-          { name: "T-1-main", branch: null, worktreePath: null },
-        ],
-      });
-    }).pipe(Effect.provide(makeHarness(laneThreads).layer)),
-  ),
+        // The same project launched the way the composer launches it runs setup.
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        yield* launches.launch({
+          commandId: CommandId.make("test:user-launch"),
+          threadId: ThreadId.make("thread:user-launch"),
+          projectId,
+          title: "User thread",
+          modelSelection: callerModel,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          workspaceStrategy: { type: "root" },
+          initialMessage: { text: "Go.", attachments: [] },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* waitUntil(Effect.sync(() => setupRuns.length > 0));
+        expect(setupRuns).toEqual([projectRoot]);
+      }).pipe(Effect.provide(makeHarness([{ branch: "lane/S", path: lane }], setupRuns)));
+    }).pipe(Effect.scoped),
 );
 
 it.effect("attaches a worktree git lists with that branch, and refuses anything else", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-lane-"));
-      const unlisted = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-unlisted-"));
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          NodeFS.rmSync(lane, { recursive: true, force: true });
-          NodeFS.rmSync(unlisted, { recursive: true, force: true });
-        }),
-      );
-      const worktrees = [{ branch: "lane/T-9", path: lane }];
-      const spawn = (worktree: { readonly path: string; readonly branch: string }) => {
-        const harness = makeHarness(baseThreads, baseProviders, worktrees);
-        return callTool("session_spawn", {
-          name: "T-9-dev",
-          group: "T-9",
+  Effect.gen(function* () {
+    const lane = yield* tempDir("t3-lane-");
+    const unlisted = yield* tempDir("t3-unlisted-");
+    yield* Effect.gen(function* () {
+      yield* seedOrchestrator;
+      const spawn = (name: string, worktree: Record<string, string>) =>
+        callTool(orchestratorId, "session_spawn", {
+          name,
+          group: "L9",
           message: "Work the lane.",
           worktree,
-        }).pipe(
-          Effect.provide(harness.layer),
-          Effect.map((result) => ({ result, dispatched: harness.dispatched })),
+        });
+
+      const notListed = yield* spawn("L9-a", { path: unlisted, branch: "lane/L9" });
+      expect(contentText(notListed)).toContain("invalid-worktree");
+      expect(contentText(notListed)).toContain("does not list");
+      const wrongBranch = yield* spawn("L9-b", { path: lane, branch: "lane/L8" });
+      expect(contentText(wrongBranch)).toContain("has lane/L9 checked out, not lane/L8");
+      expect((yield* ok(orchestratorId, "session_list", {})).sessions).toHaveLength(1);
+
+      const attached = yield* ok(orchestratorId, "session_spawn", {
+        name: "L9-dev",
+        group: "L9",
+        message: "Work the lane.",
+        worktree: { path: lane, branch: "lane/L9" },
+      });
+      expect(attached).toMatchObject({ branch: "lane/L9", worktreePath: lane });
+      expect(yield* shellOf(attached.threadId)).toMatchObject({
+        branch: "lane/L9",
+        worktreePath: lane,
+      });
+
+      // sameAs copies another session's worktree.
+      const reviewer = yield* ok(orchestratorId, "session_spawn", {
+        name: "L9-review",
+        group: "L9",
+        message: "Review the lane.",
+        worktree: { sameAs: "L9-dev" },
+      });
+      expect(reviewer).toMatchObject({ branch: "lane/L9", worktreePath: lane });
+    }).pipe(Effect.provide(makeHarness([{ branch: "lane/L9", path: lane }])));
+  }).pipe(Effect.scoped),
+);
+
+it.effect("runs a spawn on another provider or model, and refuses an option the model lacks", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const onCodex = yield* ok(orchestratorId, "session_spawn", {
+      name: "on-codex",
+      group: "models",
+      message: "Go.",
+      instanceId: "codex",
+    });
+    expect(onCodex).toMatchObject({ instanceId: "codex", model: "gpt-5.6", options: [] });
+    expect((yield* shellOf(onCodex.threadId)).modelSelection).toMatchObject({
+      instanceId: "codex",
+      model: "gpt-5.6",
+    });
+
+    const highEffort = yield* ok(orchestratorId, "session_spawn", {
+      name: "on-sonnet",
+      group: "models",
+      message: "Go.",
+      model: "claude-sonnet-5",
+      options: [{ id: "effort", value: "high" }],
+    });
+    expect(highEffort).toMatchObject({
+      instanceId: "claudeAgent",
+      model: "claude-sonnet-5",
+      options: [{ id: "effort", value: "high" }],
+    });
+
+    const badEffort = yield* refused(orchestratorId, "session_spawn", {
+      name: "bad-effort",
+      group: "models",
+      message: "Go.",
+      options: [{ id: "effort", value: "ultra" }],
+    });
+    expect(badEffort).toContain("invalid-model");
+    expect(
+      yield* refused(orchestratorId, "session_spawn", {
+        name: "on-cursor",
+        group: "models",
+        message: "Go.",
+        instanceId: "cursor",
+      }),
+    ).toContain("no usable provider cursor");
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect(
+  "hands off: the successor is a pinned sibling that adopts the roster and the worktree",
+  () =>
+    Effect.gen(function* () {
+      const lane = { branch: "lane/L5", path: yield* tempDir("t3-handoff-lane-") };
+      yield* Effect.gen(function* () {
+        const root = yield* seed({ id: "thread:root", title: "Root" });
+        const caller = yield* seed({
+          id: "thread:lead",
+          title: "Lead",
+          spawnedBy: root,
+          worktree: lane,
+          pinKey: "a5",
+        });
+        yield* seed({ id: "thread:worker-1", title: "L5-dev", spawnedBy: caller, group: "L5" });
+        yield* seed({ id: "thread:worker-2", title: "L5-review", spawnedBy: caller, group: "L5" });
+        yield* seed({ id: "thread:unrelated", title: "Other", spawnedBy: root });
+
+        const successor = yield* ok(caller, "session_spawn", {
+          name: "Lead-2",
+          group: "leads",
+          message: "Take over.",
+          handoff: true,
+        });
+        expect(successor).toMatchObject({
+          adopted: ["L5-dev", "L5-review"],
+          branch: lane.branch,
+          worktreePath: lane.path,
+        });
+        const next = yield* shellOf(successor.threadId);
+        expect(next).toMatchObject({
+          spawnedByThreadId: root,
+          pinOrderKey: "a5",
+          worktreePath: lane.path,
+        });
+        expect(next.pinnedAt != null).toBe(true);
+        expect((yield* shellOf("thread:worker-1")).spawnedByThreadId).toBe(successor.threadId);
+        expect((yield* shellOf("thread:worker-2")).spawnedByThreadId).toBe(successor.threadId);
+        expect((yield* shellOf("thread:unrelated")).spawnedByThreadId).toBe(root);
+        expect((yield* shellOf(caller)).successorThreadId).toBe(successor.threadId);
+
+        // A plain spawn is never pinned and runs on the main checkout.
+        const plain = yield* ok(caller, "session_spawn", {
+          name: "L5-tests",
+          group: "L5",
+          message: "Go.",
+        });
+        expect(plain).toMatchObject({ branch: null, worktreePath: null });
+        expect((yield* shellOf(plain.threadId)).pinnedAt == null).toBe(true);
+      }).pipe(Effect.provide(makeHarness([lane])));
+    }).pipe(Effect.scoped),
+);
+
+it.effect("lists open sessions in one project, a named one, or all, with status and self", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const lane = { branch: "lane/L1", path: NodePath.join(projectRoot, "lanes", "L1") };
+    yield* seed({ id: "thread:idle", title: "L1-dev", group: "L1", worktree: lane });
+    yield* seed({ id: "thread:done", title: "L1-old", group: "L1", settled: true });
+    yield* seed({ id: "thread:fleet", title: "fleet-dev", projectId: otherProjectId });
+    yield* seed({ id: "thread:archived", title: "L1-gone", group: "L1" });
+    yield* dispatch((commandId) => ({
+      type: "thread.archive",
+      commandId,
+      threadId: ThreadId.make("thread:archived"),
+    }));
+    const busy = yield* ok(orchestratorId, "session_spawn", {
+      name: "L1-review",
+      group: "L1",
+      message: "Review.",
+    });
+
+    const own = yield* ok(orchestratorId, "session_list", {});
+    const rows = Object.fromEntries(
+      own.sessions.map((row: Record<string, unknown>) => [row.name, row]),
+    );
+    expect(Object.keys(rows).toSorted()).toEqual(["L1-dev", "L1-review", "Orchestrator"]);
+    expect(rows["Orchestrator"]).toMatchObject({ self: true, group: null, project: "t3code" });
+    expect(rows["L1-dev"]).toMatchObject({
+      self: false,
+      group: "L1",
+      status: "ready",
+      branch: lane.branch,
+      worktreePath: lane.path,
+    });
+    expect(rows["L1-review"]).toMatchObject({ threadId: busy.threadId, status: "running" });
+
+    const grouped = yield* ok(orchestratorId, "session_list", { group: "L1" });
+    expect(grouped.sessions.map((row: Record<string, unknown>) => row.name).toSorted()).toEqual([
+      "L1-dev",
+      "L1-review",
+    ]);
+    const fleet = yield* ok(orchestratorId, "session_list", { project: "fleet" });
+    expect(fleet.sessions).toMatchObject([{ name: "fleet-dev", project: "fleet" }]);
+    const all = yield* ok(orchestratorId, "session_list", { project: "*" });
+    expect(all.sessions).toHaveLength(4);
+    expect(yield* refused(orchestratorId, "session_list", { project: "nowhere" })).toContain(
+      "project-not-found",
+    );
+
+    // A settled caller still finds its own row.
+    yield* dispatch((commandId) => ({
+      type: "thread.settle",
+      commandId,
+      threadId: orchestratorId,
+    }));
+    const settledSelf = yield* ok(orchestratorId, "session_list", {});
+    expect(
+      settledSelf.sessions.find((row: Record<string, unknown>) => row.self === true),
+    ).toBeDefined();
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("lists models and projects, marking the caller's", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const models = yield* ok(orchestratorId, "session_models", {});
+    expect(models.providers.map((row: Record<string, unknown>) => row.instanceId)).toEqual([
+      "claudeAgent",
+      "codex",
+    ]);
+    expect(models.providers[0]).toMatchObject({
+      current: true,
+      models: [
+        {
+          slug: "claude-opus-5",
+          isDefault: true,
+          options: [{ id: "effort", choices: ["low", "medium", "high"], default: "medium" }],
+        },
+        { slug: "claude-sonnet-5", isDefault: false },
+      ],
+    });
+    const codexOnly = yield* ok(orchestratorId, "session_models", { instanceId: "codex" });
+    expect(codexOnly.providers).toMatchObject([{ instanceId: "codex", current: false }]);
+
+    const listed = yield* ok(orchestratorId, "session_projects", {});
+    expect(listed.projects).toEqual([
+      { projectId, name: "t3code", path: projectRoot, current: true },
+      { projectId: otherProjectId, name: "fleet", path: "/work/fleet", current: false },
+    ]);
+    const matched = yield* ok(orchestratorId, "session_projects", { match: "FLE" });
+    expect(matched.projects).toMatchObject([{ name: "fleet" }]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect(
+  "wakes by name or threadId: starts, reopens a settled session elsewhere, queues on a busy one",
+  () =>
+    Effect.gen(function* () {
+      yield* seedOrchestrator;
+      yield* seed({ id: "thread:idle", title: "L3-dev" });
+      const remote = yield* seed({
+        id: "thread:fleet-settled",
+        title: "fleet-lead",
+        projectId: otherProjectId,
+        settled: true,
+      });
+      expect((yield* shellOf(remote)).settledOverride).toBe("settled");
+
+      const started = yield* ok(orchestratorId, "session_wake", { name: "L3-dev", message: "Go." });
+      expect(started).toEqual({ threadId: "thread:idle", name: "L3-dev", delivery: "started" });
+
+      // A name never reaches another project; its threadId does, and the
+      // message reopens the settled session there.
+      expect(
+        yield* refused(orchestratorId, "session_wake", { name: "fleet-lead", message: "Hi." }),
+      ).toContain("thread-not-found");
+      const reopened = yield* ok(orchestratorId, "session_wake", {
+        name: remote,
+        message: "Pause.",
+      });
+      expect(reopened).toMatchObject({ threadId: remote, name: "fleet-lead" });
+      expect((yield* shellOf(remote)).settledOverride).toBeNull();
+      const projection: OrchestrationV2ThreadProjection = yield* projectionOf(remote);
+      expect(projection.messages.at(-1)).toMatchObject({
+        text: "Pause.",
+        senderThreadId: orchestratorId,
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+
+      // A session whose turn is in flight still gets the message, behind it.
+      const busy = yield* ok(orchestratorId, "session_spawn", {
+        name: "L3-review",
+        group: "L3",
+        message: "Review.",
+      });
+      const queued = yield* ok(orchestratorId, "session_wake", {
+        name: busy.threadId,
+        message: "Also check the tests.",
+      });
+      expect(queued.delivery).toBe("queued");
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect(
+  "settles with the roster it spawned, leaving busy children open and refusing busy targets",
+  () =>
+    Effect.gen(function* () {
+      yield* seedOrchestrator;
+      const lead = yield* seed({ id: "thread:lead", title: "Lead", spawnedBy: orchestratorId });
+      yield* seed({ id: "thread:child-idle", title: "L4-dev", spawnedBy: lead });
+      yield* seed({ id: "thread:child-done", title: "L4-old", spawnedBy: lead, settled: true });
+      yield* seed({
+        id: "thread:grandchild",
+        title: "L4-sub",
+        spawnedBy: ThreadId.make("thread:child-idle"),
+      });
+      const busyChild = yield* ok(lead, "session_spawn", {
+        name: "L4-review",
+        group: "L4",
+        message: "Go.",
+      });
+
+      expect(yield* refused(orchestratorId, "session_settle", { name: "Orchestrator" })).toContain(
+        "cannot settle itself",
+      );
+      const blocked = yield* refused(orchestratorId, "session_settle", {
+        name: busyChild.threadId,
+      });
+      expect(blocked).toContain("settle-blocked");
+      expect((yield* shellOf(busyChild.threadId)).settledOverride).toBeNull();
+
+      const settled = yield* ok(orchestratorId, "session_settle", { name: lead });
+      expect(settled).toEqual({
+        threadId: lead,
+        name: "Lead",
+        settledWith: ["L4-dev"],
+        leftOpen: ["L4-review"],
+      });
+      expect((yield* shellOf(lead)).settledOverride).toBe("settled");
+      expect((yield* shellOf("thread:child-idle")).settledOverride).toBe("settled");
+      expect((yield* shellOf("thread:grandchild")).settledOverride).toBeNull();
+      expect((yield* shellOf(busyChild.threadId)).settledOverride).toBeNull();
+
+      // Settling again is harmless.
+      expect(yield* ok(orchestratorId, "session_settle", { name: lead })).toMatchObject({
+        settledWith: [],
+        leftOpen: ["L4-review"],
+      });
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("renames by name, by threadId across projects, and itself, keeping names unique", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    yield* seed({ id: "thread:dev", title: "L6-dev" });
+    yield* seed({ id: "thread:old", title: "Orchestrator-old", settled: true });
+    const remote = yield* seed({
+      id: "thread:remote",
+      title: "fleet-dev",
+      projectId: otherProjectId,
+    });
+
+    expect(
+      yield* ok(orchestratorId, "session_rename", { session: "L6-dev", name: "L6-dev-2" }),
+    ).toEqual({ threadId: "thread:dev", name: "L6-dev-2", previousName: "L6-dev" });
+    expect(
+      yield* ok(orchestratorId, "session_rename", { session: remote, name: "fleet-dev-2" }),
+    ).toMatchObject({ previousName: "fleet-dev" });
+    expect((yield* shellOf(remote)).title).toBe("fleet-dev-2");
+
+    const clash = yield* refused(orchestratorId, "session_rename", {
+      session: "Orchestrator",
+      name: "Orchestrator-old",
+    });
+    expect(clash).toContain("a settled session named Orchestrator-old still holds that name");
+    expect(
+      yield* ok(orchestratorId, "session_rename", { session: "Orchestrator", name: "Lead" }),
+    ).toMatchObject({ name: "Lead", previousName: "Orchestrator" });
+    expect((yield* shellOf(orchestratorId)).title).toBe("Lead");
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+/**
+ * Runs one provider turn start on `thread` with its worktree directory
+ * missing, T3's own worktrees living under `worktreesDir`. Reports whether T3
+ * recreated the worktree, and the error item it wrote if it failed the run
+ * instead. A start that gets past the worktree check stops at a stub.
+ */
+const turnStartWithMissingWorktree = (
+  thread: OrchestrationV2ThreadProjection["thread"],
+  worktreesDir: string,
+) =>
+  Effect.gen(function* () {
+    let recreated = false;
+    const written: Array<OrchestrationV2DomainEvent> = [];
+    const layer = Layer.fresh(ProviderTurnStart.layer).pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
+          Layer.mock(EventSink.EventSinkV2)({
+            writeIfRunCurrent: (input) =>
+              Effect.sync(() => {
+                written.push(...input.events);
+                return { committed: true, storedEvents: [] } as never;
+              }),
+          }),
+          IdAllocator.layer,
+          Layer.succeed(FileSystem.FileSystem, {
+            exists: () => Effect.succeed(false),
+            realPath: (target: string) => Effect.succeed(target),
+          } as never),
+          Layer.succeed(ServerConfig.ServerConfig, { worktreesDir } as never),
+          NodePathLayer.layer,
+          Layer.mock(GitWorkflow.GitWorkflowService)({
+            pruneWorktrees: () => Effect.void,
+            createWorktree: () =>
+              Effect.sync(() => {
+                recreated = true;
+                return {} as never;
+              }),
+          }),
+          Layer.mock(ProjectService.ProjectService)({
+            getById: () => Effect.succeed(Option.some(projects[0] as never)),
+          }),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getTurnStartContext: () =>
+              Effect.succeed({
+                thread,
+                runs: [
+                  {
+                    id: "run:guard",
+                    status: "starting",
+                    providerInstanceId: claude,
+                    rootNodeId: "node:guard",
+                    activeAttemptId: "attempt:guard",
+                    providerThreadId: "provider-thread:guard",
+                    userMessageId: "message:guard",
+                    ordinal: 2,
+                  },
+                ],
+                nodes: [{ id: "node:guard", checkpointScopeId: "scope:guard" }],
+                attempts: [{ id: "attempt:guard" }],
+                providerThreads: [
+                  {
+                    id: "provider-thread:guard",
+                    providerSessionId: "provider-session:guard",
+                    nativeThreadRef: null,
+                  },
+                ],
+                messages: [{ id: "message:guard", role: "user", text: "Go.", attachments: [] }],
+                checkpointScopes: [{ id: "scope:guard" }],
+                contextHandoffs: [],
+                contextTransfers: [],
+                turnItems: [],
+                hasConversation: true,
+              } as never),
+            // Stops a start that got past the worktree check.
+            getRuntimeRecoveryProjection: (threadId) =>
+              Effect.fail(
+                new ProjectionStore.ProjectionStoreReadError({ threadId, cause: "stop" }),
+              ),
+          }),
+          Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
+          Layer.mock(ProviderAuthService.ProviderAuthService)({
+            tryHandlePromptCommand: () => Effect.succeed(false),
+          }),
+          Layer.mock(RunExecutionService.RunExecutionServiceV2)({}),
+          Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        ),
+      ),
+    );
+    const exit = yield* Effect.gen(function* () {
+      const turnStart = yield* ProviderTurnStart.ProviderTurnStartServiceV2;
+      return yield* turnStart.start({ threadId: thread.id, runId: "run:guard" as never });
+    }).pipe(Effect.provide(layer), Effect.exit);
+    const errorItem = written.flatMap((event) =>
+      event.type === "turn-item.updated" && event.payload.type === "error" ? [event.payload] : [],
+    )[0];
+    const failedRun = written.some(
+      (event) => event.type === "run.updated" && event.payload.status === "failed",
+    );
+    // A start that carried on past the check hit the stub and failed there.
+    return { recreated, errorItem, failedRun, carriedOn: Exit.isFailure(exit) };
+  });
+
+it.effect(
+  "recreates only worktrees inside T3's own dir, and fails a turn in a missing attached one",
+  () =>
+    Effect.gen(function* () {
+      const worktreesDir = yield* tempDir("t3-own-worktrees-");
+      const attachedLane = yield* tempDir("t3-guard-lane-");
+      const ownLane = NodePath.join(worktreesDir, "t3code", "L7-review");
+      NodeFS.mkdirSync(ownLane, { recursive: true });
+      const { attached, own, userMade } = yield* Effect.gen(function* () {
+        const caller = yield* seed({
+          id: "thread:guard-lead",
+          title: "Lead",
+          worktree: { branch: "lane/L7", path: attachedLane },
+        });
+        const attached = yield* ok(caller, "session_spawn", {
+          name: "L7-dev",
+          group: "L7",
+          message: "Go.",
+          worktree: { path: attachedLane, branch: "lane/L7" },
+        });
+        const own = yield* ok(caller, "session_spawn", {
+          name: "L7-review",
+          group: "L7",
+          message: "Go.",
+          worktree: { path: ownLane, branch: "lane/L7-review" },
+        });
+        return {
+          attached: (yield* projectionOf(attached.threadId)).thread,
+          own: (yield* projectionOf(own.threadId)).thread,
+          userMade: (yield* projectionOf(caller)).thread,
+        };
+      }).pipe(
+        Effect.provide(
+          makeHarness([
+            { branch: "lane/L7", path: attachedLane },
+            { branch: "lane/L7-review", path: ownLane },
+          ]),
+        ),
+      );
+
+      // Outside T3's dir: not recreated, and the turn fails saying why, whether
+      // or not the thread has a spawner.
+      for (const thread of [attached, userMade]) {
+        const outcome = yield* turnStartWithMissingWorktree(thread, worktreesDir);
+        expect(outcome).toMatchObject({ recreated: false, failedRun: true, carriedOn: false });
+        expect(outcome.errorItem?.failure.message).toContain(
+          `Attached worktree ${attachedLane} no longer exists`,
         );
-      };
+      }
+      // Inside T3's dir: upstream's repair, even for a spawned session.
+      const repaired = yield* turnStartWithMissingWorktree(own, worktreesDir);
+      expect(repaired).toMatchObject({ recreated: true, failedRun: false, carriedOn: true });
+    }).pipe(Effect.scoped),
+);
 
-      const notListed = yield* spawn({ path: unlisted, branch: "lane/T-9" });
-      expect(notListed.result.isError).toBe(true);
-      expect(errorText(notListed.result)).toContain("invalid-worktree");
-      expect(errorText(notListed.result)).toContain("does not list");
-      expect(notListed.dispatched).toEqual([]);
-
-      const wrongBranch = yield* spawn({ path: lane, branch: "lane/T-8" });
-      expect(wrongBranch.result.isError).toBe(true);
-      expect(errorText(wrongBranch.result)).toContain("has lane/T-9 checked out, not lane/T-8");
-      expect(wrongBranch.dispatched).toEqual([]);
-
-      const attached = yield* spawn({ path: lane, branch: "lane/T-9" });
-      expect(attached.result.isError).toBe(false);
-      expect(attached.result.structuredContent).toMatchObject({
-        branch: "lane/T-9",
-        worktreePath: lane,
+it.effect("refuses sameAs or a handoff onto a worktree that is gone", () =>
+  Effect.gen(function* () {
+    const lane = yield* tempDir("t3-gone-lane-");
+    const gone = NodePath.join(lane, "removed");
+    yield* Effect.gen(function* () {
+      yield* seedOrchestrator;
+      const dev = yield* seed({
+        id: "thread:gone",
+        title: "L8-dev",
+        worktree: { branch: "lane/L8", path: gone },
       });
-      expect(createdWorktree(attached.dispatched)).toEqual({
-        branch: "lane/T-9",
-        worktreePath: lane,
+      const sameAs = yield* refused(orchestratorId, "session_spawn", {
+        name: "L8-review",
+        group: "L8",
+        message: "Go.",
+        worktree: { sameAs: "L8-dev" },
       });
-    }),
-  ),
+      expect(sameAs).toContain("invalid-worktree");
+      expect(sameAs).toContain(`${gone} does not exist`);
+      const handoff = yield* refused(dev, "session_spawn", {
+        name: "L8-dev-2",
+        group: "L8",
+        message: "Take over.",
+        handoff: true,
+      });
+      expect(handoff).toContain(`${gone} does not exist`);
+      expect((yield* ok(orchestratorId, "session_list", {})).sessions).toHaveLength(2);
+    }).pipe(Effect.provide(makeHarness([{ branch: "lane/L8", path: gone }])));
+  }).pipe(Effect.scoped),
+);
+
+it.effect("cascades every explicit settle to the spawned sessions, but not an automatic one", () =>
+  Effect.gen(function* () {
+    const lead = yield* seed({ id: "thread:lead", title: "Lead" });
+    yield* seed({ id: "thread:idle", title: "L9-dev", spawnedBy: lead });
+    yield* seed({ id: "thread:sub", title: "L9-sub", spawnedBy: ThreadId.make("thread:idle") });
+    const busy = yield* ok(lead, "session_spawn", {
+      name: "L9-review",
+      group: "L9",
+      message: "Go.",
+    });
+
+    // A plain thread.settle, as the sidebar sends it.
+    yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: lead }));
+    expect((yield* shellOf(lead)).settledOverride).toBe("settled");
+    expect((yield* shellOf("thread:idle")).settledOverride).toBe("settled");
+    expect((yield* shellOf("thread:sub")).settledOverride).toBeNull();
+    expect((yield* shellOf(busy.threadId)).settledOverride).toBeNull();
+
+    // Automatic settlement settles the thread alone.
+    const quiet = yield* seed({ id: "thread:quiet", title: "Quiet" });
+    yield* seed({ id: "thread:quiet-child", title: "Quiet-dev", spawnedBy: quiet });
+    const snapshotAt = yield* DateTime.now;
+    yield* dispatch((commandId) => ({
+      type: "thread.auto-settle",
+      commandId,
+      threadId: quiet,
+      snapshotAt,
+    }));
+    expect((yield* shellOf(quiet)).settledOverride).toBe("settled");
+    expect((yield* shellOf("thread:quiet-child")).settledOverride).toBeNull();
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("archives a session whose spawn failed after its thread existed, freeing the name", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const failed = yield* refused(orchestratorId, "session_spawn", {
+      name: "L10-dev",
+      group: "L10",
+      message: "Go.",
+    });
+    expect(failed).toContain("dispatch-failed");
+    expect(failed).toContain("was archived, so the name L10-dev is free");
+    const orphanId = /the new session (\S+) was archived/.exec(failed)?.[1];
+    expect(orphanId).toBeDefined();
+    expect((yield* shellOf(orphanId!)).archivedAt).not.toBeNull();
+    expect((yield* ok(orchestratorId, "session_list", {})).sessions).toHaveLength(1);
+
+    const retried = yield* ok(orchestratorId, "session_spawn", {
+      name: "L10-dev",
+      group: "L10",
+      message: "Go.",
+    });
+    expect(retried.threadId).not.toBe(orphanId);
+  }).pipe(Effect.provide(makeHarness([], [], new Set(["L10-dev"])))),
 );

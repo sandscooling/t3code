@@ -22,8 +22,12 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+// Fork: turn start checks a missing worktree against the worktrees dir.
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+// Fork: turn start checks a missing worktree against the worktrees dir.
+import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/Services/ProviderAuthService.ts";
@@ -59,7 +63,8 @@ it("does not commit running state when inherited background routing cannot be re
       id: threadId,
       projectId: ProjectId.make("project_provider_turn_start_projection_failure"),
       branch: "feature/restore",
-      worktreePath: "/tmp/missing-provider-turn-start-worktree",
+      // Fork: inside the worktrees dir, so T3 owns it and recreates it.
+      worktreePath: "/tmp/t3-worktrees/repo/missing-provider-turn-start-worktree",
     },
     runs: [
       {
@@ -94,7 +99,14 @@ it("does not commit running state when inherited background routing cannot be re
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
-        Layer.succeed(FileSystem.FileSystem, { exists: () => Effect.succeed(false) } as never),
+        Layer.succeed(FileSystem.FileSystem, {
+          exists: () => Effect.succeed(false),
+          // Fork: the worktrees-dir check resolves paths.
+          realPath: (path: string) => Effect.succeed(path),
+        } as never),
+        // Fork: turn start checks a missing worktree against the worktrees dir.
+        Layer.succeed(ServerConfig.ServerConfig, { worktreesDir: "/tmp/t3-worktrees" } as never),
+        Path.layer,
         Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
         Layer.mock(ProjectService.ProjectService)({
           getById: () =>
@@ -145,7 +157,7 @@ it("does not commit running state when inherited background routing cannot be re
     expect(createWorktree).toHaveBeenCalledWith({
       cwd: "/tmp/provider-turn-start-project",
       refName: "feature/restore",
-      path: "/tmp/missing-provider-turn-start-worktree",
+      path: "/tmp/t3-worktrees/repo/missing-provider-turn-start-worktree",
     });
     expect(writeIfRunCurrent).not.toHaveBeenCalled();
     expect(startRootRun).not.toHaveBeenCalled();
@@ -458,6 +470,9 @@ function makeLocalCommandHarness(input: {
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
         FileSystem.layerNoop({}),
+        // Fork: turn start checks a missing worktree against the worktrees dir.
+        Layer.succeed(ServerConfig.ServerConfig, { worktreesDir: "/tmp/t3-worktrees" } as never),
+        Path.layer,
         Layer.mock(GitWorkflow.GitWorkflowService)({}),
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({

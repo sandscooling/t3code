@@ -87,13 +87,14 @@ export type AttachedWorktreeCheck =
 /**
  * Checks a caller-supplied worktree against what git lists for the project:
  * an existing directory, not the project's own checkout, listed by
- * `git worktree list`, with the named branch checked out. On success the path
- * is the one git reports, so later comparisons stay stable.
+ * `git worktree list`, with the named branch checked out (any branch when
+ * `branch` is null). On success the path is the one git reports, so later
+ * comparisons stay stable.
  */
 export const checkAttachedWorktree = Effect.fnUntraced(function* (input: {
   readonly projectRoot: string;
   readonly path: string;
-  readonly branch: string;
+  readonly branch: string | null;
   readonly worktrees: ReadonlyArray<ListedWorktree>;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -117,7 +118,7 @@ export const checkAttachedWorktree = Effect.fnUntraced(function* (input: {
   }
   for (const worktree of input.worktrees) {
     if ((yield* comparablePath(worktree.path)) !== requested) continue;
-    if (worktree.branch !== input.branch) {
+    if (input.branch !== null && worktree.branch !== input.branch) {
       return fail(`${input.path} has ${worktree.branch} checked out, not ${input.branch}`);
     }
     return { ok: true, branch: worktree.branch, worktreePath: worktree.path } as const;

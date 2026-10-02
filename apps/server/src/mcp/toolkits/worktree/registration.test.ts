@@ -14,6 +14,7 @@ import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
@@ -38,6 +39,8 @@ const StubServicesLive = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+  // Fork: the session_* tools' service launches threads.
+  Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
 );
 
 const ToolsListPayload = Schema.fromJsonString(
@@ -123,6 +126,9 @@ it.effect("production mcp layer lists worktree tools over http", () =>
       // than replacing them.
       expect(toolNames).toContain("preview_status");
       expect(toolNames).toContain("delegate_task");
+      // Fork: the session_* tools register beside upstream's.
+      expect(toolNames).toContain("session_spawn");
+      expect(toolNames).toContain("session_list");
 
       // The handoff tool mutates thread state, reaches the network (origin
       // fetch), and runs project setup scripts, so its MCP hints must not

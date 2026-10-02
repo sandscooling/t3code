@@ -253,6 +253,8 @@ it.effect(
           canStartQueuedRun: () => Effect.die("not used"),
           getRecoveryThreadIds: () => Effect.die("unused getRecoveryThreadIds"),
           getUnreadableThreadIds: () => Effect.die("unused getUnreadableThreadIds"),
+          // Fork: settle cascade.
+          getSpawnedThreadIds: () => Effect.die("unused getSpawnedThreadIds"),
           getThreadSnapshot: () => Effect.die("unused getThreadSnapshot"),
           getThreadSnapshotWindow: () => Effect.die("unused getThreadSnapshotWindow"),
         }),

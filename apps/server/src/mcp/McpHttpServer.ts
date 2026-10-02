@@ -35,6 +35,10 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { OrchestratorToolkitHandlersLive } from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
+// Fork: the session_* tools, beside upstream's orchestrator tools.
+import { OrchestrationToolkitHandlersLive } from "./toolkits/orchestration/handlers.ts";
+import * as SessionMcpService from "./toolkits/orchestration/SessionMcpService.ts";
+import { OrchestrationToolkit } from "./toolkits/orchestration/tools.ts";
 import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
@@ -670,6 +674,12 @@ export const ThreadToolkitRegistrationLive = McpServer.toolkit(ThreadToolkit).pi
   Layer.provide(ThreadToolkitHandlersLive),
 );
 
+// Fork: the session_* tools.
+export const OrchestrationToolkitRegistrationLive = McpServer.toolkit(OrchestrationToolkit).pipe(
+  Layer.provide(OrchestrationToolkitHandlersLive),
+  Layer.provide(SessionMcpService.layer),
+);
+
 const WorktreeToolkitRegistrationLive = McpServer.toolkit(WorktreeToolkit).pipe(
   Layer.provide(WorktreeToolkitHandlersLive),
   Layer.provide(WorktreeMcpService.layer),
@@ -719,6 +729,8 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   OrchestratorToolkitRegistrationLive,
   ThreadToolkitRegistrationLive,
+  // Fork: the session_* tools.
+  OrchestrationToolkitRegistrationLive,
   AttachmentRegistrationLive,
   ProjectRegistrationLive,
   EnvironmentRegistrationLive,

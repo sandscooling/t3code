@@ -18,8 +18,13 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+// Fork: attached worktrees are never recreated.
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+// Fork: attached worktrees are never recreated.
+import * as ServerConfig from "../config.ts";
+import { AttachedWorktreeMissingError, isInsideT3WorktreesDir } from "../git/attachedWorktrees.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/Services/ProviderAuthService.ts";
@@ -95,6 +100,9 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  // Fork: attached worktrees are never recreated.
+  | ServerConfig.ServerConfig
+  | Path.Path
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -102,6 +110,15 @@ export const layer: Layer.Layer<
     const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
+    // Fork: T3 recreates only worktrees it created, under its worktrees dir.
+    const serverConfig = yield* ServerConfig.ServerConfig;
+    const path = yield* Path.Path;
+    const isOwnWorktree = (target: string) =>
+      isInsideT3WorktreesDir(target).pipe(
+        Effect.provideService(ServerConfig.ServerConfig, serverConfig),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
@@ -459,6 +476,33 @@ export const layer: Layer.Layer<
         const exists = yield* fileSystem
           .exists(worktreePath)
           .pipe(Effect.orElseSucceed(() => true));
+        // Fork: a worktree outside T3's own worktrees dir was attached, not
+        // created, so T3 never recreates it; the turn fails and says why.
+        if (!exists && !(yield* isOwnWorktree(worktreePath))) {
+          const now = yield* DateTime.now;
+          yield* settleRunBeforeStart({
+            signal: "attached-worktree-missing",
+            status: "failed",
+            now,
+            startedAt: now,
+            providerInstanceId: run.providerInstanceId,
+            itemProviderThreadId: providerThread.id,
+            item: {
+              type: "error",
+              title: "Attached worktree missing",
+              failure: makeProviderFailure({
+                class: "validation_error",
+                message: new AttachedWorktreeMissingError({ worktreePath }).message,
+              }),
+            },
+            providerThreadUpdate: {
+              ...providerThread,
+              status: providerThread.nativeThreadRef === null ? "not_loaded" : "idle",
+              updatedAt: now,
+            },
+          });
+          return;
+        }
         if (!exists) {
           const project = yield* projects.getById(projection.thread.projectId).pipe(
             Effect.map(Option.getOrUndefined),

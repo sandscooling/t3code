@@ -1,7 +1,5 @@
 import * as Schema from "effect/Schema";
 
-import { OrchestrationSessionStatus } from "./orchestration.ts";
-
 /**
  * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
  * and settle other sessions in any project on its server. Sessions are real threads, so they
@@ -11,15 +9,18 @@ import { OrchestrationSessionStatus } from "./orchestration.ts";
  */
 
 /**
- * Names double as the Claude peer name, so they are kept to what a shell and
- * a registry file both accept: no spaces, no path separators.
+ * Names are addresses another session types into session_wake, so they are
+ * kept to one word: no spaces, no path separators.
  */
 export const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const SessionName = Schema.String.check(Schema.isPattern(SESSION_NAME_PATTERN));
 
-/** Session names only reach the caller's own project; a threadId reaches any project. */
-const SessionRef = SessionName.annotate({
+/**
+ * Session names only reach the caller's own project; a threadId reaches any
+ * project. v2 threadIds carry colons, so this is not held to the name pattern.
+ */
+const SessionRef = Schema.String.check(Schema.isMinLength(1)).annotate({
   description:
     "Name of a session in your own project, or the threadId session_list reports for a session in any project. Use the threadId for a session in another project, or one whose title has spaces.",
 });
@@ -64,7 +65,7 @@ const SessionWorktree = Schema.Union([
 export const SessionSpawnInput = Schema.Struct({
   name: SessionName.annotate({
     description:
-      "Title of the new session, unique among the target project's open sessions. Letters, digits, dot, underscore, hyphen; 1 to 64 characters. Becomes the session's peer name.",
+      "Title of the new session, unique among the target project's open and settled sessions. Letters, digits, dot, underscore, hyphen; 1 to 64 characters.",
   }),
   project: Schema.optional(
     ProjectRef.annotate({
@@ -209,6 +210,15 @@ export const SessionListInput = Schema.Struct({
 });
 export type SessionListInput = typeof SessionListInput.Type;
 
+/**
+ * `running` while a turn is in flight (preparing, queued, starting, running,
+ * or finishing up), `monitoring` when the last turn ended but left background
+ * work such as a watch or a background command going, `ready` otherwise.
+ * session_wake reaches every one of them.
+ */
+export const SessionStatus = Schema.Literals(["running", "monitoring", "ready"]);
+export type SessionStatus = typeof SessionStatus.Type;
+
 export const SessionSummary = Schema.Struct({
   threadId: Schema.String,
   name: Schema.String,
@@ -216,8 +226,7 @@ export const SessionSummary = Schema.Struct({
   projectId: Schema.String,
   /** The project's name, as session_projects reports it. */
   project: Schema.String,
-  /** `stopped` when the session has no live provider process. */
-  status: OrchestrationSessionStatus,
+  status: SessionStatus,
   /** True on the calling session's own row, so it can pass its threadId as a reply address. */
   self: Schema.Boolean,
   /** The worktree the session runs in; both null on the project's main checkout. */
@@ -235,7 +244,7 @@ export const SessionWakeInput = Schema.Struct({
   name: SessionRef,
   message: Schema.String.annotate({
     description:
-      "The message to send. Starts a turn on that session, which also restarts its provider process if it had stopped.",
+      "The message to send. On an idle session it starts a turn, opening its provider process if none is running; on a busy one it is delivered into the running turn, or queued behind it.",
   }),
 });
 export type SessionWakeInput = typeof SessionWakeInput.Type;
@@ -243,6 +252,8 @@ export type SessionWakeInput = typeof SessionWakeInput.Type;
 export const SessionWakeResult = Schema.Struct({
   threadId: Schema.String,
   name: Schema.String,
+  /** `started` a new turn, was `steered` into the running turn, or was `queued` behind it. */
+  delivery: Schema.Literals(["started", "steered", "queued"]),
 });
 export type SessionWakeResult = typeof SessionWakeResult.Type;
 
@@ -254,6 +265,13 @@ export type SessionSettleInput = typeof SessionSettleInput.Type;
 export const SessionSettleResult = Schema.Struct({
   threadId: Schema.String,
   name: Schema.String,
+  /** Names of the sessions it spawned that settled with it. */
+  settledWith: Schema.Array(Schema.String),
+  /**
+   * Names of the sessions it spawned that are still open: the settle refused
+   * them because they still need attention, or failed.
+   */
+  leftOpen: Schema.Array(Schema.String),
 });
 export type SessionSettleResult = typeof SessionSettleResult.Type;
 

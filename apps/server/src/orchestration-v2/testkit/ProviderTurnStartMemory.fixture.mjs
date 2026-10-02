@@ -27,6 +27,8 @@ const [Start, Projection, Run, Sessions, Policy, Id, Sink, Handoff, Git, Project
     app("project/ProjectService"),
     app("provider/Services/ProviderAuthService"),
   ]);
+// Fork: turn start checks a missing worktree against the worktrees dir.
+const [Path, Config] = await Promise.all([load("Path"), app("config")]);
 let current;
 let fullReads = 0;
 const liveRuns = [];
@@ -46,6 +48,9 @@ const dependencies = Layer.mergeAll(
   Layer.mock(Handoff.ContextHandoffServiceV2)({}),
   Id.layer,
   FileSystem.layerNoop({}),
+  // Fork: turn start checks a missing worktree against the worktrees dir.
+  Layer.succeed(Config.ServerConfig, { worktreesDir: "/t3-test-worktrees" }),
+  Path.layer,
   Layer.mock(Git.GitWorkflowService)({}),
   Layer.mock(Project.ProjectService)({}),
   Layer.mock(Auth.ProviderAuthService)({}),

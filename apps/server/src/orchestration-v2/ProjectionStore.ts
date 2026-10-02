@@ -445,6 +445,10 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<ThreadId>,
     ProjectionStoreV2Error
   >;
+  // Fork: the live threads whose spawnedByThreadId is this one, for the settle cascade.
+  readonly getSpawnedThreadIds: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionStoreV2Error>;
   readonly getThreadSnapshot: (threadId: ThreadId) => Effect.Effect<
     {
       readonly schemaVersion: number;
@@ -3489,6 +3493,22 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
     );
 
+    // Fork: the live threads a thread spawned, for the settle cascade.
+    const getSpawnedThreadIds = Effect.fn("ProjectionStore.getSpawnedThreadIds")(
+      function* (threadId: ThreadId) {
+        const rows = yield* sql<{ readonly thread_id: string }>`
+          SELECT thread_id FROM orchestration_v2_projection_threads
+          WHERE deleted_at IS NULL AND archived_at IS NULL
+            AND CASE WHEN json_valid(payload_json)
+              THEN json_extract(payload_json, '$.spawnedByThreadId') = ${threadId}
+              ELSE 0 END
+          ORDER BY thread_id ASC
+        `;
+        return rows.map((row) => ThreadId.make(row.thread_id));
+      },
+      Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+    );
+
     // Decode every canonical row once. Full thread reads repeat shared sessions,
     // provider threads, transfers, and inherited fork histories for each owner.
     const getUnreadableThreadIds = Effect.fn("ProjectionStore.getUnreadableThreadIds")(
@@ -5477,6 +5497,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getLimitRecoveryCandidates,
       getRecoveryThreadIds,
       getUnreadableThreadIds,
+      // Fork: settle cascade.
+      getSpawnedThreadIds,
       getThreadSnapshot,
       getThreadSnapshotWindow,
       getTimelinePage,
@@ -5649,6 +5671,22 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 );
               })
               .toSorted((left, right) => left.id.localeCompare(right.id)),
+          ),
+        ),
+      // Fork: settle cascade.
+      getSpawnedThreadIds: (threadId) =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()]
+              .map((projection) => projection.thread)
+              .filter(
+                (thread) =>
+                  thread.spawnedByThreadId === threadId &&
+                  thread.archivedAt === null &&
+                  thread.deletedAt === null,
+              )
+              .map((thread) => thread.id)
+              .toSorted((left, right) => left.localeCompare(right)),
           ),
         ),
       getRecoveryThreadIds: (kind) =>
