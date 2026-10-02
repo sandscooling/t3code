@@ -1357,6 +1357,10 @@ export function threadShellFromProjection(
       ? {}
       : { activeOrderKey: projection.thread.activeOrderKey }),
     lineage: projection.thread.lineage,
+    // Fork: session lane, spawner, and handoff successor.
+    group: projection.thread.group ?? null,
+    spawnedByThreadId: projection.thread.spawnedByThreadId ?? null,
+    successorThreadId: projection.thread.successorThreadId ?? null,
     forkedFrom: projection.thread.forkedFrom,
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     ...(projection.thread.historyOrigin === undefined
@@ -1589,6 +1593,10 @@ function shellFromState(input: {
       ? {}
       : { activeOrderKey: input.state.thread.activeOrderKey }),
     lineage: input.state.thread.lineage,
+    // Fork: session lane, spawner, and handoff successor.
+    group: input.state.thread.group ?? null,
+    spawnedByThreadId: input.state.thread.spawnedByThreadId ?? null,
+    successorThreadId: input.state.thread.successorThreadId ?? null,
     forkedFrom: input.state.thread.forkedFrom,
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
     ...(input.state.thread.historyOrigin === undefined

@@ -92,6 +92,10 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           id: input.targetThreadId,
           title: input.title ?? `${input.sourceProjection.thread.title} fork`,
           activeProviderThreadId: null,
+          // Fork: a fork stays in its source's lane group, but nobody spawned it and it was
+          // not handed off, so a settle cascade or a handoff follow must not reach it.
+          spawnedByThreadId: null,
+          successorThreadId: null,
           lineage: {
             parentThreadId: input.sourceProjection.thread.id,
             relationshipToParent: "fork",

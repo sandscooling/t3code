@@ -373,6 +373,12 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   lineage: OrchestrationV2AppThreadLineage,
+  // Fork: session lane, the session that spawned this one (mutable, unlike
+  // lineage), and the sibling that replaced it on handoff. Optional so
+  // threads written before these fields decode; absent means null.
+  group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   forkedFrom: Schema.NullOr(
     Schema.Union([
       Schema.Struct({ type: Schema.Literal("run"), threadId: ThreadId, runId: RunId }),
@@ -1680,6 +1686,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Pull request discovered from the thread's current branch. */
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
+  // Fork: see OrchestrationV2AppThread.
+  group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -2555,6 +2565,11 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request (#8160); absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    // Fork: set (value) or clear (null); absent leaves it unchanged. The
+    // spawner and successor must be other, undeleted threads.
+    group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+    successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),

@@ -2210,6 +2210,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
+    // Fork: a spawner or successor must be another thread that exists.
+    if (command.type === "thread.metadata.update") {
+      for (const relatedThreadId of [command.spawnedByThreadId, command.successorThreadId]) {
+        if (relatedThreadId == null) continue;
+        const related =
+          relatedThreadId === command.threadId
+            ? null
+            : yield* projectionStore.getThread(relatedThreadId).pipe(
+                Effect.catchTag("ProjectionStoreThreadNotFoundError", () => Effect.succeed(null)),
+                mapDispatchError(command),
+              );
+        if (related === null || related.deletedAt !== null) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause:
+              relatedThreadId === command.threadId
+                ? `Thread ${command.threadId} cannot point at itself.`
+                : `Thread ${relatedThreadId} does not exist.`,
+          });
+        }
+      }
+    }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -2659,6 +2682,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            // Fork: session lane, spawner, and handoff successor.
+            ...(command.group === undefined ? {} : { group: command.group }),
+            ...(command.spawnedByThreadId === undefined
+              ? {}
+              : { spawnedByThreadId: command.spawnedByThreadId }),
+            ...(command.successorThreadId === undefined
+              ? {}
+              : { successorThreadId: command.successorThreadId }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {

@@ -83,9 +83,12 @@ function makeSourceRun(status: OrchestrationV2Run["status"]): OrchestrationV2Run
   };
 }
 
-function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2ThreadProjection {
+function makeSourceProjection(
+  sourceRun: OrchestrationV2Run,
+  thread: OrchestrationV2AppThread = makeSourceThread(),
+): OrchestrationV2ThreadProjection {
   return {
-    thread: makeSourceThread(),
+    thread,
     runs: [sourceRun],
     attempts: [],
     nodes: [],
@@ -106,11 +109,11 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
   };
 }
 
-const planFork = (sourceRun: OrchestrationV2Run) =>
+const planFork = (sourceRun: OrchestrationV2Run, sourceThread?: OrchestrationV2AppThread) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
     return yield* service.plan({
-      sourceProjection: makeSourceProjection(sourceRun),
+      sourceProjection: makeSourceProjection(sourceRun, sourceThread),
       sourceRun,
       sourceProviderThread: undefined,
       canonicalSourcePoint: {
@@ -165,6 +168,21 @@ it.effect("keeps a fork awake when its source thread is snoozed", () =>
       threadId: sourceThreadId,
       runId: sourceRunId,
     });
+  }),
+);
+
+// Fork: the lane group follows the fork; the spawner and handoff successor do not.
+it.effect("keeps the source's group but not its spawner or successor", () =>
+  Effect.gen(function* () {
+    const result = yield* planFork(makeSourceRun("completed"), {
+      ...makeSourceThread(),
+      group: "lane-a",
+      spawnedByThreadId: ThreadId.make("thread:fork-spawner"),
+      successorThreadId: ThreadId.make("thread:fork-successor"),
+    });
+    assert.equal(result.targetThread.group, "lane-a");
+    assert.isNull(result.targetThread.spawnedByThreadId);
+    assert.isNull(result.targetThread.successorThreadId);
   }),
 );
 
