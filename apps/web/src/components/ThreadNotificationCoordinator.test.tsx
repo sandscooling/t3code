@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
   limited: false,
   subagent: false,
   gone: false,
-  background: [] as Array<{ taskId: string; kind: "command" | "monitor" }>,
+  background: [] as Array<{ taskId: string; kind: "command" | "monitor"; held?: boolean }>,
   add: vi.fn(
     (_toast: {
       id?: string;
@@ -399,6 +399,22 @@ describe("thread notifications", () => {
     expect(toast).not.toHaveProperty("timeout");
     expect(toast).not.toHaveProperty("id");
     expect(toast?.data?.dismissOnActiveThreadRef).toBe(null);
+  });
+
+  it("alerts again when a command someone waits for ends without a new turn", async () => {
+    // Fork: a completion alerts with its sound and no toast, so count sounds.
+    state.mode = "notifications-and-sound";
+    await render();
+    state.background = [{ taskId: "bench", kind: "command" }];
+    await complete();
+    expect(state.sound).toHaveBeenCalledTimes(1);
+    state.background = [{ taskId: "bench", kind: "command", held: true }];
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(1);
+    state.background = [];
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(2);
+    expect(state.add).not.toHaveBeenCalled();
   });
 
   it("keeps background desktop alerts when in-app notifications are disabled", async () => {
