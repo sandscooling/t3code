@@ -55,7 +55,7 @@ Always available to every agent session, with no setting to turn on:
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
-- Agents are told to wrap image paths that contain spaces in angle brackets, so the image renders instead of showing as text. Remove when upstream PR [#12815](https://github.com/pingdotgg/t3code/pull/12815) lands.
+- Agents are told to wrap image paths that contain spaces in angle brackets, so the image renders instead of showing as text. Remove when upstream renders spaced image paths itself (its fix, PR [#12815](https://github.com/pingdotgg/t3code/pull/12815), closed unmerged).
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
 
 ### Windows test suite
