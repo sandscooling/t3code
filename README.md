@@ -27,9 +27,7 @@ Always available to every agent session, with no setting to turn on:
 - Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - An answered question stays out of the "+N tool calls" fold, so the tool calls after it cannot hide it.
 - A plan usage pill in the composer, showing how much of the current plan window is used.
-- An agents row in the composer activity banner, with Tasks and Agents tabs that keep one height and hide once work settles. An agent with its own thread opens it.
-- The tasks banner stays up after you interrupt a turn.
-- While no agent is working, the background work banner shows how long the newest command or watch has been running. A working agent shows its own clock in the agents row instead.
+- The background work banner shows how long the newest command or watch has been running.
 
 ### Threads and sidebar
 

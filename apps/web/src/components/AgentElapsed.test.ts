@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { elapsedBetween, isAgentTicking } from "./AgentElapsed";
+import { elapsedBetween } from "./AgentElapsed";
 
 const START = "2026-08-11T12:00:00.000Z";
 
@@ -32,23 +32,5 @@ describe("elapsedBetween", () => {
   it("returns nothing renderable for an unparseable timestamp", () => {
     expect(elapsedBetween("not-a-date", plus(60))).toBe("");
     expect(elapsedBetween(START, "not-a-date")).toBe("");
-  });
-});
-
-describe("isAgentTicking", () => {
-  // Drives both the composer bar's clock and its dropped "Working" label, so
-  // a status landing on the wrong side shows a frozen number on a live row.
-  it("ticks only for the states that are actively accruing time", () => {
-    expect(isAgentTicking("running")).toBe(true);
-    expect(isAgentTicking("waiting")).toBe(true);
-  });
-
-  it("holds still for pending, idle, and every settled state", () => {
-    expect(isAgentTicking("pending")).toBe(false);
-    expect(isAgentTicking("idle")).toBe(false);
-    expect(isAgentTicking("completed")).toBe(false);
-    expect(isAgentTicking("failed")).toBe(false);
-    expect(isAgentTicking("cancelled")).toBe(false);
-    expect(isAgentTicking("interrupted")).toBe(false);
   });
 });

@@ -1,11 +1,10 @@
 /**
  * Fork: a clock counting up from a start time, for work that has no subagent
  * record to hand upstream's chat/AgentElapsed (the monitoring banner's
- * background tasks), plus the ticking rule the composer agents feed shares.
+ * background tasks).
  *
  * The live clock self-ticks via DOM writes (zero React commits per tick).
  */
-import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
 import { useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
@@ -30,10 +29,6 @@ export function elapsedBetween(startedAt: string, endIso: string | null): string
     return "";
   }
   return formatElapsedSeconds((end - start) / 1000);
-}
-
-export function isAgentTicking(status: RuntimeSubagent["status"]): boolean {
-  return status === "running" || status === "waiting";
 }
 
 /** A clock counting up from `startedAt`, ticking by DOM write once a second. */

@@ -63,7 +63,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  ThreadId,
+  type ThreadId,
   type ThreadLinkedPullRequest,
   type RunId,
   type RuntimeRequestId,
@@ -192,9 +192,6 @@ import {
   resolveHandoffFollow, // Fork: handoff follow
 } from "../session-logic";
 import { LiveElapsed } from "./AgentElapsed";
-// Fork: the composer activity feed's agents row.
-import { deriveThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
-import { composerAgentUnsettledCount } from "./chat/ComposerAgentsBadge"; // Fork: background work clock
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
@@ -2374,17 +2371,13 @@ export default function ChatView(props: ChatViewProps) {
     () => deriveActivePlanState(serverProjection, activeActivityRun?.runId),
     [activeActivityRun?.runId, serverProjection],
   );
-  // Tasks progress for the running turn. deriveActivePlanState falls back to
-  // older runs' plans (Fork: kept while unfinished, see below).
+  // Tasks progress for the running turn's own plan only — deriveActivePlanState
+  // falls back to older runs' plans, which must not label fresh work.
   const activeComposerTasksProgress = useMemo(() => {
-    // Fork: interrupting the agent and sending again opens a new run, while the
-    // plan it is still working through belongs to the run before. An older run's
-    // plan stays up while it has unfinished steps; a finished one still drops out.
     if (
       isLatestRunSettled(activeActivityRun, activeRuntime) ||
       !activePlan ||
-      (activePlan.runId !== (activeActivityRun?.runId ?? null) &&
-        activePlan.steps.every((step) => step.status === "completed"))
+      activePlan.runId !== (activeActivityRun?.runId ?? null)
     ) {
       return null;
     }
@@ -2399,17 +2392,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeActivityRun, activePlan, activeRuntime]);
   const activeComposerTaskSteps =
     activeComposerTasksProgress && activePlan ? activePlan.steps : null;
-  // Fork: the composer activity feed's agents row, the turn's subagent roster.
-  // Keyed on the same two inputs as client-runtime's turnSubagentsAtom.
-  const projectionRuns = serverProjection?.runs;
-  const projectionSubagents = serverProjection?.subagents;
-  const activeTurnSubagents = useMemo(
-    () =>
-      projectionRuns && projectionSubagents
-        ? deriveThreadTurnSubagents({ runs: projectionRuns, subagents: projectionSubagents })
-        : null,
-    [projectionRuns, projectionSubagents],
-  );
   const activeProjectRef = useMemo(
     () =>
       activeThread ? scopeProjectRef(activeThread.environmentId, activeThread.projectId) : null,
@@ -4529,8 +4511,6 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, storeSetTerminalOpen],
   );
-  // Activity-bar shells row: the session may be a server-side terminal this
-  // client has never opened locally, so ensure it before focusing the drawer.
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
     const nextOpen = !terminalUiState.terminalOpen;
@@ -6944,12 +6924,8 @@ export default function ChatView(props: ChatViewProps) {
     if (presentation === null || !activeThread) {
       return null;
     }
-    // Fork: how long the newest task has run, unless a live agent already shows
-    // its own clock in the agents row. Ticks once a second by DOM write.
-    const clockStartedAt = backgroundWorkClockStartedAt(
-      activeBackgroundTasks,
-      activeTurnSubagents !== null && composerAgentUnsettledCount(activeTurnSubagents) > 0,
-    );
+    // Fork: how long the newest task has run. Ticks once a second by DOM write.
+    const clockStartedAt = backgroundWorkClockStartedAt(activeBackgroundTasks);
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -7012,7 +6988,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeBackgroundTasks,
     activeThread,
-    activeTurnSubagents,
     handleStopBackgroundWork,
     isStoppingBackgroundWork,
     onOpenRelatedThread,
@@ -11024,9 +10999,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeContextWindow={activeContextWindow}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
-                              // Fork: the agents row of the composer activity feed.
-                              activeAgents={activeTurnSubagents}
-                              onOpenAgentThread={onOpenRelatedThread}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
                               compactDisabledReason={compactDisabledReason}
