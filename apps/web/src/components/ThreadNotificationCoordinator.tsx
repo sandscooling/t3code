@@ -1,4 +1,5 @@
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { isSilencedCrewAlert } from "@t3tools/shared/crewSession"; // Fork: quiet crew completions
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -203,6 +204,8 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      // Fork: a crew session finishing a turn is idle, not done, so it stays quiet.
+      if (isSilencedCrewAlert(thread, kind)) continue;
       const title =
         kind === "completion"
           ? "Thread completed"

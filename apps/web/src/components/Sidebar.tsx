@@ -11,6 +11,8 @@ import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
+import { backgroundWorkClockStartedAt } from "./ChatView.logic"; // Fork: Waiting duration
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
@@ -1328,13 +1330,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       icon: "woke" as const,
                       className: "text-warning",
                     }
-                  : isUnread
-                    ? {
-                        label: "Done",
-                        icon: "done" as const,
-                        className: "text-success",
-                      }
-                    : null;
+                  : // Fork: an unsettled crew session between turns is idle, not done.
+                    isIdleCrewSession(thread, status)
+                    ? { label: "Idle", icon: null, className: "text-muted-foreground" }
+                    : isUnread
+                      ? {
+                          label: "Done",
+                          icon: "done" as const,
+                          className: "text-success",
+                        }
+                      : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -2016,6 +2021,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
+                            </span>
+                          ) : status === "waiting" ? (
+                            // Fork: Waiting ticks from the background work banner's clock.
+                            <span aria-hidden>
+                              <WorkingDuration
+                                startedAt={backgroundWorkClockStartedAt(
+                                  thread.pendingBackgroundTasks,
+                                )}
+                              />
                             </span>
                           ) : null}
                         </span>

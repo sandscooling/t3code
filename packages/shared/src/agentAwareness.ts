@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
+import { isSilencedCrewAlert } from "./crewSession.ts"; // Fork: quiet crew completions
 import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
 
 export type AgentAwarenessPhase =
@@ -48,6 +49,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
+    | "spawnedByThreadId" // Fork: crew sessions
     | "status"
     | "title"
     | "updatedAt"
@@ -64,6 +66,8 @@ export function projectThreadAwarenessV2(
   if (phase === null) {
     return null;
   }
+  // Fork: a crew session finishing a turn is idle, not done: no push, no Done card.
+  if (phase === "completed" && isSilencedCrewAlert(thread, "completion")) return null;
   const detail =
     phase === "completed"
       ? "Review the completed task."

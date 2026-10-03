@@ -15,6 +15,7 @@ Always available to every agent session, with no setting to turn on:
 
 - MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_rename`, `session_models`, `session_projects`. `session_list` reports each session as `running`, `monitoring` (its turn ended but a watch or background command is still going), or `ready`.
 - `session_spawn` can pick the provider, model and reasoning effort, and can start work in any project on the server.
+- A spawned session that finishes a turn shows "Idle" in the sidebar and on mobile instead of "Done", until it is settled, and its finished turns make no sound, popup or phone notification (failures, questions and approvals still alert). In the desktop and web sidebar, a "Waiting" thread shows how long its background work has been running.
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.
 - `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled. The successor is pinned automatically, in the old one's pinned slot if it had one. A client reading the old orchestrator when it hands off follows to the successor.
 - `session_spawn` can attach a session to an existing git worktree you created, by path and branch or by naming a session already in it; a handoff successor stays in its predecessor's worktree. T3 never creates, recreates, or deletes these attached worktrees.

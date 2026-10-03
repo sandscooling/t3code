@@ -1,6 +1,7 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
+import { isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
 import * as React from "react";
 import {
   isAtomCommandInterrupted,
@@ -600,7 +601,8 @@ export interface ThreadStatusPill {
     | "Pending Approval"
     | "Awaiting Input"
     | "Waiting"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Idle"; // Fork: crew sessions
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -614,6 +616,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
+  Idle: 0, // Fork: crew sessions
 };
 
 type ThreadStatusInput = Pick<
@@ -627,6 +630,9 @@ type ThreadStatusInput = Pick<
 > & {
   lastVisitedAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
+  // Fork: crew sessions read Idle.
+  spawnedByThreadId?: SidebarThreadSummary["spawnedByThreadId"] | undefined;
+  settledOverride?: SidebarThreadSummary["settledOverride"] | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -1238,6 +1244,16 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
+  // Fork: an unsettled crew session between turns is idle, not done.
+  if (isIdleCrewSession(thread, resolveSidebarThreadStatus(thread))) {
+    return {
+      label: "Idle",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
+      pulse: false,
+    };
+  }
+
   if (hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
@@ -1256,7 +1272,7 @@ export function resolveProjectStatusIndicator(
   let highestPriorityStatus: ThreadStatusPill | null = null;
 
   for (const status of statuses) {
-    if (status === null) continue;
+    if (status === null || status.label === "Idle") continue; // Fork: idle crew is not project activity
     if (
       highestPriorityStatus === null ||
       THREAD_STATUS_PRIORITY[status.label] > THREAD_STATUS_PRIORITY[highestPriorityStatus.label]
