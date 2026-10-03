@@ -24,13 +24,12 @@ Always available to every agent session, with no setting to turn on:
 ### Chat and composer
 
 - Mermaid diagrams in chat, with pan and zoom, cached across thread switches. From closed upstream PR [#4989](https://github.com/pingdotgg/t3code/pull/4989).
-- Images Codex generates get their own work log row, show without expanding it, and stay visible when the work log folds. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
+- Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
+- An answered question stays out of the "+N tool calls" fold, so the tool calls after it cannot hide it.
 - A plan usage pill in the composer, showing how much of the current plan window is used.
 - An agents row in the composer activity banner, with Tasks and Agents tabs that keep one height and hide once work settles. An agent with its own thread opens it.
 - The tasks banner stays up after you interrupt a turn.
-- The background work banner shows how long the newest command or watch has been running.
-- Stopped turns are marked in the transcript.
-- The question panel scales with the appearance font size.
+- While no agent is working, the background work banner shows how long the newest command or watch has been running. A working agent shows its own clock in the agents row instead.
 
 ### Threads and sidebar
 
@@ -40,7 +39,7 @@ Always available to every agent session, with no setting to turn on:
 - Per-thread Claude output style.
 - A setting to stop threads renaming themselves.
 - Browser previews close once a thread settles.
-- A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several show as a readable list rather than a collapsed pile. It appears even if the question arrived while the window was in the background, and comes back after a restart for any thread still waiting. It clears when you open that thread, use its "Open thread" button, or the question is answered anywhere. Failures still fade on their own, and a finished thread gets its sound and background popup but no toast.
+- A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several show as a readable list rather than a collapsed pile. It appears even if the question arrived while the window was in the background, and comes back after a restart for any thread still waiting. It clears when you open that thread, use its "Open thread" button, or the thread stops waiting (answered anywhere, even while this client was disconnected, or failed). Failures still fade on their own, and a finished thread gets its sound and background popup but no toast.
 
 ### Browser automation
 
@@ -55,9 +54,6 @@ Always available to every agent session, with no setting to turn on:
 - Database backups and `t3 service install` work on Windows (file flush fixes).
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
-- Old rate limit rows are pruned from thread activity.
-- A Claude question asked while the agent was working on its own stays open when another session's message arrives, instead of vanishing and leaving the agent stuck.
-- A question whose agent died (a crash or restart) clears instead of locking the thread forever. From open upstream PR [#10586](https://github.com/pingdotgg/t3code/pull/10586).
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
 - Agents are told to wrap image paths that contain spaces in angle brackets, so the image renders instead of showing as text. Remove when upstream PR [#12815](https://github.com/pingdotgg/t3code/pull/12815) lands.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.

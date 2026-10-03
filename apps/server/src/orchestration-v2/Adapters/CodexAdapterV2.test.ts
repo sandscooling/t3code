@@ -6177,6 +6177,74 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  // Fork: an image Codex viewed reaches the work log the same way.
+  const IMAGE_VIEW_PATH = "/workspace/assets/fan.png";
+  it.effect("records a viewed image as a dynamic tool row carrying its path", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({
+            scenario: "codex-image-view",
+            entries: [
+              ...codexReplayPreamble({
+                nativeThreadId: IMAGE_NATIVE_THREAD,
+                nativeTurnId: IMAGE_NATIVE_TURN,
+                prompt: IMAGE_PROMPT,
+              }),
+              {
+                type: "emit_inbound",
+                label: "item/completed/image-view",
+                frame: {
+                  method: "item/completed",
+                  params: {
+                    item: { type: "imageView", id: "iv-fan", path: IMAGE_VIEW_PATH },
+                    threadId: IMAGE_NATIVE_THREAD,
+                    turnId: IMAGE_NATIVE_TURN,
+                    completedAtMs: 1782622441500,
+                  },
+                },
+              },
+              {
+                type: "emit_inbound",
+                label: "turn/completed",
+                frame: {
+                  method: "turn/completed",
+                  params: {
+                    threadId: IMAGE_NATIVE_THREAD,
+                    turn: makeCodexReplayTurn({ id: IMAGE_NATIVE_TURN, status: "completed" }),
+                  },
+                },
+              },
+            ],
+          }),
+        );
+        const now = yield* DateTime.now;
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-codex-image-view"),
+            text: IMAGE_PROMPT,
+          }),
+        );
+        yield* harness.firstTerminal;
+        const items = harness.events.flatMap((event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "dynamic_tool" &&
+          event.turnItem.nativeItemRef?.nativeId === "iv-fan"
+            ? [event.turnItem]
+            : [],
+        );
+        assert.lengthOf(items, 1);
+        assert.equal(items[0]?.toolName, "view_image");
+        assert.equal(items[0]?.title, "Viewed image");
+        assert.equal(items[0]?.viewedImagePath, IMAGE_VIEW_PATH);
+        assert.equal(items[0]?.status, "completed");
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
   const RESUME_SCENARIO = "codex-resume-subagent";
   const RESUME_NATIVE_THREAD = "native-codex-resume-thread";
   const RESUME_NATIVE_TURN = "native-codex-resume-root-turn";

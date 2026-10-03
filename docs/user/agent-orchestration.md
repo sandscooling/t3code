@@ -19,18 +19,21 @@ Every agent session gets seven tools:
   session's permission mode. It also inherits the
   caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
-  session. The name must be unique among that project's open sessions. With the handoff option,
-  the new session replaces the caller instead; see below.
+  session. No other open or settled session in that project may hold the name. With the handoff
+  option, the new session replaces the caller instead; see below.
 - **session_models** lists the providers and models a spawned session can use, with each model's
   options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_projects** lists the projects on this server that the other tools can reach.
 - **session_list** lists open sessions with their project, their group, the branch and worktree
   they run in, and a status: `running` while a turn is in flight, `monitoring` when the last turn
   ended but left a watch or background command going, and `ready` otherwise. It lists the caller's
-  own project by default, or another project, or all of them. Settled and archived sessions are not included, so a group's list empties as its sessions
-  finish and the agent driving them sees only what is still in flight.
-- **session_wake** sends a message to an existing session. If that session's process had stopped,
-  this brings it back.
+  own project by default, or another project, or all of them. Settled and archived sessions are
+  not included, so a group's list empties as its sessions finish and the agent driving them sees
+  only what is still in flight.
+- **session_wake** sends a message to an existing session. A session mid-turn takes it as a steer,
+  or queues it when its turn cannot be steered; any other session, settled ones included, starts a
+  new turn with it. The message shows in that session as sent by another agent, with a link back
+  to the sender.
 - **session_settle** settles a finished session, clearing it out of the inbox the same way the
   settle button does, and settling anything that session started, in any project. A session that is still
   running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
@@ -76,22 +79,19 @@ worktree yourself with `git worktree remove` when the lane is done.
 
 A session started this way keeps its title. Automatic titling never replaces it, so the name
 the orchestrator used is the name it can keep using until someone renames it. A thread id never
-changes, so it is the address to hand out when a name might.
-
-For Claude Code sessions whose title is a valid session name (no spaces), the title is also the
-name other Claude sessions see and can message, and it survives restarts: a session that stops
-and is woken again comes back under the same name. That covers every spawned session, and any
-thread you title that way yourself. A single long-lived orchestrator works well titled
-`orchestrator`, driving one group per ticket.
+changes, so it is the address to hand out when a name might. A single long-lived orchestrator
+works well titled `orchestrator`, driving one group per ticket.
 
 ## Settling what a session started
 
 Each spawned session remembers the session that started it. Settling the orchestrator settles
-the sessions it started, so one click clears the whole ticket from the inbox. A session that is
-still running, or that is waiting on an answer from you, is left where it is rather than hidden.
+the sessions it started, whether you settle it from the sidebar, with the settle button, or an
+agent uses **session_settle**, so one click clears the whole ticket from the inbox. A session
+that is still running, or that is waiting on an answer from you, is left where it is rather than
+hidden. A thread settled automatically by your settle rules leaves its sessions open.
 
-Stopping a session with the stop button ends its process; it stays in the list and can be woken
-by the orchestrator or by sending it a message yourself.
+Stopping a session's turn with the stop button leaves it in the list, and it can be woken by the
+orchestrator or by sending it a message yourself.
 
 ## Handing off a long-running orchestrator
 
@@ -154,9 +154,8 @@ There is no separate way to adopt sessions. They move only inside the handoff ca
      as `Orchestrator-2026-09-13`
    - rename yourself to the old name, for example from `orchestrator-2` to `Orchestrator`
 
-   The title changes at once. A Claude session's peer name, which other Claude sessions use to
-   message it, only follows the next time its process starts, so until then it still answers to
-   the temporary name. That is why step 2 hands out your threadId rather than a name.
+   The name works for **session_wake** at once. Step 2 still hands out your threadId, since a
+   threadId never changes and reaches you from any project.
 
 ### If something goes wrong
 

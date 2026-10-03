@@ -201,7 +201,7 @@ import {
   workEntryDisplayLabel,
   workEntryReadOutput,
   workEntryIsVisibleInGroup,
-  workEntryPinnedInGroup, // Fork: generated images show inline
+  workEntryPinnedInGroup, // Fork: images show inline, answers stay out of the fold
   worktreeSetupAgentStarted,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
@@ -5217,7 +5217,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </>
       }
     >
-      {/* Fork: a generated image shows without expanding the row. */}
+      {/* Fork: an image shows without expanding the row. */}
       {(expanded || workEntryPinnedInGroup(workEntry)) && viewedImage && threadRef ? (
         <WorkLogDetails kind="media">
           <ChatMarkdownAssetImage

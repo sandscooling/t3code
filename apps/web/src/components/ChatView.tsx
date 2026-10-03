@@ -192,6 +192,7 @@ import {
 import { LiveElapsed } from "./AgentElapsed";
 // Fork: the composer activity feed's agents row.
 import { deriveThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
+import { composerAgentUnsettledCount } from "./chat/ComposerAgentsBadge"; // Fork: background work clock
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
@@ -499,6 +500,7 @@ import {
   shouldRetargetThreadPullRequestPanel,
   shouldOpenProactiveTurnDiff,
   shouldReleaseTimelineAnchorForToolActivity,
+  backgroundWorkClockStartedAt, // Fork: background work clock
   shouldRenderPreviewMiniPlayer,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -6907,15 +6909,11 @@ export default function ChatView(props: ChatViewProps) {
     if (presentation === null || !activeThread) {
       return null;
     }
-    // Fork: how long the newest task has run, the one the agent last started
-    // waiting on. Ticks once a second by DOM write, never per frame.
-    const clockStartedAt = activeBackgroundTasks.reduce<string | null>(
-      (newest, task) =>
-        task.startedAt !== undefined &&
-        (newest === null || Date.parse(task.startedAt) > Date.parse(newest))
-          ? task.startedAt
-          : newest,
-      null,
+    // Fork: how long the newest task has run, unless a live agent already shows
+    // its own clock in the agents row. Ticks once a second by DOM write.
+    const clockStartedAt = backgroundWorkClockStartedAt(
+      activeBackgroundTasks,
+      activeTurnSubagents !== null && composerAgentUnsettledCount(activeTurnSubagents) > 0,
     );
     return {
       id: `background-work:${activeThread.id}`,
@@ -6974,6 +6972,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeBackgroundTasks,
     activeThread,
+    activeTurnSubagents,
     handleStopBackgroundWork,
     isStoppingBackgroundWork,
     onOpenRelatedThread,

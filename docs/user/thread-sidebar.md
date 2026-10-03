@@ -151,15 +151,10 @@ already settled threads.
 
 ## Spawned sessions
 
-An agent using the orchestration tools starts other sessions in the same project. The
-sidebar nests them under the session that started them: that orchestrator keeps its own
-row, with a live count and a chevron that shows or hides the sessions below it. Inside
-the nest, sessions run in the order they were started, and sessions that share a group
-sit together under a header naming that group.
-
-A small dot on each nested row is green while a process is running behind it and muted
-once it has stopped. A stopped session keeps its history; messaging it starts a fresh
-process under the same name.
+An agent using the orchestration tools can start other sessions in any project. Each one
+is an ordinary thread with its own row, under the project it runs in. To keep a project's
+sessions together, turn on **Group threads by project** in Settings, Appearance; the
+project's orchestrator then leads its group.
 
 Settling the orchestrator settles the sessions it started. A session that is still
 working, or waiting on an answer from you, stays where it is. See

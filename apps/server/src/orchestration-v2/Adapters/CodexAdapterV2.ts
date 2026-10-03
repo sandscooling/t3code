@@ -1153,10 +1153,11 @@ type CodexWebSearchItem = {
 };
 
 /**
- * Fork: the tool name a Codex generated image is recorded under. The web work
- * log matches it (MessagesTimeline.logic.ts) to keep the image on screen.
+ * Fork: the tool names a Codex generated or viewed image is recorded under. The
+ * web work log keeps any row carrying a viewedImagePath on screen.
  */
 export const CODEX_IMAGE_GENERATION_TOOL_NAME = "image_generation";
+export const CODEX_IMAGE_VIEW_TOOL_NAME = "view_image";
 
 export type CodexDynamicToolItem = Extract<
   | CodexSchema.V2ItemStartedNotification__ThreadItem
@@ -4324,6 +4325,35 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                         title: "Generated image",
                         viewedImagePath: savedPath,
                       }
+                    : artifacts.turnItem,
+              });
+              return;
+            }
+
+            // Fork: an image Codex viewed, recorded the same way with its path.
+            if (payload.item.type === "imageView") {
+              const path = trimText(payload.item.path);
+              if (path === undefined) {
+                return;
+              }
+              const artifacts = yield* buildDynamicToolArtifacts(context, {
+                type: "dynamicToolCall",
+                id: payload.item.id,
+                tool: CODEX_IMAGE_VIEW_TOOL_NAME,
+                arguments: { path },
+                status: "completed",
+              });
+              yield* emitProviderEvent({
+                type: "node.updated",
+                driver: CODEX_PROVIDER,
+                node: artifacts.node,
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                driver: CODEX_PROVIDER,
+                turnItem:
+                  artifacts.turnItem.type === "dynamic_tool"
+                    ? { ...artifacts.turnItem, title: "Viewed image", viewedImagePath: path }
                     : artifacts.turnItem,
               });
               return;

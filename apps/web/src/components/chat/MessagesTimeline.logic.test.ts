@@ -4789,8 +4789,9 @@ describe("failed turn transcript", () => {
   );
 });
 
-// Fork: generated images are content to look at, so the fold never swallows them.
-describe("generated image work rows", () => {
+// Fork: images and answered questions are content to look at, so the fold never
+// swallows them. Every test in this block is fork-owned.
+describe("pinned work rows (fork)", () => {
   const createdAt = "2026-09-01T12:00:00Z";
   const command = (id: string): WorkLogEntry => ({
     id,
@@ -4836,7 +4837,55 @@ describe("generated image work rows", () => {
     ).toEqual(["folded:2", ["img"], ["c"]]);
   });
 
-  it("leaves an image the agent only viewed in the group, as upstream does", () => {
-    expect(groupedIds([command("a"), image("img", "Read"), command("c")])).toEqual(["folded:3"]);
+  // Fork: an image the agent viewed pins too, as v1 did.
+  it("keeps an image the agent viewed as its own row, as v1 did", () => {
+    expect(groupedIds([command("a"), command("b"), image("img", "Read"), command("c")])).toEqual([
+      "folded:2",
+      ["img"],
+      ["c"],
+    ]);
+  });
+
+  // Fork: a Read of an image path pins without a viewedImagePath.
+  it("keeps a Read of an image file without a viewed path as its own row", () => {
+    const read: WorkLogEntry = {
+      id: "read",
+      createdAt,
+      label: "Read fan.png",
+      tone: "tool",
+      requestKind: "file-read",
+      detail: "assets/fan.png",
+    };
+    expect(groupedIds([command("a"), command("b"), read, command("c")])).toEqual([
+      "folded:2",
+      ["read"],
+      ["c"],
+    ]);
+  });
+
+  // Fork: a submitted answer stays out of the fold (fork commit c9aa31f1a7).
+  it("keeps a submitted answer out of the fold when later work follows it", () => {
+    const answer: WorkLogEntry = {
+      id: "answer",
+      createdAt,
+      label: "Answered questions",
+      tone: "info",
+      itemType: "user_input_request",
+      questionAnswer: {
+        requestId: RuntimeRequestId.make("question-request"),
+        answers: { scope: "Fold the two fixes in" },
+        attachmentsByQuestionId: {},
+      },
+    };
+    expect(groupedIds([command("a"), answer, command("b"), command("c")])).toEqual([
+      ["a"],
+      ["answer"],
+      "folded:2",
+    ]);
+  });
+
+  // Fork: the pin leaves ordinary tool calls folded.
+  it("still folds plain tool calls", () => {
+    expect(groupedIds([command("a"), command("b"), command("c")])).toEqual(["folded:3"]);
   });
 });

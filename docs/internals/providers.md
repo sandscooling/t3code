@@ -153,32 +153,43 @@ is minted when the session starts, carrying `preview` when `enableAgentBrowserAc
 credential, no server attached. Each toolkit begins by requiring its capability, so a preview-only
 credential cannot spawn sessions.
 
-The orchestration toolkit ([handlers](../../apps/server/src/mcp/toolkits/orchestration/handlers.ts))
-exposes `session_spawn`, `session_models`, `session_projects`, `session_list`, `session_wake`,
-and `session_settle`. Spawn copies the caller's `modelSelection` unless it is
-given a provider, model, or options, and those are checked against `ProviderRegistry` before
-`thread.create`: nothing downstream validates a selection, so a bad slug would otherwise surface
-only as a provider failure on a thread that already exists. The session tools read the projection
-through `ProjectionSnapshotQuery` and dispatch ordinary commands with `server:orchestration-*`
-command ids.
+The fork's session tools (`session_spawn`, `session_models`, `session_projects`, `session_list`,
+`session_wake`, `session_settle`, `session_rename`) are thin handlers over
+[SessionMcpService](../../apps/server/src/mcp/toolkits/orchestration/SessionMcpService.ts), which
+drives the v2 `ThreadLaunchService` and `ThreadManagementService`. A session is an ordinary
+top-level thread, unlike v2's own `delegate_task` children, which are hidden subagents, and unlike
+v2's thread tools, which stop at the caller's project. Spawn copies the caller's `modelSelection`
+unless it is given a provider, model, or options, and checks those against `ProviderRegistry`
+before launching: nothing downstream validates a selection, so a bad slug would otherwise surface
+only as a provider failure on a thread that already exists.
 
-They reach every project on the server, so one orchestrator can drive several, but a bare name
-resolves only in the caller's own project and anything further is addressed by threadId. Names are
-unique per project, not per server, and the Claude peer registry is machine-wide, so the same
-name can exist in two projects; a threadId is the only address that cannot pick the wrong one.
-`session_list` defaults to the caller's project for the same reason it hides settled rows: an
-orchestrator polls it. Spawn is `thread.create` followed by
-`thread.turn.start` with no `titleSeed`, which keeps the title out of reach of automatic titling.
-Wake is a bare `thread.turn.start`, which respawns a stopped provider process. `session_list` also hides settled sessions, since a settled row reads as running to an agent
-polling its roster and it settles the same sessions on every pass. They stay reachable by name
-for `session_wake` and still hold their name against `session_spawn`. Settle is a bare
-`thread.settle`, so the decider keeps sole ownership of settle eligibility; its refusal comes back
-as the distinct `settle-blocked` reason rather than a generic dispatch failure. A caller cannot
-settle itself, because its own turn is running while the tool call is in flight.
+The tools reach every project on the server, but a bare name resolves only in the caller's own
+project, and anything further is addressed by threadId. Names are unique per project, settled
+sessions included, since `session_wake` still reaches those by name. `session_list` hides settled
+sessions (except the caller's own row, the only place a session reads its threadId), because a
+settled row reads as running to an agent polling its roster. Wake is `sendToThread` in `auto`
+mode, so it steers a running turn, queues behind one that cannot be steered, or starts a turn,
+reopening a settled thread.
 
-A spawned thread records both a `group` and the caller as its `parentThreadId`. The spawner stays
-ungrouped, since one orchestrator drives many tickets, but it is the parent, which is what lets the
-sidebar nest a run under its driver and settle the whole roster at once. For any thread whose title
-matches `SESSION_NAME_PATTERN` the command reactor passes `peerName` in `ProviderSessionStartInput`;
-the Claude adapter forwards it as `CLAUDE_CODE_SESSION_NAME` on a per-session copy of the
-environment, so the CLI registers under that name across restarts. Other adapters ignore `peerName`.
+Spawn launches with `skipSetupScript`, because a setup script such as a dependency install would
+rewrite a directory other sessions are working in, on every spawn. T3 never creates, recreates, or
+deletes the worktree a session is attached to: it only records a branch and path, after checking
+the path against the worktrees git lists for that project. A worktree never follows a session into
+another project. If a launched thread cannot be completed (its group and spawner fail to record),
+it is archived, so a half-made session does not hold the name against a retry.
+
+A spawned thread records its `group` and `spawnedByThreadId` (the caller) through
+`thread.metadata.update`. The spawner stays ungrouped, since one orchestrator drives many lanes.
+The settle cascade lives in the Orchestrator, not the tool: every explicit `thread.settle`, from
+the tool, the sidebar, or any client, settles the threads it spawned, one level deep, each as its
+own command under its own lock after the parent's lock is released, and uninterruptibly.
+Automatic settlement (`thread.auto-settle`) never cascades. The decider keeps sole ownership of
+settle eligibility; a refusal comes back as `settle-blocked`, and a child it refuses stays open. A
+caller cannot settle itself, because its own turn is running while the tool call is in flight.
+
+A handoff successor takes the caller's spawner, so it is the caller's sibling and settling the old
+orchestrator does not take it along. Only after the successor exists does it adopt the caller's
+spawned sessions; then it is pinned in the caller's slot, and the caller records
+`successorThreadId`, which a client reading the caller follows. The pin and the successor link are
+cosmetic and never fail a handoff. The Orchestrator refuses a `spawnedByThreadId` or
+`successorThreadId` that points at the thread itself or at a missing or deleted thread.

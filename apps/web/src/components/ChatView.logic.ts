@@ -11,6 +11,7 @@ import {
   ProjectId,
   type MessageId,
   type ModelSelection,
+  type OrchestrationV2PendingBackgroundTask, // Fork: background work clock
   type OrchestrationV2ProjectedTurnItem,
   type PreviewAnnotationPayload,
   type ProviderInteractionMode,
@@ -232,6 +233,29 @@ export function shouldDockDraftHeroForSubmission(input: {
     input.isDraftHeroState &&
     input.activeThreadKey !== null
   );
+}
+
+/**
+ * Fork: when the background work banner's clock starts, or null for no clock.
+ * A live agent carries its own clock in the composer's agents row, so the
+ * banner clocks only while none is live, and then the newest task: the one the
+ * agent last started waiting on.
+ */
+export function backgroundWorkClockStartedAt(
+  tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
+  agentsLive: boolean,
+): string | null {
+  if (agentsLive) return null;
+  let newest: string | null = null;
+  for (const task of tasks) {
+    if (
+      task.startedAt !== undefined &&
+      (newest === null || Date.parse(task.startedAt) > Date.parse(newest))
+    ) {
+      newest = task.startedAt;
+    }
+  }
+  return newest;
 }
 
 export function shouldReleaseTimelineAnchorForToolActivity(input: {

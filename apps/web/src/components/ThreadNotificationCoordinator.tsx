@@ -113,6 +113,9 @@ function EnvironmentNotifications({
   const previous = useRef(
     new Map<ThreadId, { attention: string | null; completion: number | null }>(),
   );
+  // Fork: threads with a standing answer toast open. Unlike `previous` it
+  // survives a disconnect, so an answer that landed meanwhile still clears it.
+  const standing = useRef(new Set<ThreadId>());
 
   useEffect(() => {
     if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
@@ -120,6 +123,7 @@ function EnvironmentNotifications({
       return;
     }
     const next = new Map<ThreadId, { attention: string | null; completion: number | null }>();
+    const awaiting = new Set<ThreadId>(); // Fork: threads still waiting on an answer
     for (const rawThread of shell.snapshot.value.threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const thread = presentThreadShell(environmentId, rawThread);
@@ -139,11 +143,6 @@ function EnvironmentNotifications({
         settled && thread.latestRun?.status === "completed" && Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      // Fork: a toast that waits for an answer becomes a stale label the moment
-      // the thread stops asking, so retire it wherever the answer came from.
-      if (prior && prior.attention !== null && attention === null) {
-        toastManager.close(attentionToastId(environmentId, thread.id));
-      }
       next.set(thread.id, { attention, completion });
       // Fork: only threads that want the reader get a toast. Questions and
       // approvals stand until answered; failures and limits fall away on their
@@ -151,8 +150,10 @@ function EnvironmentNotifications({
       // system popup.
       if (thread.archivedAt !== null) continue;
       const awaitsAnswer = status === "input" || status === "approval";
+      if (awaitsAnswer) awaiting.add(thread.id);
       const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
       const showToast = (title: string) => {
+        if (awaitsAnswer) standing.current.add(thread.id);
         const toastId = toastManager.add({
           ...(awaitsAnswer
             ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
@@ -254,6 +255,14 @@ function EnvironmentNotifications({
       } catch {
         // Some browsers expose Notification but reject desktop presentation.
       }
+    }
+    // Fork: a standing toast becomes a stale label the moment its thread stops
+    // asking: answered anywhere (even while disconnected), turned into a
+    // failure or limit, archived, or gone.
+    for (const threadId of standing.current) {
+      if (awaiting.has(threadId)) continue;
+      toastManager.close(attentionToastId(environmentId, threadId));
+      standing.current.delete(threadId);
     }
     previous.current = next;
   }, [

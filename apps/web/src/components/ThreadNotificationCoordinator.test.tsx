@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   turnError: false,
   limited: false,
   subagent: false,
+  gone: false,
   background: [] as Array<{ taskId: string; kind: "command" | "monitor" }>,
   add: vi.fn(
     (_toast: {
@@ -96,7 +97,7 @@ function mockThreadShell() {
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: () => ({
     status: state.live ? "live" : "disconnected",
-    snapshot: Option.some({ threads: [mockThreadShell()] }),
+    snapshot: Option.some({ threads: state.gone ? [] : [mockThreadShell()] }),
   }),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -159,6 +160,7 @@ beforeEach(() => {
     turnError: false,
     limited: false,
     subagent: false,
+    gone: false,
     background: [],
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -291,6 +293,55 @@ describe("thread notifications", () => {
       expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
     },
   );
+
+  // Fork: a question that turns into a failure or a limit no longer wants an answer.
+  it.each(["sessionError", "limited"] as const)(
+    "closes the standing toast when the question turns into %s",
+    async (event) => {
+      await render();
+      state.input = true;
+      await render();
+      expect(state.close).not.toHaveBeenCalled();
+
+      state.input = false;
+      state[event] = true;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          title: event === "limited" ? "Usage limit reached" : "Thread failed",
+        }),
+      );
+    },
+  );
+
+  // Fork: `previous` is wiped while disconnected, so first sight must clean up.
+  it.each(["is answered", "disappears"] as const)(
+    "closes the standing toast when its thread %s while disconnected",
+    async (change) => {
+      await render();
+      state.input = true;
+      await render();
+      state.live = false;
+      await render();
+      if (change === "is answered") state.input = false;
+      else state.gone = true;
+      state.live = true;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+    },
+  );
+
+  it("keeps the standing toast across a reconnect while the question still waits", async () => {
+    await render();
+    state.input = true;
+    await render();
+    state.live = false;
+    await render();
+    state.live = true;
+    await render();
+    expect(state.close).not.toHaveBeenCalled();
+  });
 
   // Fork: a completion has no toast, so the hold shows in its sound.
   it("alerts when only a dev server is left running, not while a monitor can wake the agent", async () => {
