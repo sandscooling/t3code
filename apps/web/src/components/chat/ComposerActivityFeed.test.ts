@@ -1,7 +1,13 @@
-import type {
-  AgentPanelModel,
-  RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+import { deriveThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
+import {
+  NodeId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+  type OrchestrationV2Subagent,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,20 +15,41 @@ import {
   hasLiveComposerActivity,
   type ComposerActivityTasks,
 } from "./ComposerActivityFeed";
+import { composerAgentLead, composerAgentRows } from "./ComposerAgentsBadge";
 
-function agents(overrides: Partial<AgentPanelModel> = {}): AgentPanelModel {
+function subagent(
+  id: string,
+  status: OrchestrationV2Subagent["status"],
+  overrides: Partial<OrchestrationV2Subagent> = {},
+): OrchestrationV2Subagent {
   return {
-    workflows: [],
-    directAgents: [],
-    runningCount: 0,
-    waitingCount: 0,
-    idleCount: 0,
-    settledCount: 0,
-    totalTokens: 0,
-    hasAgents: true,
-    liveCount: 0,
+    id: NodeId.make(id),
+    threadId: ThreadId.make("thread-1"),
+    runId: RunId.make("run-1"),
+    parentNodeId: NodeId.make("node-1"),
+    origin: "provider_native",
+    createdBy: "agent",
+    driver: ProviderDriverKind.make("claudeAgent"),
+    providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+    providerThreadId: null,
+    childThreadId: null,
+    nativeTaskRef: null,
+    prompt: `Task ${id}`,
+    title: id,
+    model: null,
+    status,
+    result: null,
+    startedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-01-01T00:00:01.000Z"),
     ...overrides,
   };
+}
+
+// The roster the composer receives: v2's own derivation over one live run.
+function turn(...subagents: OrchestrationV2Subagent[]) {
+  const runs = [{ id: RunId.make("run-1"), status: "running" }] as never;
+  return deriveThreadTurnSubagents({ runs, subagents });
 }
 
 const tasks: ComposerActivityTasks = {
@@ -32,64 +59,33 @@ const tasks: ComposerActivityTasks = {
 
 describe("hasLiveComposerActivity", () => {
   it("drops the strip once the last agent settles", () => {
-    expect(hasLiveComposerActivity({ agents: agents({ settledCount: 3 }), tasks: null })).toBe(
-      false,
+    const agents = turn(
+      subagent("a", "completed"),
+      subagent("b", "failed"),
+      subagent("c", "cancelled"),
     );
+    expect(hasLiveComposerActivity({ agents, tasks: null })).toBe(false);
   });
 
   it("keeps the strip while an agent is still running", () => {
-    expect(
-      hasLiveComposerActivity({
-        agents: agents({ runningCount: 1, liveCount: 1, settledCount: 2 }),
-        tasks: null,
-      }),
-    ).toBe(true);
+    const agents = turn(subagent("a", "running"), subagent("b", "completed"));
+    expect(hasLiveComposerActivity({ agents, tasks: null })).toBe(true);
   });
 
   it("keeps the strip for an idle agent, which has not settled", () => {
-    expect(hasLiveComposerActivity({ agents: agents({ idleCount: 1 }), tasks: null })).toBe(true);
+    expect(hasLiveComposerActivity({ agents: turn(subagent("a", "idle")), tasks: null })).toBe(
+      true,
+    );
   });
 
   it("keeps a live task list even when every agent has settled", () => {
-    expect(hasLiveComposerActivity({ agents: agents({ settledCount: 2 }), tasks })).toBe(true);
+    expect(hasLiveComposerActivity({ agents: turn(subagent("a", "completed")), tasks })).toBe(true);
   });
 
   it("hides the strip when neither feed exists", () => {
     expect(hasLiveComposerActivity({ agents: null, tasks: null })).toBe(false);
   });
 });
-
-function subagent(id: string): RuntimeSubagent {
-  return {
-    id,
-    kind: "subagent",
-    title: id,
-    role: null,
-    model: null,
-    effort: null,
-    status: "running",
-    activationCount: 1,
-    usage: null,
-    progress: null,
-    lastToolName: null,
-    result: null,
-    error: null,
-    outputFile: null,
-    parentAgentId: null,
-    agentIndex: null,
-    phaseIndex: null,
-    phaseTitle: null,
-    attempt: null,
-    workflowName: null,
-    phases: [],
-    runHandles: null,
-    recentActivity: [],
-    firstSeenAt: "2026-01-01T00:00:00.000Z",
-    startedAt: "2026-01-01T00:00:00.000Z",
-    completedAt: null,
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
-}
 
 function taskSteps(count: number): ComposerActivityTasks {
   return {
@@ -104,21 +100,14 @@ function taskSteps(count: number): ComposerActivityTasks {
 describe("composerActivityReservedRows", () => {
   it("reserves the taller feed so switching tabs holds the height", () => {
     expect(
-      composerActivityReservedRows({
-        agents: agents({ directAgents: [subagent("a")], runningCount: 1, liveCount: 1 }),
-        tasks: taskSteps(6),
-      }),
+      composerActivityReservedRows({ agents: turn(subagent("a", "running")), tasks: taskSteps(6) }),
     ).toBe(6);
   });
 
   it("reserves the agent roster when it is the taller feed", () => {
     expect(
       composerActivityReservedRows({
-        agents: agents({
-          directAgents: [subagent("a"), subagent("b"), subagent("c")],
-          runningCount: 3,
-          liveCount: 3,
-        }),
+        agents: turn(subagent("a", "running"), subagent("b", "running"), subagent("c", "running")),
         tasks: taskSteps(1),
       }),
     ).toBe(3);
@@ -126,11 +115,32 @@ describe("composerActivityReservedRows", () => {
 
   it("reserves nothing for a lone feed, which has no other tab to match", () => {
     expect(
-      composerActivityReservedRows({
-        agents: agents({ directAgents: [subagent("a")], runningCount: 1, liveCount: 1 }),
-        tasks: null,
-      }),
+      composerActivityReservedRows({ agents: turn(subagent("a", "running")), tasks: null }),
     ).toBe(0);
     expect(composerActivityReservedRows({ agents: null, tasks: taskSteps(4) })).toBe(0);
+  });
+});
+
+describe("composer agent rows", () => {
+  it("names the first unsettled agent on the summary line", () => {
+    const agents = turn(
+      subagent("done", "completed", { startedAt: DateTime.makeUnsafe("2026-01-01T00:00:00Z") }),
+      subagent("busy", "running", { startedAt: DateTime.makeUnsafe("2026-01-01T00:00:05Z") }),
+    );
+    expect(agents && composerAgentLead(agents)?.title).toBe("busy");
+  });
+
+  it("links only the rows that have a thread of their own", () => {
+    const agents = turn(
+      subagent("native", "running"),
+      subagent("delegated", "running", {
+        childThreadId: ThreadId.make("thread-child"),
+        startedAt: DateTime.makeUnsafe("2026-01-01T00:00:05Z"),
+      }),
+    );
+    expect(agents && composerAgentRows(agents).map((row) => row.childThreadId)).toEqual([
+      null,
+      ThreadId.make("thread-child"),
+    ]);
   });
 });

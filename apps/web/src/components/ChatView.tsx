@@ -190,6 +190,8 @@ import {
   resolveHandoffFollow, // Fork: handoff follow
 } from "../session-logic";
 import { LiveElapsed } from "./AgentElapsed";
+// Fork: the composer activity feed's agents row.
+import { deriveThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
@@ -2356,13 +2358,17 @@ export default function ChatView(props: ChatViewProps) {
     () => deriveActivePlanState(serverProjection, activeActivityRun?.runId),
     [activeActivityRun?.runId, serverProjection],
   );
-  // Tasks progress for the running turn's own plan only — deriveActivePlanState
-  // falls back to older runs' plans, which must not label fresh work.
+  // Tasks progress for the running turn. deriveActivePlanState falls back to
+  // older runs' plans (Fork: kept while unfinished, see below).
   const activeComposerTasksProgress = useMemo(() => {
+    // Fork: interrupting the agent and sending again opens a new run, while the
+    // plan it is still working through belongs to the run before. An older run's
+    // plan stays up while it has unfinished steps; a finished one still drops out.
     if (
       isLatestRunSettled(activeActivityRun, activeRuntime) ||
       !activePlan ||
-      activePlan.runId !== (activeActivityRun?.runId ?? null)
+      (activePlan.runId !== (activeActivityRun?.runId ?? null) &&
+        activePlan.steps.every((step) => step.status === "completed"))
     ) {
       return null;
     }
@@ -2377,6 +2383,17 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeActivityRun, activePlan, activeRuntime]);
   const activeComposerTaskSteps =
     activeComposerTasksProgress && activePlan ? activePlan.steps : null;
+  // Fork: the composer activity feed's agents row, the turn's subagent roster.
+  // Keyed on the same two inputs as client-runtime's turnSubagentsAtom.
+  const projectionRuns = serverProjection?.runs;
+  const projectionSubagents = serverProjection?.subagents;
+  const activeTurnSubagents = useMemo(
+    () =>
+      projectionRuns && projectionSubagents
+        ? deriveThreadTurnSubagents({ runs: projectionRuns, subagents: projectionSubagents })
+        : null,
+    [projectionRuns, projectionSubagents],
+  );
   const activeProjectRef = useMemo(
     () =>
       activeThread ? scopeProjectRef(activeThread.environmentId, activeThread.projectId) : null,
@@ -6890,6 +6907,16 @@ export default function ChatView(props: ChatViewProps) {
     if (presentation === null || !activeThread) {
       return null;
     }
+    // Fork: how long the newest task has run, the one the agent last started
+    // waiting on. Ticks once a second by DOM write, never per frame.
+    const clockStartedAt = activeBackgroundTasks.reduce<string | null>(
+      (newest, task) =>
+        task.startedAt !== undefined &&
+        (newest === null || Date.parse(task.startedAt) > Date.parse(newest))
+          ? task.startedAt
+          : newest,
+      null,
+    );
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -6925,14 +6952,23 @@ export default function ChatView(props: ChatViewProps) {
               );
             }),
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={isStoppingBackgroundWork}
-          onClick={() => void handleStopBackgroundWork()}
-        >
-          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        <>
+          {/* Fork: elapsed time of the newest background task. */}
+          {clockStartedAt === null ? null : (
+            <LiveElapsed
+              startedAt={clockStartedAt}
+              className="shrink-0 font-mono text-xs text-muted-foreground/80"
+            />
+          )}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={isStoppingBackgroundWork}
+            onClick={() => void handleStopBackgroundWork()}
+          >
+            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+          </Button>
+        </>
       ),
     };
   }, [
@@ -10935,6 +10971,9 @@ export default function ChatView(props: ChatViewProps) {
                               activeContextWindow={activeContextWindow}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
+                              // Fork: the agents row of the composer activity feed.
+                              activeAgents={activeTurnSubagents}
+                              onOpenAgentThread={onOpenRelatedThread}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
                               compactDisabledReason={compactDisabledReason}

@@ -24,14 +24,13 @@ Always available to every agent session, with no setting to turn on:
 ### Chat and composer
 
 - Mermaid diagrams in chat, with pan and zoom, cached across thread switches. From closed upstream PR [#4989](https://github.com/pingdotgg/t3code/pull/4989).
-- Generated or changed images get their own work log row, kept visible when the work log folds. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
+- Images Codex generates get their own work log row, show without expanding it, and stay visible when the work log folds. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - A plan usage pill in the composer, showing how much of the current plan window is used.
-- An agents row in the composer activity banner, with Tasks and Agents tabs that keep one height and hide once work settles.
+- An agents row in the composer activity banner, with Tasks and Agents tabs that keep one height and hide once work settles. An agent with its own thread opens it.
 - The tasks banner stays up after you interrupt a turn.
-- The Monitoring banner names the background command or watch it is waiting on, and shows how long it has been running.
+- The background work banner shows how long the newest command or watch has been running.
 - Stopped turns are marked in the transcript.
 - The question panel scales with the appearance font size.
-- The chat releases its scroll anchor when a turn settles, so the final reply is not stranded above blank space. Remove when upstream issue #5903 closes.
 
 ### Threads and sidebar
 

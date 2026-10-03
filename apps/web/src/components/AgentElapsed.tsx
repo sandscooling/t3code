@@ -1,10 +1,9 @@
 /**
- * Elapsed time for a subagent's current activation, shared by the Agents
- * right panel and the composer activity bar so both read the same clock.
+ * Fork: a clock counting up from a start time, for work that has no subagent
+ * record to hand upstream's chat/AgentElapsed (the monitoring banner's
+ * background tasks), plus the ticking rule the composer agents feed shares.
  *
- * Live rows self-tick via DOM writes (zero React commits per tick); settled
- * rows freeze at completedAt. The formatter stays exported because the
- * workflow summary rows render a frozen span rather than a ticking one.
+ * The live clock self-ticks via DOM writes (zero React commits per tick).
  */
 import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
 import { useEffect, useRef } from "react";
@@ -61,27 +60,6 @@ export function LiveElapsed({
   return (
     <span ref={textRef} className={cn("tabular-nums", className)}>
       {elapsedBetween(startedAt, null)}
-    </span>
-  );
-}
-
-export function AgentElapsed({
-  agent,
-  className,
-}: {
-  readonly agent: RuntimeSubagent;
-  readonly className?: string;
-}) {
-  const startedAt = agent.startedAt;
-  if (!startedAt) {
-    return null;
-  }
-  if (isAgentTicking(agent.status)) {
-    return <LiveElapsed startedAt={startedAt} className={className} />;
-  }
-  return (
-    <span className={cn("tabular-nums", className)}>
-      {elapsedBetween(startedAt, agent.completedAt)}
     </span>
   );
 }

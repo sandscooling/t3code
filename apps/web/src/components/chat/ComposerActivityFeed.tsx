@@ -1,13 +1,16 @@
-import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { ThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
+import type { ThreadId } from "@t3tools/contracts";
 import { BotIcon, ListTodoIcon } from "lucide-react";
 import { memo, useId, type ComponentProps, type CSSProperties } from "react";
 
-import { AgentElapsed, isAgentTicking } from "~/components/AgentElapsed";
+import { isAgentTicking } from "~/components/AgentElapsed";
 import { cn } from "~/lib/utils";
+import { AgentElapsed } from "./AgentElapsed";
 import {
   ComposerAgentsList,
   composerAgentLead,
   composerAgentRows,
+  composerAgentUnsettledCount,
   composerAgentWorkingCount,
 } from "./ComposerAgentsBadge";
 import { ComposerBanner } from "./ComposerBanner";
@@ -36,7 +39,7 @@ export interface ComposerActivityTasks {
 }
 
 export interface ComposerActivityFeeds {
-  readonly agents: AgentPanelModel | null;
+  readonly agents: ThreadTurnSubagents | null;
   readonly tasks: ComposerActivityTasks | null;
 }
 
@@ -50,7 +53,7 @@ export interface ComposerActivityFeeds {
  */
 export function hasLiveComposerActivity({ agents, tasks }: ComposerActivityFeeds): boolean {
   if (tasks !== null) return true;
-  return agents !== null && agents.liveCount + agents.idleCount > 0;
+  return agents !== null && composerAgentUnsettledCount(agents) > 0;
 }
 
 /** The tab actually shown: a requested tab whose feed went away falls back to the other. */
@@ -74,7 +77,7 @@ export function composerActivityReservedRows({ agents, tasks }: ComposerActivity
   return Math.max(tasks.steps.length, composerAgentRows(agents).length);
 }
 
-function agentCountLabel(model: AgentPanelModel): string {
+function agentCountLabel(model: ThreadTurnSubagents): string {
   const working = composerAgentWorkingCount(model);
   return working > 0 ? `${working}/${composerAgentRows(model).length}` : `${model.settledCount}`;
 }
@@ -103,12 +106,14 @@ function ActivitySummary({
           )}
           data-composer-activity-headline="true"
         >
-          {tasks ? tasks.progress.step : (lead?.workflowName ?? lead?.title ?? "Agents")}
+          {tasks ? tasks.progress.step : (lead?.title ?? "Agents")}
         </span>
       </ComposerBanner.Content>
       <ComposerBanner.Actions>
         {showLeadClock && lead ? (
-          <AgentElapsed agent={lead} className="shrink-0 font-mono text-muted-foreground/80" />
+          <span className="shrink-0 font-mono text-muted-foreground/80">
+            <AgentElapsed agent={lead} />
+          </span>
         ) : null}
         {tasks ? (
           <>
@@ -229,14 +234,14 @@ function ActivityTab({
 export const ComposerActivityContent = memo(function ComposerActivityContent({
   agents,
   expanded,
-  onOpenAgents,
+  onOpenAgentThread,
   onTabChange,
   onToggle,
   tab,
   tasks,
 }: ComposerActivityFeeds & {
   readonly expanded: boolean;
-  readonly onOpenAgents: () => void;
+  readonly onOpenAgentThread: (threadId: ThreadId) => void;
   readonly onTabChange: (tab: ComposerActivityTab) => void;
   readonly onToggle: () => void;
   readonly tab: ComposerActivityTab;
@@ -310,7 +315,7 @@ export const ComposerActivityContent = memo(function ComposerActivityContent({
                 <ComposerTasksList progress={tasks.progress} steps={tasks.steps} />
               ) : null}
               {activeTab === "agents" && agents ? (
-                <ComposerAgentsList model={agents} onOpenAgents={onOpenAgents} />
+                <ComposerAgentsList model={agents} onOpenAgentThread={onOpenAgentThread} />
               ) : null}
             </div>
           </ComposerBanner.Scroll>

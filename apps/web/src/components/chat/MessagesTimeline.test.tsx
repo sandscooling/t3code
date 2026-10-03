@@ -2308,7 +2308,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
-  it("renders Windows work-log image paths after Markdown URL sanitization", () => {
+  // Fork: a generated image renders inline, without expanding its row.
+  it("renders a generated image's Windows path inline after Markdown URL sanitization", () => {
     const imagePath = "C:\\Users\\mike\\dev-stuff\\t3code\\result.png";
     assetUrlMocks.useAssetUrlState.mockClear();
 
@@ -2339,10 +2340,11 @@ describe("MessagesTimeline", () => {
             entry: {
               id: "work-image-view",
               createdAt: MESSAGE_CREATED_AT,
-              label: "Viewed image",
+              label: "Generated image",
               tone: "tool",
-              itemType: "image_view",
-              imagePath,
+              itemType: "dynamic_tool",
+              viewedImagePath: imagePath,
+              structuredPayload: { type: "dynamic_tool", toolName: "image_generation" } as never,
             },
           },
         ]}

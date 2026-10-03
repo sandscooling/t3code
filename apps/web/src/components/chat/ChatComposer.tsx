@@ -125,7 +125,8 @@ import {
   usePromptStashStore,
   type PromptStashEntry,
 } from "../../promptStashStore";
-import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+// Fork: the composer activity feed carries the turn's subagents beside its tasks.
+import type { ThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
 
 import {
   ComposerActivityBadge,
@@ -1129,7 +1130,8 @@ import {
   resolveComposerDispatchMode,
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
-import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+// Fork: formatProviderDisplayName names the plan usage pill's provider.
+import { type ContextWindowSnapshot, formatProviderDisplayName } from "../../lib/contextWindow";
 import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
@@ -1591,12 +1593,11 @@ export interface ChatComposerProps {
   activeTaskSteps: readonly ComposerTaskStep[] | null;
   threadSyncPhase: ThreadSyncPhase | null;
 
-  // Agents. The composer strip carries the roster alongside the task list:
-  // subagents outlive the chat rows that spawned them, and the Agents right
-  // panel is not visible while you type. Rows click through to that panel,
-  // which stays the only place the full roster renders.
-  activeAgents: AgentPanelModel | null;
-  onOpenAgents: () => void;
+  // Fork: agents. The composer strip carries the turn's subagent roster
+  // alongside the task list, since subagents outlive the chat rows that
+  // spawned them. A row backed by its own thread opens that thread.
+  activeAgents: ThreadTurnSubagents | null;
+  onOpenAgentThread: (threadId: ThreadId) => void;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -1816,6 +1817,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const shownSyncPhase = useDelayedStatus(composerDraftTargetKey, props.threadSyncPhase);
   const activeTasksProgress = shownSyncPhase === null ? props.activeTasksProgress : null;
   const activeTaskSteps = shownSyncPhase === null ? props.activeTaskSteps : null;
+  // Fork: the agents feed hides with the tasks feed while the thread syncs.
+  const activeAgents = shownSyncPhase === null ? props.activeAgents : null;
   const isEditingQueuedMessage = editingQueuedAttachments !== null;
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
@@ -5558,7 +5561,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <ComposerActivityContent
         agents={activeAgents}
         expanded={isActivityDrawerOpen}
-        onOpenAgents={props.onOpenAgents}
+        onOpenAgentThread={props.onOpenAgentThread}
         onTabChange={setActivityTab}
         onToggle={toggleActivityDrawer}
         tab={activityTab}
@@ -6774,7 +6777,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerActivityDrawer
               agents={activeAgents}
               onCollapse={toggleActivityDrawer}
-              onOpenAgents={props.onOpenAgents}
+              onOpenAgentThread={props.onOpenAgentThread}
               onTabChange={setActivityTab}
               tab={activityTab}
               tasks={activeTasks}

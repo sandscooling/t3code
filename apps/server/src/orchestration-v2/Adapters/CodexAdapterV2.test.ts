@@ -6084,6 +6084,99 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
+  // Fork: generated images reach the work log through viewedImagePath.
+  const IMAGE_NATIVE_THREAD = "native-codex-image-thread";
+  const IMAGE_NATIVE_TURN = "native-codex-image-turn";
+  const IMAGE_PROMPT = "Draw a cooling fan.";
+  const IMAGE_SAVED_PATH = "/home/user/.codex/generated_images/fan.png";
+  const imageGenerationTranscript = (savedPath: string | null) =>
+    makeCodexReplayTranscript({
+      scenario: "codex-image-generation",
+      entries: [
+        ...codexReplayPreamble({
+          nativeThreadId: IMAGE_NATIVE_THREAD,
+          nativeTurnId: IMAGE_NATIVE_TURN,
+          prompt: IMAGE_PROMPT,
+        }),
+        {
+          type: "emit_inbound",
+          label: "item/completed/image-generation",
+          frame: {
+            method: "item/completed",
+            params: {
+              item: {
+                type: "imageGeneration",
+                id: "ig-fan",
+                status: "completed",
+                result: "",
+                revisedPrompt: "A cooling fan, line art",
+                savedPath,
+              },
+              threadId: IMAGE_NATIVE_THREAD,
+              turnId: IMAGE_NATIVE_TURN,
+              completedAtMs: 1782622441500,
+            },
+          },
+        },
+        {
+          type: "emit_inbound",
+          label: "turn/completed",
+          frame: {
+            method: "turn/completed",
+            params: {
+              threadId: IMAGE_NATIVE_THREAD,
+              turn: makeCodexReplayTurn({ id: IMAGE_NATIVE_TURN, status: "completed" }),
+            },
+          },
+        },
+      ],
+    });
+  const runImageGenerationTurn = (savedPath: string | null) =>
+    Effect.gen(function* () {
+      const harness = yield* makeCodexReplayHarness(imageGenerationTranscript(savedPath));
+      const now = yield* DateTime.now;
+      yield* harness.runtime.startTurn(
+        makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("attempt-codex-image-generation"),
+          text: IMAGE_PROMPT,
+        }),
+      );
+      yield* harness.firstTerminal;
+      return harness.events.flatMap((event) =>
+        event.type === "turn_item.updated" &&
+        event.turnItem.type === "dynamic_tool" &&
+        event.turnItem.nativeItemRef?.nativeId === "ig-fan"
+          ? [event.turnItem]
+          : [],
+      );
+    });
+
+  it.effect("records a generated image as a dynamic tool row carrying its saved path", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const items = yield* runImageGenerationTurn(IMAGE_SAVED_PATH);
+        assert.lengthOf(items, 1);
+        assert.equal(items[0]?.toolName, "image_generation");
+        assert.equal(items[0]?.title, "Generated image");
+        assert.equal(items[0]?.viewedImagePath, IMAGE_SAVED_PATH);
+        assert.equal(items[0]?.status, "completed");
+        assert.deepEqual(items[0]?.input, { prompt: "A cooling fan, line art" });
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("records nothing for a generated image that was never saved", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const items = yield* runImageGenerationTurn(null);
+        assert.lengthOf(items, 0);
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
   const RESUME_SCENARIO = "codex-resume-subagent";
   const RESUME_NATIVE_THREAD = "native-codex-resume-thread";
   const RESUME_NATIVE_TURN = "native-codex-resume-root-turn";

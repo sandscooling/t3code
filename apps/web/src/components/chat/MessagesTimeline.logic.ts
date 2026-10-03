@@ -76,15 +76,6 @@ function workEntryIsActiveTurnActivity(entry: WorkLogEntry): boolean {
   );
 }
 
-/**
- * The entry's own name, with none of the preview detail. This is the label for a
- * row whose detail renders as a block below it rather than in the row itself.
- */
-export function workEntryHeadingLabel(entry: WorkLogEntry) {
-  const heading = normalizeCompactToolLabel(entry.toolTitle || entry.label);
-  return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
-}
-
 function singleToolCallLabel(entry: WorkLogEntry): string {
   if (entry.itemType === "reasoning") return entry.detail?.trim().replace(/\s+/g, " ") || "Thought";
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
@@ -257,16 +248,17 @@ const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
 /**
- * Rows the work-group fold never swallows. An agent-spawn CTA, so a running
- * fleet cannot end up behind "+N tool calls"; a question answer, the record of
- * a decision the agent asked you to make rather than work to skim past; and an
- * image, which is content to look at rather than a step to count.
+ * Fork: a generated image, which the work-group fold never swallows and which
+ * shows inline without expanding the row: it is content to look at rather than
+ * a step to count. The tool name matches CodexAdapterV2's
+ * CODEX_IMAGE_GENERATION_TOOL_NAME. Images an agent only viewed keep upstream's
+ * expand-to-see row.
  */
 export function workEntryPinnedInGroup(entry: WorkLogEntry): boolean {
   return (
-    entry.agentSpawn !== undefined ||
-    entry.questionAnswer !== undefined ||
-    entry.imagePath !== undefined
+    entry.viewedImagePath !== undefined &&
+    entry.structuredPayload?.type === "dynamic_tool" &&
+    entry.structuredPayload.toolName === "image_generation"
   );
 }
 
@@ -1308,6 +1300,7 @@ export function deriveMessagesTimelineRows(input: {
         entry.entry.itemType === "notification" ||
         !runIdIsActiveResponse(entry.entry.runId) ||
         entry.entry.sourceActivityKind === "context-compaction" ||
+        workEntryPinnedInGroup(entry.entry) || // Fork: generated images stay their own row
         collapsedEntryIds.has(entry.id) ||
         collapsedSupersededEntryIds.has(entry.id) ||
         foldsByAnchorEntryId.has(entry.id) ||
@@ -1470,7 +1463,8 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.entry.tone === "error" ||
         timelineEntry.entry.sourceActivityKind === "runtime.error" ||
         timelineEntry.entry.itemType === "system_notice" ||
-        timelineEntry.entry.itemType === "notification"
+        timelineEntry.entry.itemType === "notification" ||
+        workEntryPinnedInGroup(timelineEntry.entry) // Fork: generated images stay their own row
       ) {
         nextRows.push({
           kind: "work",
@@ -1493,6 +1487,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.entry.sourceActivityKind === "runtime.error" ||
           nextEntry.entry.itemType === "system_notice" ||
           nextEntry.entry.itemType === "notification" ||
+          workEntryPinnedInGroup(nextEntry.entry) || // Fork: generated images stay their own row
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
           collapsedSupersededEntryIds.has(nextEntry.id) ||

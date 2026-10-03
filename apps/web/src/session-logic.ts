@@ -34,7 +34,6 @@ import type { ThreadRunSummary, ThreadRuntimeSummary } from "@t3tools/client-run
 import { threadRuntimeHasInterruptibleRun } from "@t3tools/client-runtime/state/thread-execution";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 
-import { resolveMarkdownImageFileLinkMeta } from "./markdown-links";
 import {
   isImageAttachment,
   type ChatAttachment,

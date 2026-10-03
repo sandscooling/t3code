@@ -4788,3 +4788,55 @@ describe("failed turn transcript", () => {
     },
   );
 });
+
+// Fork: generated images are content to look at, so the fold never swallows them.
+describe("generated image work rows", () => {
+  const createdAt = "2026-09-01T12:00:00Z";
+  const command = (id: string): WorkLogEntry => ({
+    id,
+    createdAt,
+    label: "Ran command",
+    tone: "tool",
+    itemType: "command_execution",
+    command: "ls",
+  });
+  const image = (id: string, toolName: string): WorkLogEntry => ({
+    id,
+    createdAt,
+    label: "Image",
+    tone: "tool",
+    itemType: "dynamic_tool",
+    viewedImagePath: "/home/user/.codex/generated_images/fan.png",
+    structuredPayload: { type: "dynamic_tool", toolName } as never,
+  });
+  // A lone row lists its entry ids; a folded group shows only its count.
+  const groupedIds = (entries: ReadonlyArray<WorkLogEntry>) =>
+    deriveMessagesTimelineRows({
+      timelineEntries: entries.map((entry) => ({
+        id: `entry-${entry.id}`,
+        kind: "work" as const,
+        createdAt,
+        entry,
+      })),
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    }).flatMap((row): Array<string | ReadonlyArray<string>> =>
+      row.kind === "work"
+        ? [row.groupedEntries.map((entry) => entry.id)]
+        : row.kind === "work-toggle"
+          ? [`folded:${row.hiddenCount}`]
+          : [],
+    );
+
+  it("keeps a generated image as its own row between grouped tool calls", () => {
+    expect(
+      groupedIds([command("a"), command("b"), image("img", "image_generation"), command("c")]),
+    ).toEqual(["folded:2", ["img"], ["c"]]);
+  });
+
+  it("leaves an image the agent only viewed in the group, as upstream does", () => {
+    expect(groupedIds([command("a"), image("img", "Read"), command("c")])).toEqual(["folded:3"]);
+  });
+});

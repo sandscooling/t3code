@@ -1152,6 +1152,12 @@ type CodexWebSearchItem = {
     | null;
 };
 
+/**
+ * Fork: the tool name a Codex generated image is recorded under. The web work
+ * log matches it (MessagesTimeline.logic.ts) to keep the image on screen.
+ */
+export const CODEX_IMAGE_GENERATION_TOOL_NAME = "image_generation";
+
 export type CodexDynamicToolItem = Extract<
   | CodexSchema.V2ItemStartedNotification__ThreadItem
   | CodexSchema.V2ItemCompletedNotification__ThreadItem,
@@ -4284,6 +4290,42 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               if (settled) {
                 yield* releaseSettledTurnIfIdle(payload.turnId);
               }
+              return;
+            }
+
+            // Fork: a generated image becomes a dynamic_tool row carrying its saved
+            // file as viewedImagePath, so the work log can show it. v2 otherwise
+            // drops imageGeneration items; v1 read the same savedPath.
+            if (payload.item.type === "imageGeneration") {
+              const savedPath = trimText(payload.item.savedPath);
+              if (savedPath === undefined) {
+                return;
+              }
+              const revisedPrompt = trimText(payload.item.revisedPrompt);
+              const artifacts = yield* buildDynamicToolArtifacts(context, {
+                type: "dynamicToolCall",
+                id: payload.item.id,
+                tool: CODEX_IMAGE_GENERATION_TOOL_NAME,
+                arguments: revisedPrompt === undefined ? {} : { prompt: revisedPrompt },
+                status: "completed",
+              });
+              yield* emitProviderEvent({
+                type: "node.updated",
+                driver: CODEX_PROVIDER,
+                node: artifacts.node,
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                driver: CODEX_PROVIDER,
+                turnItem:
+                  artifacts.turnItem.type === "dynamic_tool"
+                    ? {
+                        ...artifacts.turnItem,
+                        title: "Generated image",
+                        viewedImagePath: savedPath,
+                      }
+                    : artifacts.turnItem,
+              });
               return;
             }
 

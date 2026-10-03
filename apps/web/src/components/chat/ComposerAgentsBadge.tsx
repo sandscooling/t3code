@@ -1,25 +1,26 @@
-import type {
-  AgentPanelModel,
-  AgentPanelWorkflowGroup,
-  RuntimeSubagent,
+import {
+  isTerminalSubagentStatus,
+  projectedSubagentsToRuntime,
+  type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import { formatSubagentTokenCount } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { ThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
+import type { ThreadId } from "@t3tools/contracts";
 import { memo } from "react";
 
-import { AgentElapsed } from "~/components/AgentElapsed";
+import { isAgentTicking } from "~/components/AgentElapsed";
+
+import { AgentElapsed } from "./AgentElapsed";
 import { ComposerBanner } from "./ComposerBanner";
 
 /**
  * The agents half of the composer activity feed.
  *
- * Subagents run past the moment their chat rows scroll away, and their only
- * other home is the Agents right panel, which is not visible while you type.
- * The feed above the composer carries them beside the task list, one row per
- * workflow or direct spawn.
- *
- * Depth stops at one row per item on purpose. AgentsPanel stays the only place
- * the full roster renders, so a workflow collapses to a single row here no
- * matter how many members it holds, and every row clicks through to the panel.
+ * Subagents run past the moment their chat rows scroll away, and nothing else
+ * on screen tracks them while you type. The feed above the composer carries
+ * the current turn's roster (v2's `deriveThreadTurnSubagents`) beside the task
+ * list, one row per subagent. A row backed by its own thread opens that thread,
+ * the same target upstream's background-work banner links to; provider-native
+ * subagents have no other surface, so their rows are informational.
  */
 
 const AGENT_STATUS_DOT: Record<RuntimeSubagent["status"], string> = {
@@ -33,47 +34,41 @@ const AGENT_STATUS_DOT: Record<RuntimeSubagent["status"], string> = {
   interrupted: "bg-muted-foreground/60",
 };
 
-/** One row per workflow (they can hold dozens) and one per direct spawn. */
-export function composerAgentRows(model: AgentPanelModel): ReadonlyArray<{
+export interface ComposerAgentRow {
   readonly key: string;
   readonly agent: RuntimeSubagent;
-  readonly group: AgentPanelWorkflowGroup | null;
-}> {
-  return [
-    ...model.workflows.map((group) => ({ key: group.workflow.id, agent: group.workflow, group })),
-    ...model.directAgents.map((agent) => ({ key: agent.id, agent, group: null })),
-  ];
+  readonly childThreadId: ThreadId | null;
 }
 
-function workflowMemberCount(group: AgentPanelWorkflowGroup): number {
-  return (
-    group.phases.reduce((total, phase) => total + phase.members.length, 0) +
-    group.unphasedMembers.length
-  );
+/** One row per subagent in the turn, in spawn order. */
+export function composerAgentRows(model: ThreadTurnSubagents): ReadonlyArray<ComposerAgentRow> {
+  const runtime = projectedSubagentsToRuntime(model.subagents);
+  return model.subagents.map((subagent, index) => ({
+    key: subagent.id,
+    agent: runtime[index]!,
+    childThreadId: subagent.childThreadId,
+  }));
 }
 
-function isSettled(status: RuntimeSubagent["status"]): boolean {
-  return (
-    status === "completed" ||
-    status === "failed" ||
-    status === "cancelled" ||
-    status === "interrupted"
-  );
-}
-
-/** The agent the summary line names: the first still in flight, else the first row. */
-export function composerAgentLead(model: AgentPanelModel): RuntimeSubagent | null {
+/** The agent the summary line names: the first still unsettled, else the first row. */
+export function composerAgentLead(model: ThreadTurnSubagents): RuntimeSubagent | null {
   const rows = composerAgentRows(model);
-  return rows.find((row) => !isSettled(row.agent.status))?.agent ?? rows[0]?.agent ?? null;
+  return (
+    rows.find((row) => !isTerminalSubagentStatus(row.agent.status))?.agent ?? rows[0]?.agent ?? null
+  );
 }
 
-export function composerAgentWorkingCount(model: AgentPanelModel): number {
-  return model.runningCount + model.waitingCount;
+export function composerAgentWorkingCount(model: ThreadTurnSubagents): number {
+  return model.subagents.filter((subagent) => isAgentTicking(subagent.status)).length;
 }
 
-// Settled outcomes only. In-flight rows used to read "Working", which the
-// ticking clock beside them says better: it carries the same "this is live"
-// signal and answers how long, which a static word never could.
+/** Unsettled agents: in flight, queued, or idle and resumable. */
+export function composerAgentUnsettledCount(model: ThreadTurnSubagents): number {
+  return model.subagents.length - model.settledCount;
+}
+
+// Settled outcomes only. In-flight rows show a ticking clock instead, which
+// carries the same "this is live" signal and answers how long.
 function statusText(status: RuntimeSubagent["status"]): string | null {
   switch (status) {
     case "completed":
@@ -85,9 +80,7 @@ function statusText(status: RuntimeSubagent["status"]): string | null {
       return "Stopped";
     case "idle":
       return "Idle";
-    // Spawned but not started, so there is no clock to show yet: startedAt is
-    // only stamped on the move to running. Queued rather than working, since
-    // a fleet past the concurrency cap really is waiting its turn.
+    // Spawned but not started, so there is no clock to show yet.
     case "pending":
       return "Queued";
     default:
@@ -98,10 +91,10 @@ function statusText(status: RuntimeSubagent["status"]): string | null {
 /** The expanded agent roster, rendered as the Agents tab of the composer activity feed. */
 export const ComposerAgentsList = memo(function ComposerAgentsList({
   model,
-  onOpenAgents,
+  onOpenAgentThread,
 }: {
-  readonly model: AgentPanelModel;
-  readonly onOpenAgents: () => void;
+  readonly model: ThreadTurnSubagents;
+  readonly onOpenAgentThread: (threadId: ThreadId) => void;
 }) {
   return (
     <ComposerBanner.Children
@@ -109,25 +102,25 @@ export const ComposerAgentsList = memo(function ComposerAgentsList({
       data-composer-agents-list="true"
       role="list"
     >
-      {composerAgentRows(model).map(({ key, agent, group }) => {
-        const memberCount = group ? workflowMemberCount(group) : 0;
-        const detail = group
-          ? `${memberCount} agent${memberCount === 1 ? "" : "s"}`
-          : (agent.progress ?? agent.lastToolName ?? statusText(agent.status));
-        const tokens = agent.usage?.totalTokens ?? 0;
+      {composerAgentRows(model).map(({ key, agent, childThreadId }) => {
+        const detail = agent.progress ?? statusText(agent.status);
         return (
           <ComposerBanner.Row
             key={key}
-            render={<button type="button" />}
-            aria-label={`${agent.workflowName ?? agent.title}. Open the Agents panel.`}
             role="listitem"
-            onClick={onOpenAgents}
+            {...(childThreadId === null
+              ? { "aria-label": agent.title }
+              : {
+                  render: <button type="button" />,
+                  "aria-label": `${agent.title}. Open the agent's thread.`,
+                  onClick: () => onOpenAgentThread(childThreadId),
+                })}
           >
             <ComposerBanner.Icon>
               <ComposerBanner.Dot className={AGENT_STATUS_DOT[agent.status]} />
             </ComposerBanner.Icon>
             <ComposerBanner.Content className="text-foreground/90">
-              <span className="min-w-0 flex-1 truncate">{agent.workflowName ?? agent.title}</span>
+              <span className="min-w-0 flex-1 truncate">{agent.title}</span>
               {detail ? (
                 <>
                   <ComposerBanner.Separator />
@@ -136,12 +129,9 @@ export const ComposerAgentsList = memo(function ComposerAgentsList({
               ) : null}
             </ComposerBanner.Content>
             <ComposerBanner.Actions>
-              <AgentElapsed agent={agent} className="font-mono text-3xs text-muted-foreground/60" />
-              {tokens > 0 ? (
-                <span className="text-3xs text-muted-foreground/45 tabular-nums">
-                  {formatSubagentTokenCount(tokens)} tok
-                </span>
-              ) : null}
+              <span className="font-mono text-3xs text-muted-foreground/60">
+                <AgentElapsed agent={agent} />
+              </span>
             </ComposerBanner.Actions>
           </ComposerBanner.Row>
         );
