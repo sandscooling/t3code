@@ -692,6 +692,9 @@ importers:
       culori:
         specifier: ^4.0.2
         version: 4.0.2
+      dompurify:
+        specifier: ^3.4.16
+        version: 3.4.16
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(patch_hash=0dfc4bb8ebd80fb3e06b91ef61346f5259517ab0f2437644fe95ae531084b1f5)
@@ -717,7 +720,7 @@ importers:
         specifier: ^0.564.0
         version: 0.564.0(react@19.2.6)
       mermaid:
-        specifier: ^11.16.0
+        specifier: ^11.17.2
         version: 11.17.2
       react:
         specifier: 19.2.6
@@ -15167,7 +15170,7 @@ snapshots:
   '@shikijs/types@4.3.0':
     dependencies:
       '@shikijs/vscode-textmate': 10.0.2
-      '@types/hast': 3.0.4
+      '@types/hast': 3.0.5
 
   '@shikijs/vscode-textmate@10.0.2': {}
 

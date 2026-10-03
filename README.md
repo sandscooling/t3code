@@ -23,7 +23,6 @@ Always available to every agent session, with no setting to turn on:
 
 ### Chat and composer
 
-- Mermaid diagrams in chat, with pan and zoom, cached across thread switches. From closed upstream PR [#4989](https://github.com/pingdotgg/t3code/pull/4989).
 - Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - An answered question stays out of the "+N tool calls" fold, so the tool calls after it cannot hide it.
 - A plan usage pill in the composer, showing how much of the current plan window is used.
