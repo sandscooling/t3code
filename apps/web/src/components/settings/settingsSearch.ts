@@ -615,12 +615,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
   },
   {
-    id: "agent-orchestration",
-    title: "Agent orchestration",
-    to: "/settings/integrations",
-    targetId: "browser",
-  },
-  {
     id: "device-hosts",
     title: "Device hosts",
     to: "/settings/integrations",

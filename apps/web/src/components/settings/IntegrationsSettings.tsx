@@ -25,7 +25,6 @@ import {
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
   DEFAULT_BROWSER_VIEWPORT,
   DEFAULT_PREVIEW_APPEARANCE,
-  DEFAULT_UNIFIED_SETTINGS,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   FILL_PREVIEW_VIEWPORT,
   PREVIEW_VIEWPORT_MAX_AREA,
@@ -102,7 +101,6 @@ import {
   persistClientSettingsUpdate,
   useClientSettings,
   useClientSettingsHydrated,
-  usePrimarySettings,
   useUpdatePrimarySettings,
 } from "~/hooks/useSettings";
 
@@ -469,44 +467,6 @@ function BrowserAppearanceSetting({ disabled }: { readonly disabled: boolean }) 
             ))}
           </SelectPopup>
         </Select>
-      }
-    />
-  );
-}
-
-function AgentOrchestrationSetting() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
-
-  return (
-    <SettingsRow
-      {...searchableSetting("agent-orchestration")}
-      description="Let agents start, list, and wake other sessions in their own project through the session tools. Spawned sessions inherit the calling session's model and permission mode."
-      status={
-        settings.enableAgentOrchestration
-          ? "Applies to sessions started from now on; a running agent keeps the tools it was given."
-          : undefined
-      }
-      resetAction={
-        settings.enableAgentOrchestration !== DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration ? (
-          <SettingResetButton
-            label="agent orchestration"
-            onClick={() =>
-              updateSettings({
-                enableAgentOrchestration: DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration,
-              })
-            }
-          />
-        ) : null
-      }
-      control={
-        <Switch
-          checked={settings.enableAgentOrchestration}
-          onCheckedChange={(checked) =>
-            updateSettings({ enableAgentOrchestration: Boolean(checked) })
-          }
-          aria-label="Allow agent orchestration"
-        />
       }
     />
   );
@@ -1487,10 +1447,6 @@ export function IntegrationsSettingsPanel() {
           the preview defaults below are device-local and ignore it. */}
       <ProjectDefaultsSettings category="integrations" />
       <SettingsSection id="browser" title="Browser">
-        {/* Server-authoritative, so it stays editable on any client anchored to
-            a server; `serverScoped` covers the hosted app, which has none. It
-            sits outside the block covering the desktop-only defaults. */}
-        <AgentOrchestrationSetting />
         {previewDefaultsDisabled ? (
           <SettingsUnavailableGroup message="Only available in the desktop app.">
             {previewDefaults}

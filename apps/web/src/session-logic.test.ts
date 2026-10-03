@@ -31,6 +31,7 @@ import {
   derivePhase,
   findLatestProposedPlan,
   isLatestRunSettled,
+  resolveHandoffFollow, // Fork: handoff follow
   selectHandoffImageResources,
   selectMessageImageResources,
   createMessageAttachmentPreviewProjector,
@@ -1671,94 +1672,32 @@ it("renders automatic completion as a work entry instead of a user bubble", () =
   ).toBe("message");
 });
 
-describe("deriveLiveBackgroundTasks", () => {
-  const started = (taskId: string, title: string, createdAt: string, extra = {}) =>
-    makeActivity({
-      kind: "task.started",
-      createdAt,
-      payload: { taskId, taskType: "monitor", title, ...extra },
+// Fork: following an orchestrator handoff on the v2 shell field.
+describe("resolveHandoffFollow", () => {
+  const older = ThreadId.make("thread-older");
+  const newer = ThreadId.make("thread-newer");
+
+  it("takes the first snapshot as the baseline, so reopening a replaced thread stays put", () => {
+    expect(resolveHandoffFollow(null, "env:old", older)).toEqual({
+      baseline: { threadKey: "env:old", successorThreadId: older },
+      follow: null,
     });
-
-  it("names a running watch loop with the time it started", () => {
-    expect(
-      deriveLiveBackgroundTasks([
-        started("t1", "Wait for CI on PR 12", "2026-09-18T10:00:00.000Z"),
-        makeActivity({
-          kind: "task.progress",
-          createdAt: "2026-09-18T10:01:00.000Z",
-          payload: { taskId: "t1", taskType: "monitor", summary: "still pending" },
-        }),
-      ]),
-    ).toEqual([
-      { taskId: "t1", title: "Wait for CI on PR 12", startedAt: "2026-09-18T10:00:00.000Z" },
-    ]);
   });
 
-  it("drops a task once it completes or reports an ended status", () => {
-    expect(
-      deriveLiveBackgroundTasks([
-        started("t1", "Tail the log", "2026-09-18T10:00:00.000Z"),
-        started("t2", "Watch the build", "2026-09-18T10:00:05.000Z"),
-        makeActivity({
-          kind: "task.completed",
-          createdAt: "2026-09-18T10:02:00.000Z",
-          payload: { taskId: "t1", taskType: "monitor", status: "completed" },
-        }),
-        makeActivity({
-          kind: "task.updated",
-          createdAt: "2026-09-18T10:03:00.000Z",
-          payload: { taskId: "t2", taskType: "monitor", status: "stopped" },
-        }),
-      ]),
-    ).toEqual([]);
+  it("follows a succession that arrives while the thread is open", () => {
+    const opened = resolveHandoffFollow(null, "env:old", undefined).baseline;
+    expect(resolveHandoffFollow(opened, "env:old", null).follow).toBeNull();
+    const handedOff = resolveHandoffFollow(opened, "env:old", older);
+    expect(handedOff.follow).toBe(older);
+    expect(resolveHandoffFollow(handedOff.baseline, "env:old", older).follow).toBeNull();
+    expect(resolveHandoffFollow(handedOff.baseline, "env:old", newer).follow).toBe(newer);
   });
 
-  it("keeps background shells, oldest first, and ignores agents and a subagent's own shells", () => {
-    const tasks = deriveLiveBackgroundTasks([
-      started("shell", "Poll the deploy", "2026-09-18T10:00:00.000Z", { taskType: "local_bash" }),
-      started("agent", "Review the diff", "2026-09-18T10:00:01.000Z", {
-        taskType: "local_agent",
-      }),
-      started("inner", "Agent's own tail", "2026-09-18T10:00:02.000Z", { agentId: "agent" }),
-      started("watch", "Wait for the lock", "2026-09-18T10:00:03.000Z"),
-    ]);
-    expect(tasks.map((task) => task.taskId)).toEqual(["shell", "watch"]);
-  });
-
-  it("does not revive a task from a progress row whose start is missing", () => {
-    expect(
-      deriveLiveBackgroundTasks([
-        makeActivity({
-          kind: "task.progress",
-          createdAt: "2026-09-18T10:01:00.000Z",
-          payload: { taskId: "t9", taskType: "monitor", title: "Orphan" },
-        }),
-      ]),
-    ).toEqual([]);
-  });
-});
-
-describe("findThreadHandoffSuccessor", () => {
-  const handoff = (id: string, successorThreadId: unknown, createdAt: string) =>
-    makeActivity({
-      id,
-      kind: "session.handoff",
-      createdAt,
-      payload: { successorThreadId, successorTitle: "orchestrator-2" },
+  it("rebaselines when the reader moves to another thread", () => {
+    const opened = resolveHandoffFollow(null, "env:a", null).baseline;
+    expect(resolveHandoffFollow(opened, "env:b", older)).toEqual({
+      baseline: { threadKey: "env:b", successorThreadId: older },
+      follow: null,
     });
-
-  it("returns the newest succession on the thread", () => {
-    expect(
-      findThreadHandoffSuccessor([
-        handoff("a1", "thread-older", "2026-09-20T10:00:00.000Z"),
-        makeActivity({ kind: "task.started", createdAt: "2026-09-20T10:01:00.000Z" }),
-        handoff("a2", "thread-newer", "2026-09-20T10:02:00.000Z"),
-      ]),
-    ).toEqual({ activityId: "a2", successorThreadId: "thread-newer" });
-  });
-
-  it("ignores rows without a successor and threads that never handed off", () => {
-    expect(findThreadHandoffSuccessor([handoff("a1", 42, "2026-09-20T10:00:00.000Z")])).toBeNull();
-    expect(findThreadHandoffSuccessor([makeActivity({ kind: "task.started" })])).toBeNull();
   });
 });

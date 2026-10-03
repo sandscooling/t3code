@@ -645,9 +645,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
         : []),
-      ...(settings.enableAgentOrchestration !== DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration
-        ? ["Agent orchestration"]
-        : []),
     ],
     [
       isTextGenerationModelDirty,
@@ -664,7 +661,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffColorScheme,
       settings.chatWidth,
       settings.enableAgentBrowserAccess,
-      settings.enableAgentOrchestration,
       settings.confirmQuit,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -844,7 +840,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       // name, so a user restoring defaults is told the agent regains access
       // rather than discovering it later.
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
-      enableAgentOrchestration: DEFAULT_UNIFIED_SETTINGS.enableAgentOrchestration,
     });
     onRestored?.();
   }, [

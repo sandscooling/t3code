@@ -9,6 +9,7 @@ import {
   type OrchestrationV2TurnItem,
   type PlanId,
   type RunId,
+  type ThreadId, // Fork: handoff follow
   type ToolActivitySurface,
   type ToolActivityIcon,
   type ToolActivitySource,
@@ -280,80 +281,32 @@ function toLatestProposedPlanState(
   };
 }
 
-export interface LiveBackgroundTask {
-  readonly taskId: string;
-  readonly title: string | null;
-  readonly startedAt: string;
-}
-
-const ENDED_TASK_STATUSES: ReadonlySet<string> = new Set([
-  "completed",
-  "failed",
-  "stopped",
-  "cancelled",
-  "interrupted",
-  "idle",
-]);
-
-/**
- * The thread's own watch loops and background shells still running, oldest
- * first. Names the work behind the Monitoring banner; whether that banner
- * shows at all stays the server liveness registry's call.
- */
-export function deriveLiveBackgroundTasks(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): LiveBackgroundTask[] {
-  const live = new Map<string, LiveBackgroundTask>();
-  for (const activity of activities.toSorted(compareActivitiesByOrder)) {
-    if (!activity.kind.startsWith("task.")) continue;
-    const payload = asRecord(activity.payload);
-    const taskId = asTrimmedString(payload?.taskId);
-    if (!payload || !taskId) continue;
-    const taskType = asTrimmedString(payload.taskType);
-    // A subagent's own shells belong to that agent, not the thread.
-    const threadBackground =
-      payload.agentKind === "background" &&
-      asTrimmedString(payload.agentId) === null &&
-      (taskType === null || !INERT_TASK_TYPES.has(taskType));
-    const status = asTrimmedString(payload.status);
-    if (
-      !threadBackground ||
-      activity.kind === "task.completed" ||
-      (status !== null && ENDED_TASK_STATUSES.has(status))
-    ) {
-      live.delete(taskId);
-      continue;
-    }
-    const title = asTrimmedString(payload.title) ?? asTrimmedString(payload.detail);
-    const existing = live.get(taskId);
-    if (existing) {
-      if (title !== null && title !== existing.title) live.set(taskId, { ...existing, title });
-    } else if (activity.kind === "task.started") {
-      live.set(taskId, { taskId, title, startedAt: activity.createdAt });
-    }
-  }
-  return [...live.values()];
-}
-
-export interface ThreadHandoffSuccessor {
-  /** Identifies the row, so a client only follows a succession it just saw arrive. */
-  readonly activityId: string;
-  readonly successorThreadId: string;
+// Fork: the successor a viewed thread had when this reader first saw it.
+export interface HandoffFollowBaseline {
+  readonly threadKey: string;
+  readonly successorThreadId: ThreadId | null;
 }
 
 /**
- * The newest session that replaced this one, from the row `session_spawn`
- * writes on the thread being handed off.
+ * Fork: following an orchestrator handoff. `session_spawn` with a handoff sets
+ * the replaced thread's `successorThreadId`; the reader watching that thread
+ * goes with it. The first snapshot of a thread is the baseline, however late it
+ * loads, so reopening or reloading an old orchestrator stays put and only a
+ * succession that arrives while the thread is open moves the reader.
  */
-export function findThreadHandoffSuccessor(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): ThreadHandoffSuccessor | null {
-  for (const activity of activities.toSorted(compareActivitiesByOrder).toReversed()) {
-    if (activity.kind !== "session.handoff") continue;
-    const successorThreadId = asTrimmedString(asRecord(activity.payload)?.successorThreadId);
-    if (successorThreadId !== null) return { activityId: activity.id, successorThreadId };
+export function resolveHandoffFollow(
+  baseline: HandoffFollowBaseline | null,
+  threadKey: string,
+  successorThreadId: ThreadId | null | undefined,
+): { readonly baseline: HandoffFollowBaseline; readonly follow: ThreadId | null } {
+  const successor = successorThreadId ?? null;
+  if (baseline?.threadKey !== threadKey) {
+    return { baseline: { threadKey, successorThreadId: successor }, follow: null };
   }
-  return null;
+  if (successor === null || successor === baseline.successorThreadId) {
+    return { baseline, follow: null };
+  }
+  return { baseline: { threadKey, successorThreadId: successor }, follow: successor };
 }
 
 export function findLatestProposedPlan(

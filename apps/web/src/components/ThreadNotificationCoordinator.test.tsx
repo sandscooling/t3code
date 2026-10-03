@@ -194,7 +194,10 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  it("alerts once with system alerts off and opens the completed thread", async () => {
+  // Fork: the toast is for a question, since a finished thread raises none.
+  it("alerts once with system alerts off and opens the waiting thread", async () => {
+    await render();
+    state.input = true;
     await render();
     await render();
     expect(state.add).toHaveBeenCalledTimes(1);
@@ -266,22 +269,45 @@ describe("thread notifications", () => {
     });
   });
 
+  // Fork: keeps the toast up until answered (clears on answer).
+  it.each(["input", "approval"] as const)(
+    "keeps the %s toast up until the thread is answered",
+    async (event) => {
+      await render();
+      state[event] = true;
+      await render();
+
+      const toast = state.add.mock.calls[0]?.[0];
+      // No auto-dismiss, and a per-thread id so a follow-up question on the same
+      // thread replaces this toast instead of stacking a second one.
+      expect(toast).toMatchObject({
+        id: "thread-attention:env-1:thread-1",
+        timeout: 0,
+        data: { dismissOnActiveThreadRef: { environmentId: "env-1", threadId: "thread-1" } },
+      });
+
+      state[event] = false;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+    },
+  );
+
+  // Fork: a completion has no toast, so the hold shows in its sound.
   it("alerts when only a dev server is left running, not while a monitor can wake the agent", async () => {
+    state.mode = "notifications-and-sound";
     await render();
     state.background = [{ taskId: "watch", kind: "monitor" }];
     await complete();
-    expect(state.add).not.toHaveBeenCalled();
+    expect(state.sound).not.toHaveBeenCalled();
     state.background = [{ taskId: "dev", kind: "command" }];
     await render();
-    expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.add).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: "Thread completed" }),
-    );
+    expect(state.sound).toHaveBeenCalledOnce();
+    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
+    expect(state.add).not.toHaveBeenCalled();
   });
 
-  it("keeps background desktop alerts when in-app notifications are disabled", async () => {
-    state.focused = false;
-    state.inApp = false;
+  // Fork: a question raised in the background still waits as a toast.
+  it("leaves a question's toast waiting when it arrives while the app is unfocused", async () => {
     state.mode = "notifications";
     state.focused = false;
     await render();

@@ -196,7 +196,15 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import {
+  primaryServerKeybindingsAtom,
+  primaryServerProvidersAtom,
+  primaryServerSettingsAtom, // Fork: session fleet
+} from "../state/server";
+// Fork: a session fleet starts where a single new thread in the project would.
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
+import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,

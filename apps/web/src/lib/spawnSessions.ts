@@ -7,9 +7,8 @@ import {
   type ThreadEnvMode,
 } from "@t3tools/contracts";
 import type { StartThreadTurnInput } from "@t3tools/client-runtime/operations";
-import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 
-import { newMessageId, newThreadId, randomHex } from "./utils";
+import { newMessageId, newThreadId } from "./utils";
 
 /**
  * Opening message for a spawned standby session. The agent instruction file
@@ -92,10 +91,12 @@ export async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSes
           },
           ...(useWorktree && input.baseBranch
             ? {
+                // The server names the worktree branch, and fails the launch
+                // rather than falling back to the project checkout.
                 prepareWorktree: {
                   projectCwd: input.projectCwd,
                   baseBranch: input.baseBranch,
-                  branch: buildTemporaryWorktreeBranchName(randomHex),
+                  requireWorktree: true,
                   ...(input.startFromOrigin ? { startFromOrigin: true } : {}),
                 },
                 runSetupScript: true,

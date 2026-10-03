@@ -186,6 +186,8 @@ import {
   findLatestProposedPlan,
   hasActionableProposedPlan,
   isLatestRunSettled,
+  type HandoffFollowBaseline, // Fork: handoff follow
+  resolveHandoffFollow, // Fork: handoff follow
 } from "../session-logic";
 import { LiveElapsed } from "./AgentElapsed";
 import { type LegendListRef } from "@legendapp/list/react";
@@ -2171,6 +2173,23 @@ export default function ChatView(props: ChatViewProps) {
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  // Fork: the reader watching a thread that hands off goes with it.
+  const activeSuccessorThreadId = activeThreadShell?.successorThreadId;
+  const handoffFollowBaselineRef = useRef<HandoffFollowBaseline | null>(null);
+  useEffect(() => {
+    if (activeThreadShell === null || activeThreadKey === null) return;
+    const { baseline, follow } = resolveHandoffFollow(
+      handoffFollowBaselineRef.current,
+      activeThreadKey,
+      activeSuccessorThreadId,
+    );
+    handoffFollowBaselineRef.current = baseline;
+    if (follow === null) return;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(activeThreadShell.environmentId, follow)),
+    });
+  }, [activeSuccessorThreadId, activeThreadKey, activeThreadShell, navigate]);
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&

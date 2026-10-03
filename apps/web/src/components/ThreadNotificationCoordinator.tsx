@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Option from "effect/Option";
+// Fork: no completion toast, so no CircleCheckIcon.
 import { CircleAlertIcon, MessageCircleQuestionIcon, ShieldQuestionIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -21,7 +22,7 @@ import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
 /**
- * Stable id for the toast that waits on one thread's answer, so a follow-up
+ * Fork: stable id for the toast that waits on one thread's answer, so a follow-up
  * event on the same thread replaces it rather than stacking a duplicate, and so
  * the coordinator can retire it later without tracking the id itself.
  */
@@ -138,36 +139,20 @@ function EnvironmentNotifications({
         settled && thread.latestRun?.status === "completed" && Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      next.set(thread.id, { attention, completion });
-      if (!prior || thread.archivedAt !== null) continue;
-      const kind =
-        attention && attention !== prior.attention
-          ? "input"
-          : completion !== null && (prior.completion === null || completion > prior.completion)
-            ? "completion"
-            : null;
-      if (!kind) continue;
-      const title =
-        kind === "completion"
-          ? "Thread completed"
-          : status === "approval"
-            ? "Approval needed"
-            : status === "limited"
-              ? "Usage limit reached"
-              : status === "failed"
-                ? "Thread failed"
-                : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
+      // Fork: a toast that waits for an answer becomes a stale label the moment
+      // the thread stops asking, so retire it wherever the answer came from.
+      if (prior && prior.attention !== null && attention === null) {
+        toastManager.close(attentionToastId(environmentId, thread.id));
       }
-      if (
-        inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
-      ) {
+      next.set(thread.id, { attention, completion });
+      // Fork: only threads that want the reader get a toast. Questions and
+      // approvals stand until answered; failures and limits fall away on their
+      // own. Completions have no toast at all, only their sound and background
+      // system popup.
+      if (thread.archivedAt !== null) continue;
+      const awaitsAnswer = status === "input" || status === "approval";
+      const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
+      const showToast = (title: string) => {
         const toastId = toastManager.add({
           ...(awaitsAnswer
             ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
@@ -198,11 +183,11 @@ function EnvironmentNotifications({
             },
           },
         });
-      }
+      };
       if (!prior) {
-        // First sight, on load or after a reconnect: a thread already waiting on
-        // an answer gets its standing toast back, quietly. The stable id means an
-        // existing toast is refreshed rather than duplicated.
+        // Fork: first sight, on load or after a reconnect: a thread already
+        // waiting on an answer gets its standing toast back, quietly. The stable
+        // id means an existing toast is refreshed rather than duplicated.
         if (awaitsAnswer && inAppNotificationsEnabled && !isActiveThread) {
           showToast(status === "approval" ? "Approval needed" : "Input needed");
         }
@@ -220,19 +205,21 @@ function EnvironmentNotifications({
           ? "Thread completed"
           : status === "approval"
             ? "Approval needed"
-            : status === "failed"
-              ? "Thread failed"
-              : "Input needed";
+            : status === "limited"
+              ? "Usage limit reached"
+              : status === "failed"
+                ? "Thread failed"
+                : "Input needed";
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
         );
       }
       const onScreen = document.visibilityState === "visible" && document.hasFocus();
-      // A question must still be waiting when the reader comes back, so its
-      // toast does not depend on focus; the app can think it is unfocused while
-      // the reader is looking at it (a browser preview or dictation holding
-      // focus). A background question still gets its system popup below.
+      // Fork: a question must still be waiting when the reader comes back, so
+      // its toast does not depend on focus; the app can think it is unfocused
+      // while the reader is looking at it (a browser preview or dictation
+      // holding focus). A background question still gets its system popup below.
       if (
         kind === "input" &&
         inAppNotificationsEnabled &&

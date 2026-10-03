@@ -1,4 +1,4 @@
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 /**
  * Which threads should have their browser preview sessions closed.
@@ -21,7 +21,7 @@ import type { OrchestrationThreadShell } from "@t3tools/contracts";
 export interface ReapableThreadInput {
   /** Thread keys that currently hold at least one preview session. */
   readonly previewThreadKeys: ReadonlyArray<string>;
-  readonly shellByThreadKey: ReadonlyMap<string, OrchestrationThreadShell>;
+  readonly shellByThreadKey: ReadonlyMap<string, Pick<EnvironmentThreadShell, "settledOverride">>;
   /** Threads whose tab is presented on screen right now, never reaped. */
   readonly onScreenThreadKeys: ReadonlySet<string>;
 }

@@ -5,13 +5,11 @@ session can
 coordinate a set of workers as real threads rather than hidden subagents. Each worker shows in
 the sidebar, keeps its own history and checkpoints, and outlives the turn that started it.
 
-This is off by default. Turn on **Agent orchestration** in Settings under Integrations. Like
-browser access, the change applies to sessions started from then on; a running session keeps
-the tools it was given.
+There is nothing to turn on: every agent session has these tools.
 
 ## The tools
 
-With the setting on, every agent session gets seven tools:
+Every agent session gets seven tools:
 
 - **session_spawn** starts a new session, titled with the name you give it, filed under a group,
   and kicked off with an opening message. It starts in the caller's project unless the agent names
@@ -27,8 +25,9 @@ With the setting on, every agent session gets seven tools:
   options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_projects** lists the projects on this server that the other tools can reach.
 - **session_list** lists open sessions with their project, their group, the branch and worktree
-  they run in, and whether each has a running process behind it: the caller's own project by default, or another project, or all of
-  them. Settled and archived sessions are not included, so a group's list empties as its sessions
+  they run in, and a status: `running` while a turn is in flight, `monitoring` when the last turn
+  ended but left a watch or background command going, and `ready` otherwise. It lists the caller's
+  own project by default, or another project, or all of them. Settled and archived sessions are not included, so a group's list empties as its sessions
   finish and the agent driving them sees only what is still in flight.
 - **session_wake** sends a message to an existing session. If that session's process had stopped,
   this brings it back.

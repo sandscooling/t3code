@@ -5,7 +5,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -82,7 +82,7 @@ export function SettledPreviewReaper() {
   }, [previewByThreadKey, visibleRuntimeTabIds]);
 
   const shellByThreadKey = useMemo(() => {
-    const map = new Map<string, OrchestrationThreadShell>();
+    const map = new Map<string, EnvironmentThreadShell>();
     for (const shell of shells) {
       map.set(scopedThreadKey(scopeThreadRef(shell.environmentId, shell.id)), shell);
     }

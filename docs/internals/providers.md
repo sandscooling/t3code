@@ -148,8 +148,8 @@ handling is documented under [citations](./assistant-citations.md).
 
 The server hosts an MCP endpoint at `/mcp` ([McpHttpServer](../../apps/server/src/mcp/McpHttpServer.ts))
 that every provider session is pointed at as the `t3-code` server. A per-session bearer credential
-is minted when the session starts, carrying capabilities decided by settings: `preview` from
-`enableAgentBrowserAccess`, `orchestration` from `enableAgentOrchestration`. No capability, no
+is minted when the session starts, carrying `preview` when `enableAgentBrowserAccess` allows it and
+`orchestration` always, since v2 grants it to every provider session. No capability, no
 credential, no server attached. Each toolkit begins by requiring its capability, so a preview-only
 credential cannot spawn sessions.
 
