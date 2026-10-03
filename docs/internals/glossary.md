@@ -16,8 +16,8 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Turn           | One user-to-agent cycle, a V2 run. Provider work can end before checkpoint and diff work settles. |
 | Activity       | A non-message timeline item, such as a tool action, approval, or failure.                         |
 | T3 home        | The base data directory. Runtime state normally lives under its `userdata` directory.             |
-| Group          | A label shared by threads that belong together, such as one ticket. Stored as `group_key`.        |
-| Orchestrator   | A thread that spawned others. Its children record it as `parent_thread_id` and nest under it.     |
+| Group          | A label shared by threads that belong together, such as one ticket. Stored as `group`.            |
+| Orchestrator   | A thread that spawned others. Each one it spawned records it as `spawnedByThreadId`.              |
 
 ## Orchestration
 

@@ -25,9 +25,6 @@ import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
  * binaries. That keeps the assertions focused on registry routing
  * behaviour rather than the runtime details of each provider.
  */
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodePath from "node:path";
-
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {

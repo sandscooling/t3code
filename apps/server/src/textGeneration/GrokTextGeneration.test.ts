@@ -14,7 +14,6 @@ import { expect } from "vite-plus/test";
 import { GrokSettings, ProviderInstanceId } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
-import { writeFakeScript } from "../testUtils/fakeExecutable.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeGrokTextGeneration } from "./GrokTextGeneration.ts";
 import { execScriptSource, writeFakeCli } from "../testUtils/fakeCli.ts";

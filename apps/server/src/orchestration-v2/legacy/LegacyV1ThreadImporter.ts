@@ -61,9 +61,6 @@ interface LegacyThreadRow {
   readonly branch_pull_request_json: string | null;
   readonly active_order_key: string | null;
   readonly deleted_at: string | null;
-  // Fork: v1 fork columns, absent or null when the source database lacks them.
-  readonly group_key?: string | null;
-  readonly parent_thread_id?: string | null;
 }
 
 interface LegacyRepairRow extends LegacyThreadRow {
@@ -199,8 +196,6 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     () => [],
   );
   const linkedPullRequest = linkedPullRequestFor(row);
-  // Fork: v1 recorded the spawner as parent_thread_id; a self-link is dropped.
-  const spawnedBy = row.parent_thread_id?.trim() || null;
   const legacyLink = threadPullRequestsOf({ linkedPullRequest })[0];
   const importedPullRequests =
     legacyLink !== undefined &&
@@ -230,10 +225,6 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
       relationshipToParent: null,
       rootThreadId: threadId,
     },
-    // Fork: session lane and spawner from the v1 fork columns.
-    group: row.group_key?.trim() || null,
-    spawnedByThreadId:
-      spawnedBy === null || spawnedBy === row.thread_id ? null : ThreadId.make(spawnedBy),
     forkedFrom: null,
     createdAt: dateTime(row.created_at),
     updatedAt: dateTime(row.updated_at),
@@ -555,14 +546,6 @@ const make = Effect.gen(function* () {
       });
       repairedThreadCount += 1;
     }
-    // Fork: only fork databases have the session lane and spawner columns.
-    const legacyColumns = new Set(
-      (yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`).map(
-        (column) => column.name,
-      ),
-    );
-    const forkColumn = (name: string) =>
-      sql.literal(legacyColumns.has(name) ? `thread.${name}` : "NULL");
     const rows = yield* sql<LegacyThreadRow>`
       SELECT
         thread.thread_id,
@@ -588,10 +571,7 @@ const make = Effect.gen(function* () {
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
-        thread.deleted_at,
-        -- Fork: session lane and spawner, NULL on a database without the fork columns.
-        ${forkColumn("group_key")} AS group_key,
-        ${forkColumn("parent_thread_id")} AS parent_thread_id
+        thread.deleted_at
       FROM projection_threads AS thread
       WHERE NOT EXISTS (
         SELECT 1

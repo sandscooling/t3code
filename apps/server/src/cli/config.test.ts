@@ -1,7 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodePath from "node:path";
-
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
@@ -26,7 +23,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
 
@@ -69,7 +65,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
     const encoded = yield* encodeDesktopBootstrap(payload);
     yield* fs.writeFileString(filePath, `${encoded}\n`);
-    const platform = yield* HostProcessPlatform;
     return yield* Effect.acquireRelease(
       Effect.sync(() => NodeFS.openSync(filePath, "r")),
       // Without a /proc or /dev/fd path to reopen, the reader consumes the fd

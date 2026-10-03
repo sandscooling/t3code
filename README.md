@@ -59,7 +59,7 @@ Always available to every agent session, with no setting to turn on:
 
 ### Windows test suite
 
-Upstream CI does not run on Windows. The fork adds `.cmd` forms of the fake provider CLIs, 8.3 `TEMP` path handling, `core.autocrlf` pinning and other test fixes so the server suite runs here. A few upstream tests still fail on Windows for reasons outside the fork.
+Upstream CI does not run on Windows. The fork adds 8.3 `TEMP` path handling and other test fixes so the server suite runs here. A few upstream tests still fail on Windows for reasons outside the fork.
 
 ## Building
 

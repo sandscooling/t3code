@@ -10,7 +10,6 @@ import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { GrokSettings } from "@t3tools/contracts";
 
-import { writeFakeScript } from "../../testUtils/fakeExecutable.ts";
 import {
   buildGrokModelCapabilities,
   buildGrokModelsFromSessionModelState,
@@ -21,9 +20,6 @@ import {
 } from "./GrokProvider.ts";
 import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 import { grokUsageResponseToLimits, readGrokAccount } from "./grokUsageLimits.ts";
-
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Fakes are written by plain helpers that run before any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));

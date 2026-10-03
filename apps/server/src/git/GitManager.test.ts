@@ -18,7 +18,6 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
@@ -182,12 +181,6 @@ function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
   );
 }
 
-// Cross-repo fixtures build two repositories and push between them, which is
-// dominated by process spawns on Windows and pushes the case past any sane
-// budget. Selector ordering and head identity are covered by pure tests, so
-// what is skipped here is the wiring, which upstream CI still exercises.
-const windowsHost = HostProcessPlatform.defaultValue() === "win32";
-
 function makeTempDir(
   prefix: string,
 ): Effect.Effect<string, PlatformError.PlatformError, FileSystem.FileSystem | Scope.Scope> {
@@ -256,12 +249,6 @@ function initRepo(
     yield* runGit(cwd, ["init", "--initial-branch=main"]);
     yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
     yield* runGit(cwd, ["config", "user.name", "Test User"]);
-    // Pinned so the fixtures stop inheriting the developer's core.autocrlf.
-    // Enabled, which is the Windows default, a checkout rewrites the LF these
-    // tests write as CRLF and the content assertions fail on line endings
-    // alone. Worktrees share the repository's config, so pinning here covers
-    // the worktree cases too.
-    yield* runGit(cwd, ["config", "core.autocrlf", "false"]);
     yield* fs.writeFileString(NodePath.join(cwd, "README.md"), "hello\n");
     yield* runGit(cwd, ["add", "README.md"]);
     yield* runGit(cwd, ["commit", "-m", "Initial commit"]);
@@ -3896,10 +3883,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     12_000,
   );
 
-  // Kept end to end on a real repository: selector ordering is covered purely
-  // above, but nothing else proves the probe loop actually stops at the first
-  // match rather than asking the host for every selector.
-  it.effect.skipIf(windowsHost)(
+  it.effect(
     "stops probing head selectors after finding an existing PR",
     () =>
       Effect.gen(function* () {
@@ -3999,113 +3983,6 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(true);
       }),
     20_000,
-  );
-
-  // Head-selector ordering decides which pull request a branch adopts, and it
-  // is pure: everything below is a value the resolver reads from git first.
-  // These used to drive `commit_push_pr` against two real repositories, which
-  // cost seconds per case and proved nothing extra about the ordering.
-  it.effect("probes the fork owner selector first for a branch on a fork remote", () =>
-    Effect.sync(() => {
-      const plan = GitManager.planBranchHeadSelectors({
-        localBranch: "statemachine",
-        upstreamRef: "refs/remotes/fork-seed/statemachine",
-        remoteName: "fork-seed",
-        headRepositoryNameWithOwner: "octocat/codething-mvp",
-        headOwnerLogin: "octocat",
-        // No origin configured, so the fork remote alone decides.
-        originRepositoryNameWithOwner: null,
-      });
-
-      expect(plan.isCrossRepository).toBe(true);
-      expect(plan.headBranch).toBe("statemachine");
-      expect(plan.headSelectors).toEqual([
-        "octocat:statemachine",
-        "fork-seed:statemachine",
-        "statemachine",
-      ]);
-      expect(plan.preferredHeadSelector).toBe("octocat:statemachine");
-    }),
-  );
-
-  it.effect("prefers owner-qualified selectors before bare branch names for cross-repo PRs", () =>
-    Effect.sync(() => {
-      const plan = GitManager.planBranchHeadSelectors({
-        // A local alias tracking the fork's own branch name.
-        localBranch: "t3code/pr-142/statemachine",
-        upstreamRef: "refs/remotes/fork-seed/statemachine",
-        remoteName: "fork-seed",
-        headRepositoryNameWithOwner: "octocat/codething-mvp",
-        headOwnerLogin: "octocat",
-        originRepositoryNameWithOwner: null,
-      });
-
-      expect(plan.headBranch).toBe("statemachine");
-      // The bare branch name is probed last: an unrelated same-repo pull
-      // request sharing that name must not be adopted ahead of the fork's own.
-      expect(plan.headSelectors).toEqual([
-        "octocat:statemachine",
-        "fork-seed:statemachine",
-        "statemachine",
-      ]);
-      expect(plan.headSelectors.indexOf("octocat:statemachine")).toBeLessThan(
-        plan.headSelectors.indexOf("statemachine"),
-      );
-    }),
-  );
-
-  it.effect("keeps a same-repo branch on the bare branch selector", () =>
-    Effect.sync(() => {
-      const plan = GitManager.planBranchHeadSelectors({
-        localBranch: "statemachine",
-        upstreamRef: "refs/remotes/origin/statemachine",
-        remoteName: "origin",
-        headRepositoryNameWithOwner: "pingdotgg/codething-mvp",
-        headOwnerLogin: "pingdotgg",
-        originRepositoryNameWithOwner: "pingdotgg/codething-mvp",
-      });
-
-      expect(plan.isCrossRepository).toBe(false);
-      expect(plan.headSelectors).toEqual(["statemachine"]);
-      expect(plan.preferredHeadSelector).toBe("statemachine");
-    }),
-  );
-
-  it.effect("does not reuse a cross-repo PR when the host omits head identity metadata", () =>
-    Effect.sync(() => {
-      const headContext = {
-        headBranch: "statemachine",
-        headRepositoryNameWithOwner: "octocat/codething-mvp",
-        headRepositoryOwnerLogin: "octocat",
-        isCrossRepository: true,
-      };
-      const ambiguousPullRequest = {
-        number: 41,
-        title: "Ambiguous fork PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/41",
-        baseRefName: "main",
-        headRefName: "statemachine",
-        state: "open" as const,
-        updatedAt: Option.none(),
-      };
-
-      // The head ref matches, but nothing identifies which repository it is
-      // on, so adopting it could hand the user someone else's pull request.
-      expect(GitManager.matchesBranchHeadContext(ambiguousPullRequest, headContext)).toBe(false);
-
-      expect(
-        GitManager.matchesBranchHeadContext(
-          {
-            ...ambiguousPullRequest,
-            number: 142,
-            isCrossRepository: true,
-            headRepositoryNameWithOwner: "octocat/codething-mvp",
-            headRepositoryOwnerLogin: "octocat",
-          },
-          headContext,
-        ),
-      ).toBe(true);
-    }),
   );
 
   it.effect("matches mounted Forgejo heads without confusing forks sharing a branch", () =>

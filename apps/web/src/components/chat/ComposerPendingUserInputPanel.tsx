@@ -7,7 +7,6 @@ import {
 } from "../../pendingUserInput";
 import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 
@@ -72,7 +71,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const activeQuestion = progress.activeQuestion;
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
-  const onDismissRef = useRef(onDismiss);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
     questionId: string;
     optionValue: string;
@@ -89,30 +87,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
   }, [onAdvance]);
-
-  useEffect(() => {
-    onDismissRef.current = onDismiss;
-  }, [onDismiss]);
-
-  // Escape closes the prompt outright, matching the CLI. Deliberately still active
-  // while collapsed, and while typing a custom answer: reaching for Escape mid-answer
-  // means "get me out of here", not "keep this question". `defaultPrevented` leaves
-  // Escape to whatever already handled it (an open menu, a dialog).
-  useEffect(() => {
-    // Escape only dismisses what the close button would: a question the agent
-    // marked dismissible. Anything else still needs an answer.
-    if (isResponding || !prompt.dismissible) return;
-    const requestId = prompt.requestId;
-    const handler = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      onDismissRef.current(requestId);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [isResponding, prompt.dismissible, prompt.requestId]);
 
   useEffect(() => {
     if (!activeQuestion || activeQuestion.multiSelect || !optimisticSingleSelect) {
@@ -207,18 +181,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         setCollapsedQuestionId(open ? null : activeQuestion.id);
       }}
     >
-      {/* The row is no longer the disclosure button itself: dismissing has to
-          sit beside the trigger rather than inside it, so the trigger stretches
-          across the row and the actions ride above it. */}
-      <ComposerBanner.Row className="relative">
-        <CollapsibleTrigger
-          render={<button type="button" />}
-          title={
-            isCollapsed ? "Show the question and its options" : "Hide the question and its options"
-          }
-          data-pending-user-input-toggle={isCollapsed ? "collapsed" : "expanded"}
-          className="absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-        />
+      <CollapsibleTrigger
+        render={<ComposerBanner.Row render={<button type="button" />} />}
+        title={
+          isCollapsed ? "Show the question and its options" : "Hide the question and its options"
+        }
+        data-pending-user-input-toggle={isCollapsed ? "collapsed" : "expanded"}
+      >
         <ComposerBanner.Icon />
         <ComposerBanner.Content>
           <span className="shrink-0 font-medium text-muted-foreground">
@@ -260,7 +229,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             />
           ) : null}
         </ComposerBanner.Actions>
-      </ComposerBanner.Row>
+      </CollapsibleTrigger>
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">

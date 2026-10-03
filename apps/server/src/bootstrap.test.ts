@@ -1,6 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -21,29 +20,6 @@ import {
   readBootstrapEnvelope,
 } from "./bootstrap.ts";
 import { assertNone, assertSome } from "@effect/vitest/utils";
-
-/**
- * Closes a bootstrap fd the test opened, tolerating that the envelope reader
- * may already have closed it. `resolveFdPath` gives Linux and macOS a
- * `/proc/self/fd` or `/dev/fd` path, so the stream duplicates the descriptor
- * and auto-closes only its own copy. Windows has no such path, so the reader
- * falls back to streaming the caller's descriptor directly with
- * `autoClose: true` and consumes it, making this release a double close.
- */
-const closeFdIfOpen = (fd: number) =>
-  Effect.sync(() => {
-    // Windows has no `/proc/self/fd` or `/dev/fd` for `resolveFdPath` to
-    // duplicate through, so the reader streams this descriptor directly with
-    // `autoClose` and owns it. Closing here would race that close and surface
-    // EBADF as an uncaught exception, which fails the run even though the
-    // assertions passed. Tests that never reach the stream leak one descriptor
-    // for the life of the test process, which the OS reclaims on exit.
-    if (HOST_PLATFORM === "win32") return;
-    NodeFS.closeSync(fd);
-  });
-
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Runs in a scope finalizer outside any Effect runtime.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 const openSyncInterceptor = vi.hoisted(() => ({
   failPath: null as string | null,

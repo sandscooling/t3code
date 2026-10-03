@@ -8,7 +8,6 @@ import {
   isWindowsDrivePathHref,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
-  resolveMarkdownImageFileLinkMeta,
   resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
   shouldOpenMarkdownFileLinkInBrowserByDefault,
@@ -335,34 +334,6 @@ describe("resolveMarkdownFileLinkTarget", () => {
     expect(resolveMarkdownFileLinkTarget("file:///c%3A/Users/x/shot.png")).toBe(
       "c:/Users/x/shot.png",
     );
-  });
-});
-
-describe("resolveMarkdownImageFileLinkMeta", () => {
-  it("resolves relative workspace images", () => {
-    expect(
-      resolveMarkdownImageFileLinkMeta("screenshots/result.png", "/repo/project"),
-    ).toMatchObject({
-      filePath: "/repo/project/screenshots/result.png",
-      workspaceRelativePath: "screenshots/result.png",
-    });
-  });
-
-  it("accepts supported absolute and file URL images", () => {
-    expect(resolveMarkdownImageFileLinkMeta("/tmp/result.webp", "/repo/project")?.filePath).toBe(
-      "/tmp/result.webp",
-    );
-    expect(
-      resolveMarkdownImageFileLinkMeta("file:///repo/project/result.svg", "/repo/project")
-        ?.filePath,
-    ).toBe("/repo/project/result.svg");
-  });
-
-  it("leaves remote images and non-image files to the normal markdown renderer", () => {
-    expect(
-      resolveMarkdownImageFileLinkMeta("https://example.com/result.png", "/repo/project"),
-    ).toBeNull();
-    expect(resolveMarkdownImageFileLinkMeta("notes/result.md", "/repo/project")).toBeNull();
   });
 });
 

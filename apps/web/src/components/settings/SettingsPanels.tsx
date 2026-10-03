@@ -3264,7 +3264,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="text-generation" title="Text generation">
         <SettingsRow
           {...searchableSetting("generate-thread-titles")}
-          description="Name a thread from its first message automatically, and follow session names the provider generates. Turn this off to keep whatever the thread was first called. Regenerate title still works on demand."
+          description="Name a thread from its first message automatically. Turn this off to keep whatever the thread was first called. Regenerate title still works on demand."
           resetAction={
             settings.generateThreadTitles !== DEFAULT_UNIFIED_SETTINGS.generateThreadTitles ? (
               <SettingResetButton

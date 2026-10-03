@@ -5,11 +5,6 @@ import * as Schema from "effect/Schema";
 import type { CursorSettings } from "@t3tools/contracts";
 import { CursorSettings as CursorSettingsSchema } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { writeFakeExecutable, writeFakeScript } from "../../testUtils/fakeExecutable.ts";
-
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Plain async test with no Effect runtime in scope.
-const HOST_PLATFORM: NodeJS.Platform = process.platform;
 
 import {
   buildCursorCapabilitiesFromSdkModel,

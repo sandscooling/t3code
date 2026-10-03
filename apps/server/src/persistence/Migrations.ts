@@ -12,8 +12,6 @@ import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
-// Fork: see reconcileForkThreadMigrations.ts.
-import { reconcileForkThreadMigrations } from "./reconcileForkThreadMigrations.ts";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -178,10 +176,6 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  // Fork: free ids 55 and 56 from the v1 fork's own migrations first.
-  if (toMigrationInclusive === undefined || toMigrationInclusive >= 55) {
-    yield* reconcileForkThreadMigrations();
-  }
   const previewMigrations =
     toMigrationInclusive === undefined || toMigrationInclusive >= 55
       ? yield* reconcileV2PreviewMigration()

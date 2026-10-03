@@ -28,7 +28,7 @@ export type ComposerBannerStackContent = Pick<
   "id" | "variant" | "priority"
 > & { readonly content: ReactNode };
 
-export type ComposerBannerStackEntry = ComposerBannerStackItem | ComposerBannerStackContent;
+type ComposerBannerStackEntry = ComposerBannerStackItem | ComposerBannerStackContent;
 
 function bannerPriority(item: ComposerBannerStackEntry) {
   if (item.priority === "activity") {
@@ -38,25 +38,6 @@ function bannerPriority(item: ComposerBannerStackEntry) {
     return 1;
   }
   return 2;
-}
-
-/**
- * Splits the banners into the column that stays attached above the composer and
- * the notices that collapse behind the peek.
- *
- * Every activity banner is pinned, not just the first one: background work
- * parked behind the peek hides its own Stop button until you hover the strip.
- * With no activity banner at all the front notice keeps its attached slot, so a
- * lone warning still reads as part of the composer.
- */
-export function partitionComposerBanners(items: ReadonlyArray<ComposerBannerStackEntry>) {
-  const orderedItems = items.toSorted((a, b) => bannerPriority(a) - bannerPriority(b));
-  const activityItems = orderedItems.filter((item) => item.priority === "activity");
-  const pinnedItems = activityItems.length > 0 ? activityItems : orderedItems.slice(0, 1);
-  return {
-    pinnedItems,
-    stackedItems: orderedItems.filter((item) => !pinnedItems.includes(item)),
-  };
 }
 
 interface ComposerBannerStackProps {
@@ -107,13 +88,15 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
     return null;
   }
 
-  const { pinnedItems, stackedItems } = partitionComposerBanners(items);
-  const attachedItem = pinnedItems[0];
-  if (!attachedItem) {
+  // Activity stays attached. Urgency and severity only order the notices behind it.
+  const orderedItems = items.toSorted((a, b) => bannerPriority(a) - bannerPriority(b));
+  const frontItem = orderedItems[0];
+  if (!frontItem) {
     return null;
   }
+  const stackedItems = orderedItems.slice(1);
   const hasStack = stackedItems.length > 0;
-  const showCollapsedStackCap = hasStack && exitingItemId !== attachedItem.id;
+  const showCollapsedStackCap = hasStack && exitingItemId !== frontItem.id;
   const firstStackedItem = stackedItems[0];
 
   const requestDismiss = (item: ComposerBannerStackEntry) => {
@@ -138,11 +121,13 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
     >
       <div className={cn("relative flex flex-col-reverse", hasStack && stackExpanded && "z-50")}>
         <div
-          // Keyed on the attached banner so a swap replays the entry transition,
-          // which upstream added for the single-banner case. Each pinned banner
-          // carries its own transition inside the column below.
-          key={attachedItem.id}
-          className="relative z-10 flex flex-col-reverse"
+          key={frontItem.id}
+          className={cn(
+            "relative z-10 transition-[opacity,translate] duration-220 ease-in",
+            exitingItemId === frontItem.id
+              ? "pointer-events-none translate-y-16 opacity-0"
+              : "opacity-100",
+          )}
           onPointerDownCapture={() => {
             setStackExpanded(false);
             const activeElement = document.activeElement;
@@ -154,30 +139,12 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
             }
           }}
         >
-          {pinnedItems.map((item, index) => (
-            <div
-              key={item.id}
-              className={cn(
-                "transition-[opacity,translate] duration-220 ease-in",
-                // Each banner above the attached one overlaps into it, so the
-                // pinned column reads as a single surface rather than a stack.
-                index > 0 && "-mb-[calc(1rem+1px)]",
-                exitingItemId === item.id
-                  ? "pointer-events-none translate-y-16 opacity-0"
-                  : "opacity-100",
-              )}
-            >
-              <ComposerBannerStackAlert
-                item={item}
-                attached
-                className={cn(
-                  index < pinnedItems.length - 1 && "before:rounded-none before:border-t-0",
-                )}
-                exiting={exitingItemId === item.id}
-                onDismissRequest={() => requestDismiss(item)}
-              />
-            </div>
-          ))}
+          <ComposerBannerStackAlert
+            item={frontItem}
+            attached
+            exiting={exitingItemId === frontItem.id}
+            onDismissRequest={() => requestDismiss(frontItem)}
+          />
         </div>
         {hasStack ? (
           <div
@@ -354,13 +321,11 @@ function NoticeDescription({ children, compact }: { children: ReactNode; compact
 function ComposerBannerStackAlert({
   item,
   attached,
-  className,
   exiting,
   onDismissRequest,
 }: {
   readonly item: ComposerBannerStackEntry;
   readonly attached: boolean;
-  readonly className?: string;
   readonly exiting: boolean;
   readonly onDismissRequest: () => void;
 }) {
@@ -370,7 +335,6 @@ function ComposerBannerStackAlert({
         density="comfortable"
         placement={attached ? "attached" : "floating"}
         variant={item.variant}
-        className={className}
       >
         {item.content}
       </ComposerBanner.Root>
@@ -381,7 +345,6 @@ function ComposerBannerStackAlert({
       role="alert"
       placement={attached ? "attached" : "floating"}
       variant={item.variant}
-      className={className}
       density="comfortable"
     >
       <ComposerBanner.Row layout={item.compact ? "wrap-actions-narrow" : "wrap-actions"}>
