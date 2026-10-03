@@ -3,9 +3,11 @@ import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
 
 /**
  * Fork: the swatches a project's orchestrator card can wear. The class names
- * are spelled out so Tailwind generates them; each maps to a theme token in
- * index.css. The color is a bar down the card's left edge, drawn as an inset
- * shadow so it follows the rounded corners and moves nothing.
+ * are spelled out so Tailwind generates them: the 500 shade in light, the 400
+ * in dark. `light-dark()` rather than a `dark:` variant keeps one class's
+ * specificity, so a lifted row's `shadow-lg` still wins in both themes. The
+ * color is a bar down the card's left edge, drawn as an inset shadow so it
+ * follows the rounded corners and moves nothing.
  */
 export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   readonly id: SidebarOrchestratorColor;
@@ -15,42 +17,42 @@ export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   {
     id: "red",
     label: "Red",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-red)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-red-500),var(--color-red-400))]",
   },
   {
     id: "orange",
     label: "Orange",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-orange)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-orange-500),var(--color-orange-400))]",
   },
   {
     id: "amber",
     label: "Amber",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-amber)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-amber-500),var(--color-amber-400))]",
   },
   {
     id: "green",
     label: "Green",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-green)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-green-500),var(--color-green-400))]",
   },
   {
     id: "teal",
     label: "Teal",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-teal)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-teal-500),var(--color-teal-400))]",
   },
   {
     id: "blue",
     label: "Blue",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-blue)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-blue-500),var(--color-blue-400))]",
   },
   {
     id: "violet",
     label: "Violet",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-violet)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-violet-500),var(--color-violet-400))]",
   },
   {
     id: "pink",
     label: "Pink",
-    className: "shadow-[inset_4px_0_0_var(--color-orchestrator-pink)]",
+    className: "shadow-[inset_4px_0_0_light-dark(var(--color-pink-500),var(--color-pink-400))]",
   },
 ];
 

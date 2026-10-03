@@ -227,14 +227,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-diff-deletion-foreground: var(--diff-deletion-foreground);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
-  --color-orchestrator-red: var(--orchestrator-red);
-  --color-orchestrator-orange: var(--orchestrator-orange);
-  --color-orchestrator-amber: var(--orchestrator-amber);
-  --color-orchestrator-green: var(--orchestrator-green);
-  --color-orchestrator-teal: var(--orchestrator-teal);
-  --color-orchestrator-blue: var(--orchestrator-blue);
-  --color-orchestrator-violet: var(--orchestrator-violet);
-  --color-orchestrator-pink: var(--orchestrator-pink);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
   --color-input: var(--contrast-input);
@@ -2018,18 +2010,6 @@ code {
 .chat-markdown .chat-markdown-table-container[data-expanded="true"] td {
   max-width: 24rem;
   overflow-wrap: anywhere;
-}
-
-/* Fork: orchestrator card accent bar colors. */
-:root {
-  --orchestrator-red: light-dark(var(--color-red-500), var(--color-red-400));
-  --orchestrator-orange: light-dark(var(--color-orange-500), var(--color-orange-400));
-  --orchestrator-amber: light-dark(var(--color-amber-500), var(--color-amber-400));
-  --orchestrator-green: light-dark(var(--color-green-500), var(--color-green-400));
-  --orchestrator-teal: light-dark(var(--color-teal-500), var(--color-teal-400));
-  --orchestrator-blue: light-dark(var(--color-blue-500), var(--color-blue-400));
-  --orchestrator-violet: light-dark(var(--color-violet-500), var(--color-violet-400));
-  --orchestrator-pink: light-dark(var(--color-pink-500), var(--color-pink-400));
 }
 
 :root {

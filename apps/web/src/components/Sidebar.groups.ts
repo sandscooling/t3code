@@ -160,6 +160,20 @@ export function sliceSidebarGroupForDrag(
   return slice;
 }
 
+/** Upstream's strategy while no grouped drag is in flight (`group` undefined),
+    the grouped one while it is. */
+export function createGroupAwareSidebarSortingStrategy(
+  input: Parameters<typeof createSidebarSortingStrategy>[0] & {
+    readonly group: string | undefined;
+    readonly lead: ReadonlySet<string>;
+  },
+): SortingStrategy {
+  const { group, lead, ...rest } = input;
+  return group === undefined
+    ? createSidebarSortingStrategy(rest)
+    : createGroupedSidebarSortingStrategy({ ...rest, group, lead });
+}
+
 /** Run the upstream strategy on the drag slice. The settled rects are moved up
     to sit right under the group, so the upstream layout sees one contiguous
     list; the groups between them then shift by the same amount the settled

@@ -1011,41 +1011,6 @@ export function shouldShowSidebarV2Duration(status: SidebarThreadStatus): boolea
   return status === "working";
 }
 
-/**
- * Plan completion as a whole percentage, for the hover meter.
- *
- * Clamped rather than trusted: `planProgress` is an in-memory server snapshot
- * that can arrive mid-update, and a bar wider than its track is a worse way to
- * find that out than a bar pinned at 100.
- */
-export function planProgressPercent(progress: {
-  readonly completedSteps: number;
-  readonly totalSteps: number;
-}): number {
-  if (progress.totalSteps <= 0) {
-    return 0;
-  }
-  const ratio = progress.completedSteps / progress.totalSteps;
-  return Math.max(0, Math.min(100, Math.round(ratio * 100)));
-}
-
-/**
- * Whether a thread still has work in it, as opposed to being finished or idle.
- *
- * `resolveSidebarThreadStatus` collapses several live conditions into one
- * status and ranks them: a thread whose session is running reports "approval"
- * or "input" the moment it needs something from you. Anything that wants to
- * mean "still going" has to ask for the whole set, because testing for
- * "working" alone silently excludes a thread that is merely waiting on a
- * question.
- */
-export function isSidebarThreadInFlight(status: SidebarThreadStatus): boolean {
-  // Fork: v2's "waiting" (stopped with background work open) is v1's "monitoring".
-  return (
-    status === "working" || status === "waiting" || status === "approval" || status === "input"
-  );
-}
-
 /** Working beta: threads busy with work that does not need the user fold into
     the Working shelf: a running run, or one stopped with background work
     that will wake it. Approvals, questions, plan prompts, and failures stay in the
