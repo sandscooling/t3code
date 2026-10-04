@@ -36,8 +36,9 @@ import {
   hasVisibleToastAction,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
-  toastIdsToDismissForActiveThread,
 } from "./toast.logic";
+// Fork: question toasts close once their thread is on screen.
+import { toastIdsToDismissForActiveThread } from "./toastActiveThreadDismiss";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./tooltip";
 
 export type ThreadToastData = {
@@ -46,7 +47,7 @@ export type ThreadToastData = {
   leadingIcon?: ReactNode;
   tooltipStyle?: boolean;
   onClose?: (() => void) | undefined;
-  /** Close this toast once the reader opens the thread it is about. */
+  /** Fork: close this toast once the reader opens the thread it is about. */
   dismissOnActiveThreadRef?: ScopedThreadRef | null;
   dismissAfterVisibleMs?: number;
   hideCopyButton?: boolean;
@@ -534,7 +535,7 @@ function ThreadToastVisibleAutoDismiss({
 
 function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
   return (
-    // Question toasts stand until answered, so the default limit of 3 would hide
+    // Fork: question toasts stand until answered, so the default limit of 3 would hide
     // a fourth waiting thread until another one closed.
     <Toast.Provider toastManager={toastManager} limit={6} {...props}>
       {children}
@@ -561,6 +562,7 @@ function Toasts({ position }: { position: ToastPosition }) {
     }
   }, [toasts]);
 
+  // Fork: opening a thread closes the toasts waiting on it.
   useEffect(() => {
     for (const toastId of toastIdsToDismissForActiveThread(toasts, activeThreadRef)) {
       toastManager.close(toastId);
@@ -652,7 +654,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                 "data-expanded:data-ending-style:data-[swipe-direction=down]:transform-[translateY(calc(var(--toast-swipe-movement-y)+100%+var(--toast-inset)))]",
               )}
               data-position={position}
-              // Always laid out as the expanded list, so every waiting toast stays
+              // Fork: always laid out as the expanded list, so every waiting toast stays
               // readable without hovering. Props win over Base UI's own state
               // attribute; its timers pause on hover state, not this attribute.
               data-expanded=""
@@ -690,6 +692,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                 </button>
               </div>
               <Toast.Content
+                // Fork: the expanded layout, as on the toast root.
                 data-expanded=""
                 className={cn(
                   // `overflow-x: clip` avoids the CSS quirk where pairing `hidden` + `y: visible`

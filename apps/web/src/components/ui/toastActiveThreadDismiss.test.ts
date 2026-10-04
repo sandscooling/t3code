@@ -1,8 +1,7 @@
-// Fork-owned tests for toast.logic.test.ts.
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { assert, describe, it } from "vite-plus/test";
 
-import { toastIdsToDismissForActiveThread } from "./toast.logic";
+import { toastIdsToDismissForActiveThread } from "./toastActiveThreadDismiss";
 
 describe("toastIdsToDismissForActiveThread", () => {
   const activeThreadRef = {

@@ -83,6 +83,8 @@ import {
   START_PICK_CHANNEL,
 } from "./GuestProtocol.ts";
 import { isPreviewAnnotationPayload } from "./PickedElementPayload.ts";
+// Fork: snapshot capture fallback, console filtering and the compact tree.
+import { filterDiagnosticMessage, withScreenshotFallback } from "./snapshotCapture.ts";
 import { compactAccessibilityTree } from "./accessibilityTree.ts";
 import { playwrightInjectedRuntimeInstallExpression } from "./PlaywrightInjectedRuntime.ts";
 import {
@@ -157,23 +159,12 @@ const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
 const PICTURE_IN_PICTURE_MIN_HEIGHT = 160;
 const PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON = 0.002;
 const DIAGNOSTIC_BUFFER_LIMIT = 200;
-/**
- * Per-entry cap for captured console and log text. The buffer bounds how many
- * entries survive but said nothing about their size, so one page logging a
- * serialized response could outweigh everything else in the snapshot.
- */
-const MAX_DIAGNOSTIC_TEXT_LENGTH = 2_000;
-const truncateDiagnosticText = (text: string): string =>
-  text.length <= MAX_DIAGNOSTIC_TEXT_LENGTH
-    ? text
-    : `${text.slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH)}…`;
 const MAX_ARTIFACT_SITE_SLUG_LENGTH = 80;
 const AGENT_CURSOR_MOVE_MS = 160;
 const AGENT_CURSOR_CLICK_LEAD_MS = 40;
 const requestRecordingCaptureExpression = (tabId: string): string =>
   `globalThis[${JSON.stringify(DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER)}]?.(${JSON.stringify(tabId)}) === true`;
 const encodeUnknownJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-
 const DEFAULT_ANNOTATION_THEME: DesktopPreviewAnnotationTheme = {
   colorScheme: "light",
   radius: "0.625rem",
@@ -1166,14 +1157,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       const requestId = typeof params["requestId"] === "string" ? params["requestId"] : null;
       const next = (() => {
         if (method === "Runtime.consoleAPICalled") {
-          const level = typeof params["type"] === "string" ? params["type"] : "log";
-          // console.debug is developer tracing for whoever wrote the page, not
-          // a signal about its health, and libraries emit it by the hundred.
-          // Errors, warnings and ordinary logs still come through, since app
-          // output can matter.
-          if (level === "debug") {
-            return current;
-          }
           const args = Array.isArray(params["args"]) ? params["args"] : [];
           const text = args
             .map((arg) => {
@@ -1185,8 +1168,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           return {
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
-              level,
-              text: truncateDiagnosticText(text),
+              level: typeof params["type"] === "string" ? params["type"] : "log",
+              text,
               timestamp,
               source: "console",
             }),
@@ -1201,7 +1184,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
               level: "error",
-              text: truncateDiagnosticText(String(details["text"] ?? "Uncaught exception")),
+              text: String(details["text"] ?? "Uncaught exception"),
               timestamp,
               source: "exception",
             }),
@@ -1216,7 +1199,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             ...current,
             consoleEntries: pushBounded(current.consoleEntries, {
               level: typeof entry["level"] === "string" ? entry["level"] : "info",
-              text: truncateDiagnosticText(String(entry["text"] ?? "")),
+              text: String(entry["text"] ?? ""),
               timestamp,
               source: typeof entry["source"] === "string" ? entry["source"] : "log",
             }),
@@ -1285,7 +1268,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         return current;
       })();
       return replaceMap(allDiagnostics, (copy) => {
-        copy.set(webContentsId, next);
+        // Fork: drop console.debug and cap each console entry's text.
+        copy.set(webContentsId, filterDiagnosticMessage(method, params, current, next));
       });
     });
   });
@@ -3758,58 +3742,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         };
   });
 
-  /**
-   * Grabs the snapshot screenshot, preferring Electron's compositor capture and
-   * falling back to CDP when it cannot deliver a frame.
-   *
-   * `capturePage` copies an existing compositor surface, so it fails with
-   * `UnknownVizError` (or hands back an empty image) whenever the tab is not
-   * being painted - a background thread's offscreen preview being the common
-   * case. `Page.captureScreenshot` renders its own frame and needs no live viz
-   * surface, which keeps snapshots working for tabs the human cannot see.
-   */
-  const captureSnapshotImage = (tabId: string, wc: Electron.WebContents, send: SendCommand) => {
-    const errorContext = {
-      operation: "automationSnapshot.capturePage",
-      tabId,
-      webContentsId: wc.id,
-    } as const;
-    const viaDebugger = send("Page.captureScreenshot", { format: "png" }).pipe(
-      Effect.flatMap((rawResponse) => {
-        const data = (rawResponse as { readonly data?: unknown }).data;
-        if (typeof data !== "string" || data.length === 0) {
-          return Effect.fail(
-            new PreviewOperationError({
-              ...errorContext,
-              operation: "automationSnapshot.captureScreenshot",
-              cause: new Error("Page.captureScreenshot returned no image data"),
-            }),
-          );
-        }
-        return Effect.succeed(nativeImage.createFromBuffer(Buffer.from(data, "base64")));
-      }),
-    );
-    // Upstream's bounded, retrying capture runs first; retrying cannot help a
-    // tab that is never painted at all, which is what the debugger path is for.
-    // Both "rejected" and "resolved but empty" collapse into one absent frame so
-    // that path runs at most once, whichever way the capture came back.
-    // A stalled capture means the compositor is hung; the debugger cannot fix
-    // that and its own timeout would only bury a clearer error, so upstream's
-    // timeout failure stays authoritative. A capture that merely *rejects* can
-    // just be an unpainted tab, which is exactly what the debugger path is
-    // for. A destroyed or replaced guest fails both ways, so it keeps
-    // travelling too.
-    return capturePageWithRetry(errorContext, tabId, wc).pipe(
-      Effect.catchIf(
-        (error) =>
-          error._tag === "PreviewOperationError" &&
-          (error.cause as { readonly _tag?: string } | undefined)?._tag !== "TimeoutError",
-        () => Effect.succeed(undefined),
-      ),
-      Effect.flatMap((image) => (image && !image.isEmpty() ? Effect.succeed(image) : viaDebugger)),
-    );
-  };
-
   const captureAutomationSnapshot = Effect.fn("PreviewManager.captureAutomationSnapshot")(
     function* (tabId: string, wc: Electron.WebContents, send: SendCommand) {
       yield* Effect.all([send("Runtime.enable"), send("Accessibility.enable")], {
@@ -3880,7 +3812,16 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
       const [accessibility, sourceImage, diagnostics, timelines] = yield* Effect.all([
         send("Accessibility.getFullAXTree"),
-        captureSnapshotImage(tabId, wc, send),
+        // Fork: fall back to a CDP screenshot when the tab has no compositor frame.
+        capturePageWithRetry(
+          {
+            operation: "automationSnapshot.capturePage",
+            tabId,
+            webContentsId: wc.id,
+          },
+          tabId,
+          wc,
+        ).pipe(withScreenshotFallback(send, tabId, wc.id)),
         Ref.get(diagnosticsRef),
         Ref.get(actionTimelineRef),
       ]);
@@ -3893,6 +3834,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       const browserDiagnostics = diagnostics.get(wc.id);
       return {
         ...page,
+        // Fork: compact the accessibility tree.
         accessibilityTree: compactAccessibilityTree(accessibility),
         consoleEntries: [...(browserDiagnostics?.consoleEntries ?? [])],
         networkEntries: [...(browserDiagnostics?.networkEntries ?? [])],

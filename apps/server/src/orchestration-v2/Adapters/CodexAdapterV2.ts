@@ -156,6 +156,8 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "../SubagentProjection.ts";
+// Fork: Codex image work-log rows.
+import { codexImageItemEvents } from "./codexImageItems.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 export const CODEX_DRIVER_KIND = CODEX_PROVIDER;
@@ -1151,13 +1153,6 @@ type CodexWebSearchItem = {
     | CodexSchema.V2ItemCompletedNotification__WebSearchAction
     | null;
 };
-
-/**
- * Fork: the tool names a Codex generated or viewed image is recorded under. The
- * web work log keeps any row carrying a viewedImagePath on screen.
- */
-export const CODEX_IMAGE_GENERATION_TOOL_NAME = "image_generation";
-export const CODEX_IMAGE_VIEW_TOOL_NAME = "view_image";
 
 export type CodexDynamicToolItem = Extract<
   | CodexSchema.V2ItemStartedNotification__ThreadItem
@@ -4294,68 +4289,14 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               return;
             }
 
-            // Fork: a generated image becomes a dynamic_tool row carrying its saved
-            // file as viewedImagePath, so the work log can show it. v2 otherwise
-            // drops imageGeneration items; v1 read the same savedPath.
-            if (payload.item.type === "imageGeneration") {
-              const savedPath = trimText(payload.item.savedPath);
-              if (savedPath === undefined) {
-                return;
+            // Fork: generated and viewed images become their own work-log rows.
+            const imageEvents = yield* codexImageItemEvents(payload.item, (item) =>
+              buildDynamicToolArtifacts(context, item),
+            );
+            if (imageEvents !== null) {
+              for (const event of imageEvents) {
+                yield* emitProviderEvent(event);
               }
-              const revisedPrompt = trimText(payload.item.revisedPrompt);
-              const artifacts = yield* buildDynamicToolArtifacts(context, {
-                type: "dynamicToolCall",
-                id: payload.item.id,
-                tool: CODEX_IMAGE_GENERATION_TOOL_NAME,
-                arguments: revisedPrompt === undefined ? {} : { prompt: revisedPrompt },
-                status: "completed",
-              });
-              yield* emitProviderEvent({
-                type: "node.updated",
-                driver: CODEX_PROVIDER,
-                node: artifacts.node,
-              });
-              yield* emitProviderEvent({
-                type: "turn_item.updated",
-                driver: CODEX_PROVIDER,
-                turnItem:
-                  artifacts.turnItem.type === "dynamic_tool"
-                    ? {
-                        ...artifacts.turnItem,
-                        title: "Generated image",
-                        viewedImagePath: savedPath,
-                      }
-                    : artifacts.turnItem,
-              });
-              return;
-            }
-
-            // Fork: an image Codex viewed, recorded the same way with its path.
-            if (payload.item.type === "imageView") {
-              const path = trimText(payload.item.path);
-              if (path === undefined) {
-                return;
-              }
-              const artifacts = yield* buildDynamicToolArtifacts(context, {
-                type: "dynamicToolCall",
-                id: payload.item.id,
-                tool: CODEX_IMAGE_VIEW_TOOL_NAME,
-                arguments: { path },
-                status: "completed",
-              });
-              yield* emitProviderEvent({
-                type: "node.updated",
-                driver: CODEX_PROVIDER,
-                node: artifacts.node,
-              });
-              yield* emitProviderEvent({
-                type: "turn_item.updated",
-                driver: CODEX_PROVIDER,
-                turnItem:
-                  artifacts.turnItem.type === "dynamic_tool"
-                    ? { ...artifacts.turnItem, title: "Viewed image", viewedImagePath: path }
-                    : artifacts.turnItem,
-              });
               return;
             }
 

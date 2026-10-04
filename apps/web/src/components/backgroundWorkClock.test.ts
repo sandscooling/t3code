@@ -1,9 +1,7 @@
-// Fork-owned tests for ChatView.logic.test.ts.
 import { describe, expect, it } from "vite-plus/test";
 
-import { backgroundWorkClockStartedAt } from "./ChatView.logic";
+import { backgroundWorkClockStartedAt } from "./backgroundWorkClock";
 
-// Fork: the background work banner's clock.
 describe("backgroundWorkClockStartedAt", () => {
   const tasks = [
     { taskId: "watch", kind: "monitor" as const, startedAt: "2026-10-02T10:00:00.000Z" },

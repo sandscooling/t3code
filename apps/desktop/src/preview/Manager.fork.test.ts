@@ -157,7 +157,7 @@ describe("PreviewManager", () => {
         // because a rejection goes through upstream's retry schedule, which
         // this test would then have to drive on the TestClock to reach the
         // fallback at all. Both collapse to the same absent frame in
-        // captureSnapshotImage.
+        // withScreenshotFallback.
         const capturePage = vi.fn(async () => ({
           isEmpty: () => true,
           getSize: () => ({ width: 0, height: 0 }),

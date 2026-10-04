@@ -12,7 +12,7 @@ import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
-import { backgroundWorkClockStartedAt } from "./ChatView.logic"; // Fork: Waiting duration
+import { backgroundWorkClockStartedAt } from "./backgroundWorkClock"; // Fork: Waiting duration
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";

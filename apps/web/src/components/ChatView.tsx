@@ -499,7 +499,6 @@ import {
   shouldRetargetThreadPullRequestPanel,
   shouldOpenProactiveTurnDiff,
   shouldReleaseTimelineAnchorForToolActivity,
-  backgroundWorkClockStartedAt, // Fork: background work clock
   shouldRenderPreviewMiniPlayer,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -527,6 +526,7 @@ import {
   waitForStartedServerThread,
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
+import { backgroundWorkClockStartedAt } from "./backgroundWorkClock"; // Fork: background work clock
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import {
