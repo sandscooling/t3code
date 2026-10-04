@@ -105,8 +105,6 @@ import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
-import { vcsEnvironment } from "../state/vcs";
-import { spawnSessions } from "../lib/spawnSessions";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
@@ -168,10 +166,6 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
   filterCommandPaletteGroups,
-  NEW_THREAD_PROJECTS_GROUP,
-  parseSessionSpawnQuery,
-  resolveSessionCountCompletion,
-  resolveSessionCountTarget,
   filterPinnedBrowseEntries,
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
@@ -202,15 +196,10 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import {
-  primaryServerKeybindingsAtom,
-  primaryServerProvidersAtom,
-  primaryServerSettingsAtom, // Fork: session fleet
-} from "../state/server";
-// Fork: a session fleet starts where a single new thread in the project would.
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
-import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+// Fork: "New thread in... N" starts a session fleet.
+import { useSessionFleet } from "../lib/spawnSessions";
+import { handleSessionCountKey, NEW_THREAD_PROJECTS_GROUP } from "./sessionFleet.logic";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -738,12 +727,6 @@ function OpenCommandPaletteDialog(props: {
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
     reportFailure: false,
   });
-  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, {
-    reportFailure: false,
-  });
-  const loadProjectBranches = useAtomQueryRunner(vcsEnvironment.listRefs, {
-    reportFailure: false,
-  });
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
   });
@@ -855,19 +838,13 @@ function OpenCommandPaletteDialog(props: {
   }, [environments, primaryEnvironmentId, providers]);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
-  // "New thread in..." lets the query carry a trailing count ("fleet 5"). The
-  // count is split off before filtering, since otherwise the digits join the
-  // project filter and the list goes empty with nothing to select.
-  const acceptsSessionCount =
-    currentView?.groups.some((group) => group.value === NEW_THREAD_PROJECTS_GROUP) === true;
-  const sessionSpawnCount = acceptsSessionCount ? parseSessionSpawnQuery(query).count : null;
-  const filterQuery = acceptsSessionCount
-    ? parseSessionSpawnQuery(deferredQuery).filterText
-    : deferredQuery;
-  // Read at execution time, so the project item closures do not go stale as
-  // the count is typed.
-  const sessionSpawnCountRef = useRef<number | null>(null);
-  sessionSpawnCountRef.current = sessionSpawnCount;
+  // Fork: "New thread in..." takes a trailing session count ("fleet 5").
+  const sessionFleet = useSessionFleet({
+    groups: currentView?.groups,
+    query,
+    deferredQuery,
+    fallbackModelSelection: activeThread?.modelSelection ?? null,
+  });
   const environmentIds = useMemo(
     () =>
       environments
@@ -1342,98 +1319,6 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
-  const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
-
-  /**
-   * Starts a fleet of standby sessions in one project, each one already running
-   * so it registers as a peer that an orchestrator session can address. Env mode
-   * follows the project's own default, so a fleet lands wherever a single new
-   * thread in that project would have.
-   */
-  const startSessionFleet = useCallback(
-    async (project: Project, count: number): Promise<void> => {
-      const modelSelection = project.defaultModelSelection ?? activeThread?.modelSelection ?? null;
-      if (modelSelection === null) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "No model to start with",
-            description: `Set a default model for ${project.title}, then spawn sessions.`,
-          }),
-        );
-        return;
-      }
-
-      // The shared resolver owns the priority order, and the t3.json read is
-      // skipped when a higher-priority source already decides.
-      const projectSettings = resolveProjectSettings(primaryServerSettings, project.id, project);
-      const projectFile =
-        projectSettings.settings.defaultThreadEnvMode === null
-          ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
-          : null;
-      const envMode = resolveProjectSettings(
-        primaryServerSettings,
-        project.id,
-        project,
-        projectFile,
-      ).settings.defaultThreadEnvMode;
-
-      // Worktree mode needs a base branch to cut from. The project's checked-out
-      // branch is the same starting point the composer offers by default.
-      let baseBranch: string | null = null;
-      if (envMode === "worktree") {
-        const refsResult = await loadProjectBranches({
-          environmentId: project.environmentId,
-          input: { cwd: project.workspaceRoot, refKind: "local" },
-        });
-        if (refsResult._tag === "Success") {
-          const refs = refsResult.value.refs;
-          baseBranch =
-            refs.find((ref) => ref.current)?.name ??
-            refs.find((ref) => ref.isDefault)?.name ??
-            null;
-        }
-        if (baseBranch === null) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "No base branch",
-              description: `${project.title} starts threads in a worktree, but its current branch could not be read.`,
-            }),
-          );
-          return;
-        }
-      }
-
-      const result = await spawnSessions({
-        count,
-        environmentId: project.environmentId,
-        projectId: project.id,
-        projectCwd: project.workspaceRoot,
-        modelSelection,
-        envMode,
-        baseBranch,
-        startFromOrigin: resolveNewDraftStartFromOrigin({
-          envMode,
-          newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
-        }),
-        startTurn: startThreadTurn,
-      });
-
-      toastManager.add(
-        stackedThreadToast({
-          type: result.failed > 0 ? "error" : "success",
-          title:
-            result.failed > 0
-              ? `Started ${result.started} of ${count} sessions`
-              : `Started ${result.started} ${result.started === 1 ? "session" : "sessions"}`,
-          description: project.title,
-        }),
-      );
-    },
-    [activeThread, loadProjectBranches, primaryServerSettings, startThreadTurn],
-  );
-
   const projectThreadItems = useMemo(
     () =>
       enumerateCommandPaletteItems([
@@ -1477,11 +1362,7 @@ function OpenCommandPaletteDialog(props: {
           },
           icon: projectFaviconIcon,
           runProject: async (project) => {
-            const fleetCount = sessionSpawnCountRef.current;
-            if (fleetCount !== null) {
-              await startSessionFleet(project, fleetCount);
-              return;
-            }
+            if (await sessionFleet.runProject(project)) return; // Fork: session fleet
             const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
             const contextualRefBelongsToGroup =
               contextualProjectRef !== null &&
@@ -1517,7 +1398,7 @@ function OpenCommandPaletteDialog(props: {
       pickerProjects,
       projectEnvironmentLocationById,
       projectGroupByTargetKey,
-      startSessionFleet,
+      sessionFleet.runProject, // Fork: session fleet
       scratchTargetEnvironmentId,
       scratchWorkspaceRootFor,
       startScratchThread,
@@ -1993,7 +1874,7 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [
         {
-          value: NEW_THREAD_PROJECTS_GROUP,
+          value: NEW_THREAD_PROJECTS_GROUP, // Fork: session fleet
           label: "Projects",
           items: enumerateCommandPaletteItems(prioritized),
         },
@@ -2046,6 +1927,7 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      // Fork: session fleet
       groups: [{ value: NEW_THREAD_PROJECTS_GROUP, label: "Projects", items: projectThreadItems }],
     });
   }
@@ -2462,7 +2344,7 @@ function OpenCommandPaletteDialog(props: {
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
-    query: filterQuery,
+    query: sessionFleet.filterQuery, // Fork: the session count is not a filter
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     settingsSearchItems,
@@ -3169,17 +3051,6 @@ function OpenCommandPaletteDialog(props: {
     return useMetaForMod ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   }
 
-  /**
-   * The row Tab completes to and Enter runs. The list highlights its first match
-   * on its own, so an explicit highlight is not required to act on one.
-   */
-  function sessionCountTarget(): CommandPaletteActionItem | CommandPaletteSubmenuItem | undefined {
-    return resolveSessionCountTarget({
-      items: displayedGroups.flatMap((group) => group.items),
-      highlightedItemValue,
-    });
-  }
-
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
@@ -3241,37 +3112,17 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    // The autocomplete drives Enter off its own notion of an active item, and a
-    // completed query ("Fleet Cooling 5", or "Fleet Cooling " straight after Tab)
-    // matches no item, so it had no target and the keypress did nothing while
-    // clicking the row worked. Running the row this resolves to is what a click
-    // already does, so the only case this changes is the one that was broken.
-    if (event.key === "Enter" && acceptsSessionCount) {
-      const target = sessionCountTarget();
-      if (target) {
-        event.preventDefault();
-        event.stopPropagation();
-        executeItem(target);
-        return;
-      }
-    }
-
-    // Tab completes the resolved project into the search box, so the box shows
-    // what is selected before a count is typed after it. Filtering by a few
-    // letters otherwise leaves the box holding "fl" while the selection sits
-    // somewhere below it.
-    if (event.key === "Tab" && acceptsSessionCount && !event.shiftKey) {
-      // Tab never leaves this box. Falling through would move focus to the back
-      // arrow, which reads as the completion silently doing nothing, so an empty
-      // list makes Tab a no-op instead.
-      event.preventDefault();
-      const completion = resolveSessionCountCompletion({
-        target: sessionCountTarget(),
-        count: sessionSpawnCount,
-      });
-      if (completion !== null) {
-        setQuery(completion);
-      }
+    // Fork: Enter and Tab on a "New thread in..." list with a session count.
+    if (
+      handleSessionCountKey(event, {
+        acceptsSessionCount: sessionFleet.acceptsSessionCount,
+        count: sessionFleet.count,
+        items: () => displayedGroups.flatMap((group) => group.items),
+        highlightedItemValue,
+        executeItem,
+        setQuery,
+      })
+    ) {
       return;
     }
 

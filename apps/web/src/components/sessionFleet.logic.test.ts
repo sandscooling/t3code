@@ -1,11 +1,11 @@
-// Fork-owned tests for CommandPalette.logic.test.ts.
+// Fork-owned: tests for the command palette session fleet helpers.
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   parseSessionSpawnQuery,
   resolveSessionCountCompletion,
   resolveSessionCountTarget,
-} from "./CommandPalette.logic";
+} from "./sessionFleet.logic";
 
 describe("parseSessionSpawnQuery", () => {
   it("leaves a plain project filter untouched", () => {
