@@ -158,7 +158,7 @@ it("does not commit running state when inherited background routing cannot be re
     expect(createWorktree).toHaveBeenCalledWith({
       cwd: "/tmp/provider-turn-start-project",
       refName: "feature/restore",
-      path: "/tmp/t3-worktrees/repo/missing-provider-turn-start-worktree",
+      path: "/tmp/t3-worktrees/repo/missing-provider-turn-start-worktree", // Fork: see worktreePath
     });
     expect(writeIfRunCurrent).not.toHaveBeenCalled();
     expect(startRootRun).not.toHaveBeenCalled();

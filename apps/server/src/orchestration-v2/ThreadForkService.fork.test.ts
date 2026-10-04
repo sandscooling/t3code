@@ -1,3 +1,4 @@
+// Fork tests for ThreadForkService.test.ts.
 import { assert, it } from "@effect/vitest";
 import {
   ContextTransferId,
@@ -83,9 +84,12 @@ function makeSourceRun(status: OrchestrationV2Run["status"]): OrchestrationV2Run
   };
 }
 
-function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2ThreadProjection {
+function makeSourceProjection(
+  sourceRun: OrchestrationV2Run,
+  thread: OrchestrationV2AppThread,
+): OrchestrationV2ThreadProjection {
   return {
-    thread: makeSourceThread(),
+    thread,
     runs: [sourceRun],
     attempts: [],
     nodes: [],
@@ -106,11 +110,11 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
   };
 }
 
-const planFork = (sourceRun: OrchestrationV2Run) =>
+const planFork = (sourceRun: OrchestrationV2Run, sourceThread: OrchestrationV2AppThread) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
     return yield* service.plan({
-      sourceProjection: makeSourceProjection(sourceRun),
+      sourceProjection: makeSourceProjection(sourceRun, sourceThread),
       sourceRun,
       sourceProviderThread: undefined,
       canonicalSourcePoint: {
@@ -126,68 +130,17 @@ const planFork = (sourceRun: OrchestrationV2Run) =>
     });
   }).pipe(Effect.provide(ThreadForkService.layer));
 
-it("treats usage-limited and other provider-finished runs as forkable", () => {
-  assert.isTrue(ThreadForkService.isForkableSourceRunStatus("completed"));
-  assert.isTrue(ThreadForkService.isForkableSourceRunStatus("waiting"));
-  assert.isTrue(ThreadForkService.isForkableSourceRunStatus("failed"));
-  assert.isTrue(ThreadForkService.isForkableSourceRunStatus("interrupted"));
-  assert.isTrue(ThreadForkService.isForkableSourceRunStatus("cancelled"));
-  assert.isFalse(ThreadForkService.isForkableSourceRunStatus("running"));
-  assert.isFalse(ThreadForkService.isForkableSourceRunStatus("starting"));
-  assert.isFalse(ThreadForkService.isForkableSourceRunStatus("queued"));
-  assert.isFalse(ThreadForkService.isForkableSourceRunStatus("preparing"));
-  assert.isFalse(ThreadForkService.isForkableSourceRunStatus("rolled_back"));
-});
-
-it.effect("keeps a fork awake when its source thread is snoozed", () =>
+// Fork: the lane group follows the fork; the spawner and handoff successor do not.
+it.effect("keeps the source's group but not its spawner or successor", () =>
   Effect.gen(function* () {
-    const sourceThread = makeSourceThread();
-    const sourceRun = makeSourceRun("completed");
-    const result = yield* planFork(sourceRun);
-
-    assert.isNull(result.targetThread.snoozedUntil);
-    assert.isNull(result.targetThread.snoozedAt);
-    assert.equal(result.targetThread.projectId, sourceThread.projectId);
-    assert.equal(result.targetThread.providerInstanceId, sourceThread.providerInstanceId);
-    assert.deepEqual(result.targetThread.modelSelection, sourceThread.modelSelection);
-    assert.equal(result.targetThread.runtimeMode, sourceThread.runtimeMode);
-    assert.equal(result.targetThread.interactionMode, sourceThread.interactionMode);
-    assert.equal(result.targetThread.branch, sourceThread.branch);
-    assert.equal(result.targetThread.worktreePath, sourceThread.worktreePath);
-    assert.isNull(result.targetThread.activeProviderThreadId);
-    assert.deepEqual(result.targetThread.lineage, {
-      parentThreadId: sourceThreadId,
-      relationshipToParent: "fork",
-      rootThreadId: sourceThreadId,
+    const result = yield* planFork(makeSourceRun("completed"), {
+      ...makeSourceThread(),
+      group: "lane-a",
+      spawnedByThreadId: ThreadId.make("thread:fork-spawner"),
+      successorThreadId: ThreadId.make("thread:fork-successor"),
     });
-    assert.deepEqual(result.targetThread.forkedFrom, {
-      type: "run",
-      threadId: sourceThreadId,
-      runId: sourceRunId,
-    });
-  }),
-);
-
-it.effect("forks from a usage-limited failed run", () =>
-  Effect.gen(function* () {
-    const result = yield* planFork(makeSourceRun("failed"));
-    assert.deepEqual(result.targetThread.forkedFrom, {
-      type: "run",
-      threadId: sourceThreadId,
-      runId: sourceRunId,
-    });
-  }),
-);
-
-it.effect("rejects in-progress and rolled-back fork sources", () =>
-  Effect.gen(function* () {
-    for (const status of ["running", "rolled_back"] as const) {
-      const sourceRun = makeSourceRun(status);
-      const error = yield* planFork(sourceRun).pipe(Effect.flip);
-      assert.equal(error._tag, "ThreadForkPlanError");
-      assert.equal(error.sourceThreadId, sourceThreadId);
-      assert.equal(error.targetThreadId, targetThreadId);
-      assert.equal(error.cause, ThreadForkService.forkableSourceRunStatusError(sourceRun));
-    }
+    assert.equal(result.targetThread.group, "lane-a");
+    assert.isNull(result.targetThread.spawnedByThreadId);
+    assert.isNull(result.targetThread.successorThreadId);
   }),
 );

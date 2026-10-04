@@ -49,11 +49,9 @@ const makeResolverWithFileSystem = (fileSystem: FileSystem.FileSystem) =>
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
-/**
- * `resolvePath` returns a native absolute path, so its separators are
- * backslashes on Windows. The assertions below name a nested file, which only
- * needs the two spellings to agree, not the platform to change.
- */
+// Fork: `resolvePath` returns a native absolute path, so its separators are
+// backslashes on Windows. The assertions below name a nested file, which only
+// needs the two spellings to agree, not the platform to change.
 const withPosixSeparators = (value: string | null): string | null =>
   value === null ? null : value.replaceAll("\\", "/");
 

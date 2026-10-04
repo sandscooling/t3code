@@ -1,0 +1,297 @@
+// Fork-owned tests for ThreadNotificationCoordinator.test.tsx.
+import type { ClientSettings } from "@t3tools/contracts/settings";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
+import { act } from "react";
+import { create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+const state = vi.hoisted(() => ({
+  mode: "off" as ClientSettings["notificationMode"],
+  inApp: true,
+  active: { environmentId: "env-1", threadId: "other-thread" },
+  focused: true,
+  visible: "visible",
+  live: true,
+  completedAt: null as string | null,
+  archivedAt: null as string | null,
+  input: false,
+  approval: false,
+  sessionError: false,
+  turnError: false,
+  limited: false,
+  subagent: false,
+  gone: false,
+  background: [] as Array<{ taskId: string; kind: "command" | "monitor"; held?: boolean }>,
+  add: vi.fn(
+    (_toast: {
+      id?: string;
+      timeout?: number;
+      title: string;
+      description: string;
+      data?: { dismissOnActiveThreadRef?: { environmentId: string; threadId: string } | null };
+      actionProps: { onClick: () => void };
+    }) => "toast-1",
+  ),
+  close: vi.fn(),
+  navigate: vi.fn(),
+  sound: vi.fn(),
+  notification: vi.fn(function (_title: string, options: NotificationOptions) {
+    return Object.assign(new EventTarget(), { tag: options.tag, close: vi.fn() });
+  }),
+}));
+
+const SHELL_NOW = DateTime.makeUnsafe("2026-09-13T09:00:00.000Z");
+
+function mockThreadShell() {
+  return {
+    id: "thread-1",
+    projectId: "project-1",
+    title: "Fix the login form",
+    providerInstanceId: "codex",
+    modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: {
+      rootThreadId: "thread-1",
+      parentThreadId: state.subagent ? "parent" : null,
+      relationshipToParent: state.subagent ? "subagent" : null,
+    },
+    forkedFrom: null,
+    createdBy: "user",
+    creationSource: "web",
+    latestRunId: "run-1",
+    activeRunId: null,
+    status: state.completedAt
+      ? "completed"
+      : state.sessionError || state.turnError || state.limited
+        ? "failed"
+        : "running",
+    lastErrorClass: state.limited ? "usage_limit" : null,
+    pendingRuntimeRequest: state.input
+      ? { id: "request-1", kind: "user_input", createdAt: SHELL_NOW }
+      : state.approval
+        ? { id: "request-1", kind: "command", createdAt: SHELL_NOW }
+        : null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: null,
+    hasActionableProposedPlan: false,
+    pendingBackgroundTasks: state.background,
+    itemCount: 0,
+    visibleItemCount: 0,
+    createdAt: SHELL_NOW,
+    updatedAt: SHELL_NOW,
+    latestRunRequestedAt: SHELL_NOW,
+    latestRunStartedAt: SHELL_NOW,
+    latestRunCompletedAt: state.completedAt ? DateTime.makeUnsafe(state.completedAt) : undefined,
+    archivedAt: state.archivedAt ? DateTime.makeUnsafe(state.archivedAt) : null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+}
+
+vi.mock("@effect/atom-react", () => ({
+  useAtomValue: () => ({
+    status: state.live ? "live" : "disconnected",
+    snapshot: Option.some({ threads: state.gone ? [] : [mockThreadShell()] }),
+  }),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => state.navigate,
+  useParams: () => state.active,
+}));
+vi.mock("../hooks/useSettings", () => ({
+  useClientSettings: (
+    select: (
+      settings: Pick<ClientSettings, "notificationMode" | "inAppNotificationsEnabled">,
+    ) => unknown,
+  ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp }),
+  getClientSettings: () => ({ notificationMode: state.mode }),
+}));
+vi.mock("../state/environments", () => ({
+  useEnvironmentIds: () => ["env-1"],
+}));
+vi.mock("../state/shell", () => ({
+  environmentShell: { stateValueAtom: vi.fn() },
+}));
+vi.mock("../threadNotifications", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../threadNotifications")>()),
+  playNotificationSound: state.sound,
+  setNotificationBadge: vi.fn(),
+}));
+vi.mock("./ui/toast", () => ({
+  toastManager: { add: state.add, close: state.close },
+}));
+
+import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
+
+let renderer: ReactTestRenderer | undefined;
+
+async function render() {
+  await act(() => {
+    if (renderer) renderer.update(<ThreadNotificationCoordinator />);
+    else renderer = create(<ThreadNotificationCoordinator />);
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  Object.assign(state, {
+    mode: "off",
+    inApp: true,
+    active: { environmentId: "env-1", threadId: "other-thread" },
+    focused: true,
+    visible: "visible",
+    live: true,
+    completedAt: null,
+    archivedAt: null,
+    input: false,
+    approval: false,
+    sessionError: false,
+    turnError: false,
+    limited: false,
+    subagent: false,
+    gone: false,
+    background: [],
+  });
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("document", {
+    get visibilityState() {
+      return state.visible;
+    },
+    hasFocus: () => state.focused,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  });
+  vi.stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" }));
+});
+
+afterEach(async () => {
+  await act(() => renderer?.unmount());
+  renderer = undefined;
+  vi.unstubAllGlobals();
+});
+
+describe("thread notifications", () => {
+  // Fork: keeps the toast up until answered (clears on answer).
+  it.each(["input", "approval"] as const)(
+    "keeps the %s toast up until the thread is answered",
+    async (event) => {
+      await render();
+      state[event] = true;
+      await render();
+
+      const toast = state.add.mock.calls[0]?.[0];
+      // No auto-dismiss, and a per-thread id so a follow-up question on the same
+      // thread replaces this toast instead of stacking a second one.
+      expect(toast).toMatchObject({
+        id: "thread-attention:env-1:thread-1",
+        timeout: 0,
+        data: { dismissOnActiveThreadRef: { environmentId: "env-1", threadId: "thread-1" } },
+      });
+
+      state[event] = false;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+    },
+  );
+
+  // Fork: a question that turns into a failure or a limit no longer wants an answer.
+  it.each(["sessionError", "limited"] as const)(
+    "closes the standing toast when the question turns into %s",
+    async (event) => {
+      await render();
+      state.input = true;
+      await render();
+      expect(state.close).not.toHaveBeenCalled();
+
+      state.input = false;
+      state[event] = true;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          title: event === "limited" ? "Usage limit reached" : "Thread failed",
+        }),
+      );
+    },
+  );
+
+  // Fork: `previous` is wiped while disconnected, so first sight must clean up.
+  it.each(["is answered", "disappears"] as const)(
+    "closes the standing toast when its thread %s while disconnected",
+    async (change) => {
+      await render();
+      state.input = true;
+      await render();
+      state.live = false;
+      await render();
+      if (change === "is answered") state.input = false;
+      else state.gone = true;
+      state.live = true;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
+    },
+  );
+
+  it("keeps the standing toast across a reconnect while the question still waits", async () => {
+    await render();
+    state.input = true;
+    await render();
+    state.live = false;
+    await render();
+    state.live = true;
+    await render();
+    expect(state.close).not.toHaveBeenCalled();
+  });
+
+  // Fork: a question raised in the background still waits as a toast.
+  it("leaves a question's toast waiting when it arrives while the app is unfocused", async () => {
+    state.mode = "notifications";
+    state.focused = false;
+    await render();
+    state.input = true;
+    await render();
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thread-attention:env-1:thread-1", timeout: 0 }),
+    );
+    expect(state.notification).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not raise a question's toast for the thread already open", async () => {
+    state.active.threadId = "thread-1";
+    state.focused = false;
+    await render();
+    state.input = true;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it("restores a question's toast, silently, for a thread already waiting on load", async () => {
+    state.mode = "notifications-and-sound";
+    state.approval = true;
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(1);
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thread-attention:env-1:thread-1", title: "Approval needed" }),
+    );
+    expect(state.sound).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  it("lets a failure toast fall away on its own", async () => {
+    await render();
+    state.sessionError = true;
+    await render();
+    const toast = state.add.mock.calls[0]?.[0];
+    expect(toast).not.toHaveProperty("timeout");
+    expect(toast).not.toHaveProperty("id");
+    expect(toast?.data?.dismissOnActiveThreadRef).toBe(null);
+  });
+});

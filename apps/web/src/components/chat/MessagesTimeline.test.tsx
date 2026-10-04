@@ -83,31 +83,6 @@ beforeEach(() => {
   activityTestState.expandedRuns = false;
 });
 
-// Only workspace media resolves here. Attachment resources keep the real
-// pending behaviour so the optimistic-upload rows still assert against it.
-const assetUrlMocks = vi.hoisted(() => ({
-  useAssetUrlState: vi.fn((_environmentId: unknown, resource: { _tag?: string } | null) =>
-    resource?._tag === "media-file"
-      ? {
-          _tag: "Success" as const,
-          url: "https://environment.test/api/assets/signed-token/result.png",
-        }
-      : { _tag: "Loading" as const },
-  ),
-  useAssetUrlRefresh: vi.fn(() => async () => {}),
-  // Upstream batches message previews through this; the rows under test read
-  // their URLs from useAssetUrlState, so an empty list is the honest answer.
-  useAssetUrls: vi.fn((_environmentId: unknown, resources: ReadonlyArray<unknown>) =>
-    resources.map(() => null),
-  ),
-}));
-
-vi.mock("../../assets/assetUrls", () => ({
-  useAssetUrlState: assetUrlMocks.useAssetUrlState,
-  useAssetUrlRefresh: assetUrlMocks.useAssetUrlRefresh,
-  useAssetUrls: assetUrlMocks.useAssetUrls,
-}));
-
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
 
@@ -2306,58 +2281,6 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
-  });
-
-  // Fork: a generated image renders inline, without expanding its row.
-  it("renders a generated image's Windows path inline after Markdown URL sanitization", () => {
-    const imagePath = "C:\\Users\\mike\\dev-stuff\\t3code\\result.png";
-    assetUrlMocks.useAssetUrlState.mockClear();
-
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        timelineEntries={[
-          // Upstream #7152 folds a tool-only group behind a "+N tool calls"
-          // toggle, and only the last entry of a group stays visible. A
-          // non-tool entry ahead of the image view is what a real work log
-          // looks like when the image is the newest row, and it is the shape
-          // that renders the row inline rather than collapsed.
-          {
-            id: "entry-context",
-            kind: "work",
-            createdAt: MESSAGE_CREATED_AT,
-            entry: {
-              id: "work-context",
-              createdAt: MESSAGE_CREATED_AT,
-              label: "Context compacted",
-              tone: "info",
-            },
-          },
-          {
-            id: "entry-image-view",
-            kind: "work",
-            createdAt: MESSAGE_CREATED_AT,
-            entry: {
-              id: "work-image-view",
-              createdAt: MESSAGE_CREATED_AT,
-              label: "Generated image",
-              tone: "tool",
-              itemType: "dynamic_tool",
-              viewedImagePath: imagePath,
-              structuredPayload: { type: "dynamic_tool", toolName: "image_generation" } as never,
-            },
-          },
-        ]}
-        workspaceRoot="C:\\Users\\mike\\dev-stuff\\t3code"
-      />,
-    );
-
-    expect(assetUrlMocks.useAssetUrlState).toHaveBeenCalledWith(ACTIVE_THREAD_ENVIRONMENT_ID, {
-      _tag: "media-file",
-      threadId: ThreadId.make("thread-1"),
-      path: imagePath,
-    });
-    expect(markup).toContain('src="https://environment.test/api/assets/signed-token/result.png"');
   });
 
   it("renders review comment contexts as structured cards instead of raw tags", () => {

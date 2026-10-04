@@ -995,7 +995,7 @@ describe("AssetAccess", () => {
         projectFaviconPath: "brand/custom.svg",
       });
 
-      // POSIX rather than path.join: sourcePath crosses the wire, and the
+      // Fork: POSIX rather than path.join, since sourcePath crosses the wire, and the
       // fork normalises a workspace-relative favicon so a Windows client is
       // not handed back a backslash spelling of the setting it sent.
       expect(result.sourcePath).toBe("brand/custom.svg");
@@ -1057,7 +1057,7 @@ describe("AssetAccess", () => {
         projectFaviconPath: "brand/saved.svg",
       });
 
-      // POSIX rather than path.join: sourcePath crosses the wire, and the
+      // Fork: POSIX rather than path.join, since sourcePath crosses the wire, and the
       // fork normalises a workspace-relative favicon so a Windows client is
       // not handed back a backslash spelling of the setting it sent.
       expect(result.sourcePath).toBe("brand/saved.svg");

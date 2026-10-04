@@ -35,7 +35,7 @@ const clientSettings: ClientSettings = {
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
   composerCollapseOnScroll: true,
-  sidebarGroupThreadsByProject: false,
+  sidebarGroupThreadsByProject: false, // Fork: sidebar project groups
   dismissedProviderUpdateNotificationKeys: [],
   diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,

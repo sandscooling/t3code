@@ -8,7 +8,6 @@ import {
   ProviderThreadId,
   RunId,
   RuntimeRequestId,
-  ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -95,26 +94,6 @@ describe("V2 client presentation", () => {
     expect(shell.activeOrderKey).toBe("m");
     expect(shell.linkedPullRequest).toEqual(linkedPullRequest);
     expect(shell.branchPullRequest).toEqual(branchPullRequest);
-  });
-
-  // Fork: lane, spawn lineage, successor and plan meter reach the client only when sent.
-  it("copies the fork's session fields when present and leaves them absent otherwise", () => {
-    const shell = presentThreadShell(environmentId, {
-      ...v2ThreadShell,
-      group: "v2-web-sidebar",
-      spawnedByThreadId: ThreadId.make("thread-orchestrator"),
-      successorThreadId: null,
-      planProgress: { completedSteps: 2, totalSteps: 5 },
-    });
-    expect(shell.group).toBe("v2-web-sidebar");
-    expect(shell.spawnedByThreadId).toBe("thread-orchestrator");
-    expect(shell.successorThreadId).toBeNull();
-    expect(shell.planProgress).toEqual({ completedSteps: 2, totalSteps: 5 });
-
-    const bare = presentThreadShell(environmentId, v2ThreadShell);
-    for (const key of ["group", "spawnedByThreadId", "successorThreadId", "planProgress"]) {
-      expect(bare).not.toHaveProperty(key);
-    }
   });
 
   it("presents provider errors carried by failed thread shells", () => {

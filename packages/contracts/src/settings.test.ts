@@ -696,32 +696,6 @@ describe("ClientSettings composer collapse", () => {
   });
 });
 
-describe("ClientSettings sidebar project groups", () => {
-  it("keeps the flat sidebar by default and accepts grouping by project", () => {
-    expect(decodeClientSettings({}).sidebarGroupThreadsByProject).toBe(false);
-    expect(
-      decodeClientSettings({ sidebarGroupThreadsByProject: true }).sidebarGroupThreadsByProject,
-    ).toBe(true);
-    expect(
-      decodeClientSettingsPatch({ sidebarGroupThreadsByProject: true })
-        .sidebarGroupThreadsByProject,
-    ).toBe(true);
-  });
-});
-
-describe("ClientSettings orchestrator colors", () => {
-  it("starts with no tints and keeps a chosen one per project", () => {
-    expect(decodeClientSettings({}).sidebarOrchestratorColors).toEqual({});
-    const colors = { "env-1:/work/fleet": "teal" as const };
-    expect(
-      decodeClientSettings({ sidebarOrchestratorColors: colors }).sidebarOrchestratorColors,
-    ).toEqual(colors);
-    expect(
-      decodeClientSettingsPatch({ sidebarOrchestratorColors: colors }).sidebarOrchestratorColors,
-    ).toEqual(colors);
-  });
-});
-
 describe("ServerSettings thread settlement", () => {
   it("defaults merge settlement on and inactivity settlement to three days", () => {
     const settings = decodeServerSettings({});

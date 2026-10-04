@@ -182,7 +182,6 @@ describe("previewWindowOpenAction", () => {
 const {
   browserWindowConstructor,
   clipboardItemConstructor,
-  createFromBuffer,
   createFromPath,
   fromId,
   getFocusedWebContents,
@@ -195,11 +194,6 @@ const {
 } = vi.hoisted(() => ({
   browserWindowConstructor: vi.fn(),
   clipboardItemConstructor: vi.fn(),
-  createFromBuffer: vi.fn((buffer: Buffer) => ({
-    isEmpty: () => false,
-    getSize: () => ({ width: 800, height: 600 }),
-    toPNG: () => buffer,
-  })),
   createFromPath: vi.fn((): { readonly isEmpty: () => boolean; readonly toPNG: () => Buffer } => ({
     isEmpty: () => false,
     toPNG: () => Buffer.from("png"),
@@ -225,7 +219,6 @@ vi.mock("electron", () => ({
     write: writeClipboard,
   },
   nativeImage: {
-    createFromBuffer,
     createFromPath,
   },
   shell: {
@@ -2627,93 +2620,6 @@ describe("PreviewManager", () => {
           webContents: { setBackgroundThrottling: replacementWindowThrottling },
         } as never);
         expect(replacementWindowThrottling).not.toHaveBeenCalled();
-      }),
-    ),
-  );
-
-  effectIt.effect("falls back to debugger capture when the tab has no compositor frame", () =>
-    withManager((manager) =>
-      Effect.gen(function* () {
-        const screenshot = Buffer.from("debugger-png").toString("base64");
-        const sendCommand = vi.fn(async (method: string) => {
-          if (method === "Runtime.evaluate") {
-            return {
-              result: {
-                value: {
-                  url: "https://example.com",
-                  title: "Example",
-                  loading: false,
-                  visibleText: "Example",
-                  interactiveElements: [],
-                },
-              },
-            };
-          }
-          if (method === "Accessibility.getFullAXTree") return { nodes: [] };
-          if (method === "Page.captureScreenshot") return { data: screenshot };
-          return undefined;
-        });
-        // An unpainted tab has no compositor surface to copy. Electron either
-        // rejects or hands back an empty image; the empty frame is used here
-        // because a rejection goes through upstream's retry schedule, which
-        // this test would then have to drive on the TestClock to reach the
-        // fallback at all. Both collapse to the same absent frame in
-        // captureSnapshotImage.
-        const capturePage = vi.fn(async () => ({
-          isEmpty: () => true,
-          getSize: () => ({ width: 0, height: 0 }),
-        }));
-        fromId.mockReturnValue({
-          id: 42,
-          isDestroyed: () => false,
-          getType: () => "webview",
-          getURL: () => "https://example.com",
-          getTitle: () => "Example",
-          isLoading: () => false,
-          isDevToolsOpened: () => false,
-          getZoomFactor: () => 1,
-          setZoomFactor: vi.fn(),
-          setAudioMuted: vi.fn(),
-          isCurrentlyAudible: () => false,
-          on: vi.fn(),
-          off: vi.fn(),
-          ipc: { on: vi.fn(), off: vi.fn() },
-          send: webviewSend,
-          navigationHistory: { canGoBack: () => false, canGoForward: () => false },
-          setIgnoreMenuShortcuts: vi.fn(),
-          setWindowOpenHandler: vi.fn(),
-          debugger: {
-            isAttached: () => false,
-            attach: vi.fn(),
-            sendCommand,
-            on: vi.fn(),
-            off: vi.fn(),
-          },
-          capturePage,
-        } as never);
-
-        yield* manager.createTab("tab_1");
-        yield* manager.registerWebview("tab_1", 42);
-
-        const snapshot = yield* manager.automationSnapshot("tab_1");
-
-        expect(capturePage).toHaveBeenCalledOnce();
-        expect(sendCommand).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
-        expect(snapshot.screenshot).toEqual({
-          mimeType: "image/png",
-          data: screenshot,
-          width: 800,
-          height: 600,
-        });
-
-        const recovered = yield* manager.automationSnapshot("tab_1");
-
-        expect(recovered.screenshot).toEqual({
-          mimeType: "image/png",
-          data: screenshot,
-          width: 800,
-          height: 600,
-        });
       }),
     ),
   );

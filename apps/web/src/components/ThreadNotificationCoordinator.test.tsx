@@ -20,17 +20,10 @@ const state = vi.hoisted(() => ({
   turnError: false,
   limited: false,
   subagent: false,
-  gone: false,
   background: [] as Array<{ taskId: string; kind: "command" | "monitor"; held?: boolean }>,
   add: vi.fn(
-    (_toast: {
-      id?: string;
-      timeout?: number;
-      title: string;
-      description: string;
-      data?: { dismissOnActiveThreadRef?: { environmentId: string; threadId: string } | null };
-      actionProps: { onClick: () => void };
-    }) => "toast-1",
+    (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
+      "toast-1",
   ),
   close: vi.fn(),
   navigate: vi.fn(),
@@ -97,7 +90,7 @@ function mockThreadShell() {
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: () => ({
     status: state.live ? "live" : "disconnected",
-    snapshot: Option.some({ threads: state.gone ? [] : [mockThreadShell()] }),
+    snapshot: Option.some({ threads: [mockThreadShell()] }),
   }),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -160,7 +153,6 @@ beforeEach(() => {
     turnError: false,
     limited: false,
     subagent: false,
-    gone: false,
     background: [],
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -215,15 +207,7 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  it("gives a completion its sound but no toast", async () => {
-    state.mode = "notifications-and-sound";
-    await render();
-    await complete();
-    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
-    expect(state.add).not.toHaveBeenCalled();
-    expect(state.notification).not.toHaveBeenCalled();
-  });
-
+  // Fork: a question's toast, since a finished thread raises none; it shows while blurred or hidden.
   it.each(["active", "archived", "disabled"])(
     "does not show a question toast for %s threads",
     async (condition) => {
@@ -260,7 +244,7 @@ describe("thread notifications", () => {
     state[event] = true;
     await render();
     await render();
-    // A question's toast waits for the reader even when raised in the background;
+    // Fork: a question's toast waits for the reader even when raised in the background;
     // a failure's does not.
     expect(state.add).toHaveBeenCalledTimes(event === "input" || event === "approval" ? 2 : 1);
     expect(state.notification).toHaveBeenCalledTimes(1);
@@ -269,78 +253,6 @@ describe("thread notifications", () => {
       tag: "env-1:thread-1",
       silent: true,
     });
-  });
-
-  // Fork: keeps the toast up until answered (clears on answer).
-  it.each(["input", "approval"] as const)(
-    "keeps the %s toast up until the thread is answered",
-    async (event) => {
-      await render();
-      state[event] = true;
-      await render();
-
-      const toast = state.add.mock.calls[0]?.[0];
-      // No auto-dismiss, and a per-thread id so a follow-up question on the same
-      // thread replaces this toast instead of stacking a second one.
-      expect(toast).toMatchObject({
-        id: "thread-attention:env-1:thread-1",
-        timeout: 0,
-        data: { dismissOnActiveThreadRef: { environmentId: "env-1", threadId: "thread-1" } },
-      });
-
-      state[event] = false;
-      await render();
-      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
-    },
-  );
-
-  // Fork: a question that turns into a failure or a limit no longer wants an answer.
-  it.each(["sessionError", "limited"] as const)(
-    "closes the standing toast when the question turns into %s",
-    async (event) => {
-      await render();
-      state.input = true;
-      await render();
-      expect(state.close).not.toHaveBeenCalled();
-
-      state.input = false;
-      state[event] = true;
-      await render();
-      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
-      expect(state.add).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          title: event === "limited" ? "Usage limit reached" : "Thread failed",
-        }),
-      );
-    },
-  );
-
-  // Fork: `previous` is wiped while disconnected, so first sight must clean up.
-  it.each(["is answered", "disappears"] as const)(
-    "closes the standing toast when its thread %s while disconnected",
-    async (change) => {
-      await render();
-      state.input = true;
-      await render();
-      state.live = false;
-      await render();
-      if (change === "is answered") state.input = false;
-      else state.gone = true;
-      state.live = true;
-      await render();
-      expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
-    },
-  );
-
-  it("keeps the standing toast across a reconnect while the question still waits", async () => {
-    await render();
-    state.input = true;
-    await render();
-    state.live = false;
-    await render();
-    state.live = true;
-    await render();
-    expect(state.close).not.toHaveBeenCalled();
   });
 
   // Fork: a completion has no toast, so the hold shows in its sound.
@@ -355,50 +267,6 @@ describe("thread notifications", () => {
     expect(state.sound).toHaveBeenCalledOnce();
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).not.toHaveBeenCalled();
-  });
-
-  // Fork: a question raised in the background still waits as a toast.
-  it("leaves a question's toast waiting when it arrives while the app is unfocused", async () => {
-    state.mode = "notifications";
-    state.focused = false;
-    await render();
-    state.input = true;
-    await render();
-    expect(state.add).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "thread-attention:env-1:thread-1", timeout: 0 }),
-    );
-    expect(state.notification).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not raise a question's toast for the thread already open", async () => {
-    state.active.threadId = "thread-1";
-    state.focused = false;
-    await render();
-    state.input = true;
-    await render();
-    expect(state.add).not.toHaveBeenCalled();
-  });
-
-  it("restores a question's toast, silently, for a thread already waiting on load", async () => {
-    state.mode = "notifications-and-sound";
-    state.approval = true;
-    await render();
-    expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.add).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "thread-attention:env-1:thread-1", title: "Approval needed" }),
-    );
-    expect(state.sound).not.toHaveBeenCalled();
-    expect(state.notification).not.toHaveBeenCalled();
-  });
-
-  it("lets a failure toast fall away on its own", async () => {
-    await render();
-    state.sessionError = true;
-    await render();
-    const toast = state.add.mock.calls[0]?.[0];
-    expect(toast).not.toHaveProperty("timeout");
-    expect(toast).not.toHaveProperty("id");
-    expect(toast?.data?.dismissOnActiveThreadRef).toBe(null);
   });
 
   it("alerts again when a command someone waits for ends without a new turn", async () => {
@@ -430,6 +298,16 @@ describe("thread notifications", () => {
     expect(state.add).not.toHaveBeenCalled();
   });
 
+  it("does not replay a completion when opting in from all alerts off", async () => {
+    state.inApp = false;
+    await render();
+    await complete();
+    state.inApp = true;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  // Fork: a question's toast, since a finished thread raises none.
   it("compares the environment as well as the thread", async () => {
     state.active = { environmentId: "env-2", threadId: "thread-1" };
     await render();
@@ -445,6 +323,16 @@ describe("thread notifications", () => {
     state.live = true;
     await render();
     expect(state.add).not.toHaveBeenCalled();
+  });
+
+  // Fork: was "keeps sound but replaces the system popup when showing a toast"; a finished thread raises no toast.
+  it("gives a completion its sound but no toast", async () => {
+    state.mode = "notifications-and-sound";
+    await render();
+    await complete();
+    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
+    expect(state.add).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
   });
 
   it("keeps system alerts when the app is in the background", async () => {

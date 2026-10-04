@@ -39,10 +39,6 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
-import {
-  BUNDLED_CLAUDE_MODEL_CATALOG,
-  getClaudeCatalogModelCapabilities,
-} from "../ClaudeModelCatalog.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -162,7 +158,7 @@ type TestClaudeCapabilities = {
   readonly tokenSource: string | undefined;
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
-  readonly outputStyles: ReadonlyArray<string>;
+  readonly outputStyles: ReadonlyArray<string>; // Fork: output styles
 };
 
 function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
@@ -173,7 +169,7 @@ function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
       tokenSource: undefined,
       apiProvider: undefined,
       slashCommands: [],
-      outputStyles: [],
+      outputStyles: [], // Fork: output styles
       ...overrides,
     });
 }
@@ -2954,85 +2950,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         ),
       );
 
-      it.effect("publishes reported output styles as a trait on every model", () =>
-        Effect.gen(function* () {
-          const status = yield* checkClaudeProviderStatus(
-            defaultClaudeSettings,
-            claudeCapabilities({ outputStyles: ["default", "Explanatory", "Team Voice"] }),
-          );
-          assert.ok(status.models.length > 0);
-          for (const model of status.models) {
-            const descriptors = model.capabilities?.optionDescriptors ?? [];
-            const descriptor = descriptors.find((entry) => entry.id === "outputStyle");
-            assert.ok(descriptor, `${model.slug} is missing the output style trait`);
-            assert.strictEqual(descriptor.type, "select");
-            assert.deepEqual(
-              descriptor.type === "select" ? descriptor.options.map((option) => option.id) : [],
-              ["default", "Explanatory", "Team Voice"],
-            );
-            // Appended last, never inserted: clients read the first select
-            // descriptor as reasoning effort. Haiku advertises no select trait
-            // of its own, so output style does land first there and the client
-            // guard, not descriptor order, is what keeps it out of that slot.
-            assert.strictEqual(descriptors.at(-1)?.id, "outputStyle");
-            assert.deepEqual(
-              descriptors.slice(0, -1).map((entry) => entry.id),
-              (
-                getClaudeCatalogModelCapabilities(BUNDLED_CLAUDE_MODEL_CATALOG, model.slug)
-                  .optionDescriptors ?? []
-              ).map((entry) => entry.id),
-            );
-          }
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
-              if (joined === "auth status")
-                return {
-                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
-                  stderr: "",
-                  code: 0,
-                };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("leaves the output style trait off when only the default exists", () =>
-        Effect.gen(function* () {
-          // A lone "default" means no styles are installed; a one-choice picker
-          // would be a control that can never change anything.
-          const status = yield* checkClaudeProviderStatus(
-            defaultClaudeSettings,
-            claudeCapabilities({ outputStyles: ["default"] }),
-          );
-          assert.ok(status.models.length > 0);
-          for (const model of status.models) {
-            assert.ok(
-              !(model.capabilities?.optionDescriptors ?? []).some(
-                (entry) => entry.id === "outputStyle",
-              ),
-            );
-          }
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
-              if (joined === "auth status")
-                return {
-                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
-                  stderr: "",
-                  code: 0,
-                };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
       it.effect("returns ready and labels Bedrock-backed Claude as authenticated", () =>
         Effect.gen(function* () {
           // Bedrock authenticates via external AWS credentials, so the SDK init
@@ -3096,7 +3013,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                   tokenSource: undefined,
                   apiProvider: undefined,
                   slashCommands: [],
-                  outputStyles: [],
+                  outputStyles: [], // Fork: output styles
                   usage: { rate_limits_available: true, rate_limits: {} },
                   ...overrides,
                 }),
@@ -3386,7 +3303,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             status.message,
             "Could not verify Claude authentication status from initialization result.",
           );
-          // A failed probe must read as a failed usage read, so the last
+          // Fork: a failed probe must read as a failed usage read, so the last
           // published windows survive it rather than blanking.
           assert.strictEqual(status.usageLimits?.unavailable?.reason, "probeFailed");
         }).pipe(
