@@ -55,6 +55,7 @@ Always available to every agent session, with no setting to turn on:
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
 - Claude's newer task tools (create, update, list) fill the tasks drawer and the hover progress meter, as `TodoWrite` did. Carried from open upstream PR [#14964](https://github.com/pingdotgg/t3code/pull/14964); drop it when that lands.
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Carried from open upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315); drop it when that lands.
+- A Claude thread whose session had to be replaced no longer fails every turn with "No conversation found with session ID": the replacement session is opened as new. Carried from open upstream PR [#15318](https://github.com/pingdotgg/t3code/pull/15318); drop it when that lands.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
 
