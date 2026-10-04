@@ -42,8 +42,10 @@ export function compileClaudeModelSelection(
   const rawEffort = getModelSelectionStringOptionValue(selection, "effort");
   const resolvedEffort = resolveClaudeCatalogEffort(catalog, selection.model, rawEffort);
   const effort = normalizeClaudeCatalogEffort(catalog, resolvedEffort, selection.model);
+  // Fork: absent fastMode compiles as false, matching the web composer's
+  // implicit false, so a plain message never reads as a selection change.
   const fastMode = supportsBoolean("fastMode")
-    ? getModelSelectionBooleanOptionValue(selection, "fastMode")
+    ? (getModelSelectionBooleanOptionValue(selection, "fastMode") ?? false)
     : undefined;
   const thinking = supportsBoolean("thinking")
     ? getModelSelectionBooleanOptionValue(selection, "thinking")
