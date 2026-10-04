@@ -222,6 +222,7 @@ function makeHarness(
                 : Effect.succeed(result),
             ),
           ),
+        retryPreparation: real.retryPreparation,
       });
     }),
   ).pipe(Layer.provide(realLaunch));

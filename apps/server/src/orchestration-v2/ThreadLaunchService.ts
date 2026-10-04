@@ -96,7 +96,7 @@ export interface ThreadLaunchInput {
 /** What workspace preparation reads from a launch; a retry rebuilds it from the run. */
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage" | "skipSetupScript" // Fork
 > & {
   /**
    * Set when a retry reuses the worktree its failed attempt created and
