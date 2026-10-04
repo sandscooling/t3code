@@ -8128,14 +8128,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           activeProviderThreadId: projection.thread.activeProviderThreadId,
           runs: projection.runs,
         }).length > 0;
+      // A failed start has no provider turn. Background work still belongs
+      // to the provider thread, so Stop reaches its latest accepted turn.
       const providerTurn =
         projection.providerTurns.findLast(
           (candidate) =>
             candidate.runAttemptId === run?.activeAttemptId &&
             (candidate.status === "running" || hasBackgroundWork),
         ) ??
-        // Fork: a run refused before its provider turn started has none, so
-        // Stop reaches the provider thread's last turn, whose process owns the work.
         (hasBackgroundWork
           ? projection.providerTurns.findLast(
               (candidate) => candidate.providerThreadId === run?.providerThreadId,

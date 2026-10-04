@@ -1083,31 +1083,34 @@ describe("orchestration v2 provider switching", () => {
           yield* Effect.gen(function* () {
             const orchestrator = yield* Orchestrator.OrchestratorV2;
             const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-            const runToCompletion = (ordinal: number) =>
-              Effect.gen(function* () {
-                yield* orchestrator.dispatch({
-                  type: "message.dispatch",
-                  commandId: CommandId.make(`resume-fallback:${ordinal}`),
-                  threadId,
-                  messageId: MessageId.make(`resume-fallback:${ordinal}`),
-                  createdBy: "user",
-                  creationSource: "web",
-                  text: `Request ${ordinal}`,
-                  attachments: [],
-                  modelSelection: CLAUDE_MODEL_SELECTION,
-                  dispatchMode: { type: "start_immediately" },
-                });
-                yield* orchestrator.streamStoredEvents.pipe(
-                  Stream.filter(
-                    ({ event }) =>
-                      event.type === "run.updated" &&
-                      event.payload.ordinal === ordinal &&
-                      (event.payload.status === "completed" || event.payload.status === "failed"),
-                  ),
-                  Stream.runHead,
-                );
-                yield* worker.drain();
+            const runToCompletion = Effect.fn("runToCompletion")(function* (ordinal: number) {
+              yield* orchestrator.dispatch({
+                type: "message.dispatch",
+                commandId: CommandId.make(`resume-fallback:${ordinal}`),
+                threadId,
+                messageId: MessageId.make(`resume-fallback:${ordinal}`),
+                createdBy: "user",
+                creationSource: "web",
+                text: `Request ${ordinal}`,
+                attachments: [],
+                modelSelection: CLAUDE_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
               });
+              yield* orchestrator.streamStoredEvents.pipe(
+                Stream.filter(
+                  ({ event }) =>
+                    event.type === "run.updated" &&
+                    event.payload.ordinal === ordinal &&
+                    (event.payload.status === "completed" || event.payload.status === "failed"),
+                ),
+                Stream.runHead,
+              );
+              yield* worker.drain();
+              assert.equal(
+                (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)?.status,
+                "completed",
+              );
+            });
             yield* orchestrator.dispatch({
               type: "thread.create",
               commandId: CommandId.make("resume-fallback:create"),
@@ -1124,13 +1127,17 @@ describe("orchestration v2 provider switching", () => {
             });
             yield* runToCompletion(1);
             // A detached session resumes on the next turn, as after a restart.
-            const providerThread = (yield* orchestrator.getThreadProjection(threadId))
-              .providerThreads[0]!;
+            const providerThread = (yield* orchestrator.getThreadProjection(
+              threadId,
+            )).providerThreads.at(0);
+            if (providerThread === undefined || providerThread.providerSessionId === null) {
+              return yield* Effect.die("Expected a provider session after the first turn.");
+            }
             yield* orchestrator.dispatch({
               type: "provider-session.detach",
               commandId: CommandId.make("resume-fallback:detach"),
               threadId,
-              providerSessionId: providerThread.providerSessionId!,
+              providerSessionId: providerThread.providerSessionId,
             });
             yield* worker.drain();
             if (attempts === "legacy") {
