@@ -61,6 +61,11 @@ describe("crew session status", () => {
     expect(pillLabel({ settledOverride: "settled" })).toBe("Completed");
   });
 
+  it("shows a spawned orchestrator as Completed, not Idle", () => {
+    expect(pillLabel({ title: "Orchestrator" })).toBe("Completed");
+    expect(pillLabel({ title: "Orchestrator-2026-10-03" })).toBe("Idle");
+  });
+
   it("lets every live status outrank Idle", () => {
     expect(pillLabel({ hasPendingApprovals: true })).toBe("Pending Approval");
     expect(pillLabel({ hasPendingUserInput: true })).toBe("Awaiting Input");

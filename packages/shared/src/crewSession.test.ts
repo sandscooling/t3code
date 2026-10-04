@@ -14,12 +14,31 @@ const orchestrator = { spawnedByThreadId: null, settledOverride: null };
 const ownThread: { readonly spawnedByThreadId?: ThreadId | null; readonly settledOverride: null } =
   { settledOverride: null };
 
+// An orchestrator another project's orchestrator spawned has a spawner too.
+const spawnedOrchestrator = { ...crew, title: "Orchestrator" };
+
 describe("isCrewSession", () => {
   it("is a crew session only when a spawner is set", () => {
     expect(isCrewSession(crew)).toBe(true);
     expect(isCrewSession(orchestrator)).toBe(false);
     expect(isCrewSession(ownThread)).toBe(false);
   });
+
+  it("never treats a spawned thread titled exactly Orchestrator as crew", () => {
+    expect(isCrewSession(spawnedOrchestrator)).toBe(false);
+    expect(isIdleCrewSession(spawnedOrchestrator, "ready")).toBe(false);
+    expect(isSilencedCrewAlert(spawnedOrchestrator, "completion")).toBe(false);
+  });
+
+  it.each(["Orchestrator-2026-10-03", "t3-x-dev", "orchestrator"])(
+    "still treats a spawned %s as crew",
+    (title) => {
+      const thread = { ...crew, title };
+      expect(isCrewSession(thread)).toBe(true);
+      expect(isIdleCrewSession(thread, "ready")).toBe(true);
+      expect(isSilencedCrewAlert(thread, "completion")).toBe(true);
+    },
+  );
 });
 
 describe("isIdleCrewSession", () => {
@@ -66,6 +85,7 @@ describe("crew session mobile push", () => {
     pendingRuntimeRequest: Parameters<
       typeof projectThreadAwarenessV2
     >[0]["thread"]["pendingRuntimeRequest"] = null,
+    title = "Crew worker",
   ) =>
     projectThreadAwarenessV2({
       environmentId: "env-1" as EnvironmentId,
@@ -77,7 +97,7 @@ describe("crew session mobile push", () => {
           parentThreadId: null,
           relationshipToParent: null,
         },
-        title: "Crew worker",
+        title,
         modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "opus" },
         status,
         pendingRuntimeRequest,
@@ -114,5 +134,8 @@ describe("crew session mobile push", () => {
 
   it("still publishes an orchestrator's completion", () => {
     expect(thread(null, "completed")).toMatchObject({ phase: "completed" });
+    expect(
+      thread("other-orchestrator" as ThreadId, "completed", null, "Orchestrator"),
+    ).toMatchObject({ phase: "completed" });
   });
 });

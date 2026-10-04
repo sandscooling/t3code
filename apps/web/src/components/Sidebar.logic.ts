@@ -632,6 +632,7 @@ type ThreadStatusInput = Pick<
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
   // Fork: crew sessions read Idle.
   spawnedByThreadId?: SidebarThreadSummary["spawnedByThreadId"] | undefined;
+  title?: SidebarThreadSummary["title"] | undefined;
   settledOverride?: SidebarThreadSummary["settledOverride"] | undefined;
 };
 
