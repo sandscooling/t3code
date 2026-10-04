@@ -75,6 +75,7 @@ import {
   isThreadHistoryTurnStart,
   THREAD_HISTORY_MAX_RAW_TURNS,
 } from "./threadHistoryPaging.ts";
+import { querySpawnedThreadIds, spawnedThreadIdsOf } from "./spawnedSessions.ts"; // Fork
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
   "ProjectionStoreApplyEventError",
@@ -3542,22 +3543,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
     );
 
-    // Fork: the live threads a thread spawned, for the settle cascade.
-    const getSpawnedThreadIds = Effect.fn("ProjectionStore.getSpawnedThreadIds")(
-      function* (threadId: ThreadId) {
-        const rows = yield* sql<{ readonly thread_id: string }>`
-          SELECT thread_id FROM orchestration_v2_projection_threads
-          WHERE deleted_at IS NULL AND archived_at IS NULL
-            AND CASE WHEN json_valid(payload_json)
-              THEN json_extract(payload_json, '$.spawnedByThreadId') = ${threadId}
-              ELSE 0 END
-          ORDER BY thread_id ASC
-        `;
-        return rows.map((row) => ThreadId.make(row.thread_id));
-      },
-      Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
-    );
-
     // Decode every canonical row once. Full thread reads repeat shared sessions,
     // provider threads, transfers, and inherited fork histories for each owner.
     const getUnreadableThreadIds = Effect.fn("ProjectionStore.getUnreadableThreadIds")(
@@ -5582,7 +5567,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getRecoveryThreadIds,
       getUnreadableThreadIds,
       // Fork: settle cascade.
-      getSpawnedThreadIds,
+      getSpawnedThreadIds: (threadId) =>
+        querySpawnedThreadIds(sql, threadId).pipe(
+          Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+        ),
       getThreadSnapshot,
       getThreadSnapshotWindow,
       getTimelinePage,
@@ -5762,16 +5750,10 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
       getSpawnedThreadIds: (threadId) =>
         Ref.get(replayState).pipe(
           Effect.map((state) =>
-            [...state.projections.values()]
-              .map((projection) => projection.thread)
-              .filter(
-                (thread) =>
-                  thread.spawnedByThreadId === threadId &&
-                  thread.archivedAt === null &&
-                  thread.deletedAt === null,
-              )
-              .map((thread) => thread.id)
-              .toSorted((left, right) => left.localeCompare(right)),
+            spawnedThreadIdsOf(
+              Array.from(state.projections.values(), (projection) => projection.thread),
+              threadId,
+            ),
           ),
         ),
       getRecoveryThreadIds: (kind) =>

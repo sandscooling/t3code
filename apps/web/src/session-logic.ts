@@ -9,7 +9,6 @@ import {
   type OrchestrationV2TurnItem,
   type PlanId,
   type RunId,
-  type ThreadId, // Fork: handoff follow
   type ToolActivitySurface,
   type ToolActivityIcon,
   type ToolActivitySource,
@@ -278,34 +277,6 @@ function toLatestProposedPlanState(
     planMarkdown: plan.markdown,
     status: plan.status,
   };
-}
-
-// Fork: the successor a viewed thread had when this reader first saw it.
-export interface HandoffFollowBaseline {
-  readonly threadKey: string;
-  readonly successorThreadId: ThreadId | null;
-}
-
-/**
- * Fork: following an orchestrator handoff. `session_spawn` with a handoff sets
- * the replaced thread's `successorThreadId`; the reader watching that thread
- * goes with it. The first snapshot of a thread is the baseline, however late it
- * loads, so reopening or reloading an old orchestrator stays put and only a
- * succession that arrives while the thread is open moves the reader.
- */
-export function resolveHandoffFollow(
-  baseline: HandoffFollowBaseline | null,
-  threadKey: string,
-  successorThreadId: ThreadId | null | undefined,
-): { readonly baseline: HandoffFollowBaseline; readonly follow: ThreadId | null } {
-  const successor = successorThreadId ?? null;
-  if (baseline?.threadKey !== threadKey) {
-    return { baseline: { threadKey, successorThreadId: successor }, follow: null };
-  }
-  if (successor === null || successor === baseline.successorThreadId) {
-    return { baseline, follow: null };
-  }
-  return { baseline: { threadKey, successorThreadId: successor }, follow: successor };
 }
 
 export function findLatestProposedPlan(

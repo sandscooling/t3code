@@ -7,8 +7,15 @@
 // @effect-diagnostics nodeBuiltinImport:off - native realpath; see realPathOfNearestAncestor.
 import * as NodeFSP from "node:fs/promises";
 
-import { GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
+import {
+  GitCommandError,
+  type OrchestrationV2ProviderThread,
+  type OrchestrationV2Run,
+  type OrchestrationV2TurnItem,
+  type VcsRemoveWorktreeInput,
+} from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -16,6 +23,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { ServerConfig } from "../config.ts";
+import { makeProviderFailure } from "../orchestration-v2/ProviderFailure.ts";
 
 /** A turn start on an attached worktree whose directory is gone. */
 export class AttachedWorktreeMissingError extends Schema.TaggedError<AttachedWorktreeMissingError>()(
@@ -80,6 +88,67 @@ export const isInsideDirectory = Effect.fnUntraced(function* (root: string, targ
 export const isInsideT3WorktreesDir = Effect.fnUntraced(function* (target: string) {
   const config = yield* ServerConfig;
   return yield* isInsideDirectory(config.worktreesDir, target);
+});
+
+/** What ProviderTurnStartService's layer needs for the guard below. */
+export type AttachedWorktreeGuardServices = ServerConfig | Path.Path;
+
+/**
+ * Builds ProviderTurnStartService's guard for a missing worktree: one outside
+ * T3's own worktrees dir was attached, not created, so T3 never recreates it.
+ * The guard settles the run as failed ("Attached worktree missing") through the
+ * service's `settleRunBeforeStart` and returns true, and the caller returns
+ * before its recreate. A missing worktree T3 created returns false.
+ */
+export const makeAttachedWorktreeGuard = Effect.gen(function* () {
+  const context = yield* Effect.context<AttachedWorktreeGuardServices>();
+  return <E>(input: {
+    readonly worktreePath: string;
+    readonly run: Pick<OrchestrationV2Run, "providerInstanceId">;
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly settleRunBeforeStart: (settle: {
+      readonly signal: string;
+      readonly status: "failed";
+      readonly now: DateTime.Utc;
+      readonly startedAt: DateTime.Utc;
+      readonly providerInstanceId: OrchestrationV2Run["providerInstanceId"];
+      readonly itemProviderThreadId: OrchestrationV2ProviderThread["id"];
+      readonly item: Pick<
+        Extract<OrchestrationV2TurnItem, { type: "error" }>,
+        "type" | "title" | "failure"
+      >;
+      readonly providerThreadUpdate: OrchestrationV2ProviderThread;
+    }) => Effect.Effect<unknown, E>;
+  }) =>
+    Effect.gen(function* () {
+      const { worktreePath, providerThread } = input;
+      if (yield* isInsideT3WorktreesDir(worktreePath).pipe(Effect.provideContext(context))) {
+        return false;
+      }
+      const now = yield* DateTime.now;
+      yield* input.settleRunBeforeStart({
+        signal: "attached-worktree-missing",
+        status: "failed",
+        now,
+        startedAt: now,
+        providerInstanceId: input.run.providerInstanceId,
+        itemProviderThreadId: providerThread.id,
+        item: {
+          type: "error",
+          title: "Attached worktree missing",
+          failure: makeProviderFailure({
+            class: "validation_error",
+            message: new AttachedWorktreeMissingError({ worktreePath }).message,
+          }),
+        },
+        providerThreadUpdate: {
+          ...providerThread,
+          status: providerThread.nativeThreadRef === null ? "not_loaded" : "idle",
+          updatedAt: now,
+        },
+      });
+      return true;
+    });
 });
 
 /**

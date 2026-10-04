@@ -5,13 +5,16 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
+import { type OrchestrationV2ProviderThread, ProviderInstanceId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
 import {
+  AttachedWorktreeMissingError,
   checkAttachedWorktree,
+  makeAttachedWorktreeGuard,
   isInsideDirectory,
   isInsideT3WorktreesDir,
   refuseAttachedWorktreeRemoval,
@@ -57,6 +60,48 @@ it.effect("refuses to remove a worktree outside T3's own dir", () =>
       cwd: "/repo",
       path: NodePath.join(worktreesDir, "repo", "t3code-1234"),
     });
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("fails a turn on a missing attached worktree instead of recreating it", () =>
+  Effect.gen(function* () {
+    const { worktreesDir } = yield* ServerConfig.ServerConfig;
+    const guard = yield* makeAttachedWorktreeGuard;
+    const settled: Array<unknown> = [];
+    const input = {
+      run: { providerInstanceId: ProviderInstanceId.make("codex") },
+      providerThread: {
+        id: "provider-thread",
+        nativeThreadRef: null,
+        status: "running",
+      } as unknown as OrchestrationV2ProviderThread,
+      settleRunBeforeStart: (settle: unknown) => Effect.sync(() => settled.push(settle)),
+    };
+
+    const outside = NodePath.join(tempDir(), "lane");
+    expect(yield* guard({ ...input, worktreePath: outside })).toBe(true);
+    expect(settled).toMatchObject([
+      {
+        signal: "attached-worktree-missing",
+        status: "failed",
+        providerInstanceId: "codex",
+        itemProviderThreadId: "provider-thread",
+        item: {
+          type: "error",
+          title: "Attached worktree missing",
+          failure: {
+            class: "validation_error",
+            message: new AttachedWorktreeMissingError({ worktreePath: outside }).message,
+          },
+        },
+        providerThreadUpdate: { id: "provider-thread", status: "not_loaded" },
+      },
+    ]);
+
+    // A worktree T3 created is left to the caller, which recreates it.
+    const own = NodePath.join(worktreesDir, "repo", "gone");
+    expect(yield* guard({ ...input, worktreePath: own })).toBe(false);
+    expect(settled).toHaveLength(1);
   }).pipe(Effect.provide(layer)),
 );
 

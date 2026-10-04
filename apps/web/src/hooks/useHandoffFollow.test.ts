@@ -1,10 +1,9 @@
-// Fork-owned tests for session-logic.test.ts.
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveHandoffFollow } from "./session-logic";
+import { resolveHandoffFollow } from "./useHandoffFollow";
 
-// Fork: following an orchestrator handoff on the v2 shell field.
+// Following an orchestrator handoff on the v2 shell field.
 describe("resolveHandoffFollow", () => {
   const older = ThreadId.make("thread-older");
   const newer = ThreadId.make("thread-newer");

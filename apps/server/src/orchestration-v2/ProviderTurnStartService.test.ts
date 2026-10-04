@@ -100,11 +100,7 @@ it("does not commit running state when inherited background routing cannot be re
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
-        Layer.succeed(FileSystem.FileSystem, {
-          exists: () => Effect.succeed(false),
-          // Fork: the worktrees-dir check resolves paths.
-          realPath: (path: string) => Effect.succeed(path),
-        } as never),
+        Layer.succeed(FileSystem.FileSystem, { exists: () => Effect.succeed(false) } as never),
         // Fork: turn start checks a missing worktree against the worktrees dir.
         Layer.succeed(ServerConfig.ServerConfig, { worktreesDir: "/tmp/t3-worktrees" } as never),
         Path.layer,
