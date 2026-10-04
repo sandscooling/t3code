@@ -1253,8 +1253,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  // Fork: an idle crew session is never shown as unread; nobody reads its turns.
+  const isUnread =
+    hasUnseenCompletion({ ...thread, lastVisitedAt }) && !isIdleCrewSession(thread, status);
   const isInFlight =
     status === "working" || status === "waiting" || status === "approval" || status === "input";
   // A woken thread reappears at its original position (the sort is
