@@ -79,7 +79,8 @@ export function backgroundWorkHoldsCompletion(
   return tasks.some((task) => backgroundWorkTaskHoldsCompletion(task));
 }
 
-function backgroundWorkTaskHoldsCompletion(task: {
+// Fork: exported for the sidebar's Waiting clock and icon.
+export function backgroundWorkTaskHoldsCompletion(task: {
   readonly kind: PendingBackgroundWorkTask["kind"];
   readonly held?: boolean | undefined;
 }): boolean {

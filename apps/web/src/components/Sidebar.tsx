@@ -12,7 +12,7 @@ import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
-import { backgroundWorkClockStartedAt } from "./backgroundWorkClock"; // Fork: Waiting duration
+import { SidebarWaitingOn } from "./SidebarWaitingOn"; // Fork: Waiting duration and icon
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
@@ -2058,14 +2058,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
                             </span>
                           ) : status === "waiting" ? (
-                            // Fork: Waiting ticks from the background work banner's clock.
-                            <span aria-hidden>
-                              <WorkingDuration
-                                startedAt={backgroundWorkClockStartedAt(
-                                  thread.pendingBackgroundTasks,
-                                )}
-                              />
-                            </span>
+                            // Fork: what Waiting waits on, and since when.
+                            <SidebarWaitingOn
+                              tasks={thread.pendingBackgroundTasks}
+                              Duration={WorkingDuration}
+                            />
                           ) : null}
                         </span>
                       )
