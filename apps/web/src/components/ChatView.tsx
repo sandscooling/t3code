@@ -4085,7 +4085,7 @@ export default function ChatView(props: ChatViewProps) {
   const [resumeCompactionPermanentlyDismissed, setResumeCompactionPermanentlyDismissed] =
     useLocalStorage(
       `t3code:resume-compaction-dismissed:${environmentId}:${activeProviderInstanceId ?? "claudeAgent"}`,
-      true, // Fork: the resume banner is off, so a send never compacts first
+      false,
       Schema.Boolean,
     );
   const nativeResumeCompactionDismissed = useMemo(
