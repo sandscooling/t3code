@@ -17,6 +17,7 @@ type ColorThread = {
   readonly id: string;
   readonly environmentId: string;
   readonly projectId: string;
+  readonly settledOverride?: "settled" | "active" | null | undefined;
 };
 /** Sidebar's projects keyed by `${environmentId}:${projectId}`. */
 type ProjectByKey = ReadonlyMap<string, Parameters<typeof derivePhysicalProjectKey>[0]>;
@@ -57,9 +58,14 @@ export function useOrchestratorColors(
     [updateClientSettings],
   );
 
-  /** The tint class a row wears: set only on an orchestrator whose project picked one. */
+  /**
+   * The tint class a row wears: set only on an unsettled orchestrator whose project picked one.
+   * A settled one keeps counting as an orchestrator while its settled crew points at it, but its
+   * row stops wearing the bar.
+   */
   const tintClassName = useCallback(
     (thread: ColorThread, projectByKey: ProjectByKey): string | undefined => {
+      if (thread.settledOverride === "settled") return undefined;
       const project = projectOf(thread, projectByKey);
       const color =
         project && orchestratorIds.has(thread.id)
