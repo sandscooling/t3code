@@ -1,7 +1,6 @@
 import {
   type ClaudeSettings,
   type ModelCapabilities,
-  type ServerProviderModel,
   type ServerProviderSlashCommand,
   type ServerProviderResetCredits,
 } from "@t3tools/contracts";
@@ -25,7 +24,6 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  buildSelectOptionDescriptor,
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
   DEFAULT_TIMEOUT_MS,
@@ -38,6 +36,8 @@ import {
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
+// Fork: Claude's /output-style trait.
+import { parseClaudeOutputStyles, withClaudeOutputStyleDescriptor } from "../claudeOutputStyle.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 import {
   type ClaudeScopedLimitNames,
@@ -60,54 +60,6 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
   reportsContextWindow: true,
 } as const;
-/**
- * The CLI's zero-state output style. Selecting it means "do not pass
- * `settings.outputStyle` at all", which is why the adapter treats it as the
- * absence of a choice rather than a value to forward.
- */
-export const DEFAULT_CLAUDE_OUTPUT_STYLE = "default";
-export const CLAUDE_OUTPUT_STYLE_OPTION_ID = "outputStyle";
-
-/**
- * Append an output-style trait to every model in the snapshot.
- *
- * Output styles are a CLI-wide setting rather than a per-model one, so the
- * same descriptor rides on each model; clients read traits off the selected
- * model's capabilities and have no other channel for it. Mirrors how
- * OpenCode publishes its discovered `agent` list.
- */
-function withClaudeOutputStyleDescriptor(
-  models: ReadonlyArray<ServerProviderModel>,
-  outputStyles: ReadonlyArray<string>,
-): ReadonlyArray<ServerProviderModel> {
-  // A lone "default" is the CLI reporting no styles are installed. Publishing
-  // a one-choice picker would add a control that can never change anything.
-  if (outputStyles.length < 2) {
-    return models;
-  }
-
-  const descriptor = buildSelectOptionDescriptor({
-    id: CLAUDE_OUTPUT_STYLE_OPTION_ID,
-    label: "Output Style",
-    options: outputStyles.map((style) =>
-      style.toLowerCase() === DEFAULT_CLAUDE_OUTPUT_STYLE
-        ? { value: style, label: toTitleCaseWords(style), isDefault: true }
-        : // User-authored names are shown verbatim; they are display strings
-          // the author chose, not slugs for us to reformat.
-          { value: style, label: style },
-    ),
-  });
-
-  return models.map((model) => ({
-    ...model,
-    capabilities: createModelCapabilities({
-      // Appended, never prepended: clients read the first select descriptor as
-      // the model's primary trait (reasoning effort).
-      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), descriptor],
-    }),
-  }));
-}
-
 function toTitleCaseWords(value: string): string {
   const parts: Array<string> = [];
   for (const part of value.split(/[\s_-]+/g)) {
@@ -286,12 +238,7 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
-  /**
-   * Output styles the CLI resolves for itself, in the order it reports them:
-   * built-ins first, then user-level `output-styles` entries. Reported by
-   * name (a style file's frontmatter `name`, not its filename), which is the
-   * exact token `settings.outputStyle` expects back.
-   */
+  /** Fork: output style names, see parseClaudeOutputStyles. */
   readonly outputStyles: ReadonlyArray<string>;
   /**
    * Subscription windows from the SDK's `get_usage` control request, or
@@ -300,32 +247,6 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
 };
-
-/**
- * Normalize the output style names reported by the SDK init handshake.
- *
- * The CLI resolves these itself from its built-ins plus the user-level
- * `output-styles` directory, so T3 Code never scans the filesystem for them.
- * Names are kept verbatim (they are the token `settings.outputStyle` matches
- * on) and deduped case-insensitively, since two scopes can define the same
- * name and the CLI resolves such a collision to a single style.
- */
-function parseClaudeOutputStyles(styles: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
-  const stylesByKey = new Map<string, string>();
-
-  for (const style of styles ?? []) {
-    const name = nonEmptyProbeString(style);
-    if (!name) {
-      continue;
-    }
-    const key = name.toLowerCase();
-    if (!stylesByKey.has(key)) {
-      stylesByKey.set(key, name);
-    }
-  }
-
-  return [...stylesByKey.values()];
-}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -470,7 +391,7 @@ const probeClaudeCapabilities = (
           tokenSource: account?.tokenSource,
           apiProvider: account?.apiProvider,
           slashCommands: parseClaudeInitializationCommands(init.commands),
-          outputStyles: parseClaudeOutputStyles(init.available_output_styles),
+          outputStyles: parseClaudeOutputStyles(init.available_output_styles), // Fork
           ...(usage ? { usage } : {}),
         } satisfies ClaudeCapabilitiesProbe;
       }),
@@ -623,8 +544,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
-  // No-op when the probe failed or reported nothing, so the degraded snapshot
-  // below can publish the same list without a second branch.
+  // Fork: a no-op without probed styles, so both snapshots below can publish it.
   const modelsWithOutputStyles = withClaudeOutputStyleDescriptor(
     models,
     capabilities?.outputStyles ?? [],

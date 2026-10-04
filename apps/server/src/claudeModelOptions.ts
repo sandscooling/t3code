@@ -19,7 +19,7 @@ import {
 import {
   CLAUDE_OUTPUT_STYLE_OPTION_ID,
   DEFAULT_CLAUDE_OUTPUT_STYLE,
-} from "./provider/Layers/ClaudeProvider.ts";
+} from "./provider/claudeOutputStyle.ts";
 
 export interface CompiledClaudeModelSelection {
   readonly apiModelId: string;

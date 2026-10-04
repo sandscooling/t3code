@@ -34,7 +34,7 @@ import type {
   RuntimeRequestId,
   ScopedThreadRef,
   ServerProvider,
-  ServerProviderUsageLimits,
+  ServerProviderUsageLimits, // Fork
   ThreadId,
   SnapShotSource,
 } from "@t3tools/contracts";
@@ -295,7 +295,7 @@ import {
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
-import { RateLimitMeter } from "./RateLimitMeter";
+import { NO_METER_PROVIDERS, RateLimitMeter } from "./RateLimitMeter"; // Fork: plan usage pill
 import {
   attachVideoThumbnail,
   buildAttachmentVideoPreview,
@@ -1085,7 +1085,6 @@ import {
   XIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
-import { getProviderDisplayName } from "../../providerModels";
 import { hasProviderSetup } from "./ProviderStatusBanner";
 import {
   applyProviderInstanceSettings,
@@ -1119,8 +1118,7 @@ import {
   resolveComposerDispatchMode,
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
-// Fork: formatProviderDisplayName names the plan usage pill's provider.
-import { type ContextWindowSnapshot, formatProviderDisplayName } from "../../lib/contextWindow";
+import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
@@ -1354,8 +1352,10 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   activeContextWindow: ContextWindowSnapshot | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
+  // Fork: the plan usage pill.
   activeUsageLimits: ServerProviderUsageLimits | null;
-  activeThreadProviderDisplayName: string | null;
+  providerStatuses: ReadonlyArray<ServerProvider>;
+  activeThreadModelSelection: ModelSelection | null | undefined;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -1389,10 +1389,12 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      {/* Fork: the plan usage pill. */}
       {props.activeUsageLimits ? (
         <RateLimitMeter
           limits={props.activeUsageLimits}
-          providerDisplayName={props.activeThreadProviderDisplayName}
+          providers={props.providerStatuses}
+          selection={props.activeThreadModelSelection}
         />
       ) : null}
       {props.activeContextWindow ? (
@@ -2120,7 +2122,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const selectedInstanceId =
     selectedProviderEntry?.instanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId;
-  // Plan usage follows the instance that will run the turn, so the pill and the
+  // Fork: plan usage follows the instance that will run the turn, so the pill and the
   // model picker always describe the same account.
   const activeUsageLimits = selectedProviderEntry?.snapshot.usageLimits ?? null;
   const noProviderAvailable =
@@ -2322,16 +2324,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => resolveContextWindowModelDisplayName(activeThreadModelSelection, modelOptionsByInstance),
     [activeThreadModelSelection, modelOptionsByInstance],
   );
-  const activeThreadProviderDisplayName = useMemo(() => {
-    if (!activeThreadModelSelection) return null;
-    const entry = providerStatuses.find(
-      (p) => p.instanceId === activeThreadModelSelection.instanceId,
-    );
-    if (entry) {
-      return getProviderDisplayName(providerStatuses, entry.driver);
-    }
-    return formatProviderDisplayName(activeThreadModelSelection.instanceId);
-  }, [providerStatuses, activeThreadModelSelection]);
   const reserveContextWindowMeter = shouldReserveContextWindowMeter({
     meterEnabled: settings.contextWindowMeterEnabled,
     detailLoading: props.threadSyncPhase === "loading",
@@ -7497,8 +7489,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
+                    // Fork: the plan usage pill.
                     activeUsageLimits={activeUsageLimits}
-                    activeThreadProviderDisplayName={activeThreadProviderDisplayName}
+                    providerStatuses={activeUsageLimits ? providerStatuses : NO_METER_PROVIDERS}
+                    activeThreadModelSelection={activeThreadModelSelection}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     canInterrupt={canInterrupt}

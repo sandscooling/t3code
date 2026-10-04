@@ -26,6 +26,7 @@ import {
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
+import { withClaudeUnifiedWindows } from "./claudeUnifiedWindows.ts"; // Fork
 
 const SESSION_MINS = 5 * 60;
 const WEEK_MINS = 7 * 24 * 60;
@@ -126,54 +127,41 @@ function makeWindow(
   };
 }
 
+// Fork: also reads the account-wide windows every event carries (claudeUnifiedWindows.ts).
+export function claudeRateLimitEventToUpdate(
+  info: SDKRateLimitInfo,
+  names: ClaudeScopedLimitNames,
+): ProviderUsageLimitsUpdate | undefined {
+  return withClaudeUnifiedWindows(
+    info,
+    (id, utilization, resetsAt) =>
+      id in WINDOWS ? makeWindow(id, utilization * 100, isoFromEpochSeconds(resetsAt)) : undefined,
+    claudeNamedRateLimitEventToUpdate(info, names),
+  );
+}
+
 /**
  * Utilization is a 0–1 fraction on the streamed event. An overage-included
  * event before any probe has named the bucket is dropped: guessing a name
  * would draw a row the next probe cannot reconcile.
  */
-export function claudeRateLimitEventToUpdate(
+function claudeNamedRateLimitEventToUpdate(
   info: SDKRateLimitInfo,
   names: ClaudeScopedLimitNames,
 ): ProviderUsageLimitsUpdate | undefined {
-  // Fork: the CLI only sets the top-level `utilization` once the named window
-  // passes a warning threshold, but every event carries each account-wide
-  // window under `unifiedWindows`. Reading those keeps the bars live for an
-  // account with headroom, whose `get_usage` probe may be too slow to land.
-  const windows = new Map<string, ServerProviderUsageWindow>();
-  for (const [id, window] of readUnifiedWindows(info)) {
-    if (id in WINDOWS) {
-      windows.set(
-        id,
-        makeWindow(id, window.utilization * 100, isoFromEpochSeconds(window.resetsAt)),
-      );
-    }
-  }
   const type: string | undefined = info.rateLimitType;
-  if (type && typeof info.utilization === "number") {
-    const usedPercent = info.utilization * 100;
-    const resetsAt = isoFromEpochSeconds(info.resetsAt);
-    if (type in WINDOWS) {
-      windows.set(type, makeWindow(type, usedPercent, resetsAt));
-    } else if (type === OVERAGE_INCLUDED_EVENT_TYPE && names.overageIncluded) {
-      const window = scopedWindow(names.overageIncluded, usedPercent, resetsAt);
-      windows.set(window.id, window);
-    }
+  if (!type || typeof info.utilization !== "number") {
+    return undefined;
   }
-  return windows.size > 0 ? { windows: [...windows.values()] } : undefined;
-}
-
-/** Fork: `unifiedWindows` is on the wire but not in the SDK typings we pin. */
-function readUnifiedWindows(
-  info: SDKRateLimitInfo,
-): ReadonlyArray<readonly [string, { readonly utilization: number; readonly resetsAt?: number }]> {
-  const raw = (info as { readonly unifiedWindows?: unknown }).unifiedWindows;
-  if (typeof raw !== "object" || raw === null) return [];
-  return Object.entries(raw).flatMap(([id, window]) => {
-    if (typeof window !== "object" || window === null) return [];
-    const { utilization, resetsAt } = window as { utilization?: unknown; resetsAt?: unknown };
-    if (typeof utilization !== "number") return [];
-    return [[id, { utilization, ...(typeof resetsAt === "number" ? { resetsAt } : {}) }] as const];
-  });
+  const usedPercent = info.utilization * 100;
+  const resetsAt = isoFromEpochSeconds(info.resetsAt);
+  if (type in WINDOWS) {
+    return { windows: [makeWindow(type, usedPercent, resetsAt)] };
+  }
+  if (type === OVERAGE_INCLUDED_EVENT_TYPE && names.overageIncluded) {
+    return { windows: [scopedWindow(names.overageIncluded, usedPercent, resetsAt)] };
+  }
+  return undefined;
 }
 
 /**

@@ -1,7 +1,7 @@
 // Fork-owned tests for TraitsPicker.test.ts.
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
-import { buildTraitsTriggerDisplay, shouldRenderTraitsControls } from "./TraitsPicker";
+import { buildTraitsTriggerDisplay } from "./TraitsPicker";
 
 function selectDescriptor(
   id: string,
@@ -80,33 +80,5 @@ describe("buildTraitsTriggerDisplay", () => {
       ],
     };
     expect(display([EFFORT, unset])).toEqual({ label: "High", speedIcon: null });
-  });
-
-  it("drops an excluded trait so it cannot be the only reason controls render", () => {
-    // The text-generation picker excludes output style, since that work is
-    // schema-constrained. A model whose only trait is the excluded one must
-    // render no picker at all rather than an empty menu.
-    const models = [
-      {
-        slug: "styled-only",
-        name: "Styled Only",
-        isCustom: false,
-        capabilities: {
-          optionDescriptors: [outputStyleDescriptor("Explanatory")],
-        },
-      },
-    ];
-    const input = {
-      provider: ProviderDriverKind.make("claudeAgent"),
-      models,
-      model: "styled-only",
-      prompt: "",
-      modelOptions: undefined,
-      planModeEnabled: false,
-    };
-    expect(shouldRenderTraitsControls(input)).toBe(true);
-    expect(shouldRenderTraitsControls({ ...input, excludeDescriptorIds: ["outputStyle"] })).toBe(
-      false,
-    );
   });
 });

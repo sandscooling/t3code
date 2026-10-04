@@ -1,7 +1,15 @@
-import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
+import {
+  defaultInstanceIdForDriver,
+  type ModelSelection,
+  type ServerProvider,
+  type ServerProviderUsageLimits,
+  type ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 import { formatResetsIn } from "@t3tools/shared/usageLimits";
+import { useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { formatProviderDriverKindLabel } from "~/providerModels";
 import { cn } from "~/lib/utils";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
@@ -79,6 +87,47 @@ function WindowRows(props: { windows: ReadonlyArray<ServerProviderUsageWindow> }
   return props.windows.map((window) => <WindowRow key={window.id} window={window} now={now} />);
 }
 
+/** Map a provider driver kind to a user-facing name, for an instance with no live entry. */
+function formatProviderDisplayName(provider: string): string {
+  if (!provider) return "This agent";
+  switch (provider) {
+    case "claudeAgent":
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "Codex";
+    case "cursor":
+      return "Cursor";
+    case "opencode":
+      return "OpenCode";
+    default: {
+      // Title-case unknown driver kinds so they read reasonably.
+      const trimmed = provider.replace(/Agent$/i, "").trim();
+      if (trimmed.length === 0) return provider;
+      return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    }
+  }
+}
+
+/**
+ * Names the provider the pill reports for: the driver's default instance's
+ * display name when it is live, else a label derived from the driver kind.
+ */
+function resolveProviderDisplayName(
+  providers: ReadonlyArray<ServerProvider>,
+  selection: ModelSelection | null | undefined,
+): string | null {
+  if (!selection) return null;
+  const entry = providers.find((provider) => provider.instanceId === selection.instanceId);
+  if (!entry) return formatProviderDisplayName(selection.instanceId);
+  const defaultInstanceId = defaultInstanceIdForDriver(entry.driver);
+  const snapshot = providers.find((provider) => provider.instanceId === defaultInstanceId);
+  return snapshot?.displayName?.trim() || formatProviderDriverKindLabel(entry.driver);
+}
+
+/** Stable stand-in for the provider list while no limits show, so the footer memo holds. */
+export const NO_METER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+
 /**
  * Plan usage windows (session / weekly) beside the context meter, read from the
  * provider instance's own limits snapshot. Providers report utilization only,
@@ -86,9 +135,14 @@ function WindowRows(props: { windows: ReadonlyArray<ServerProviderUsageWindow> }
  */
 export function RateLimitMeter(props: {
   limits: ServerProviderUsageLimits;
-  providerDisplayName?: string | null;
+  providers: ReadonlyArray<ServerProvider>;
+  selection: ModelSelection | null | undefined;
 }) {
-  const { limits, providerDisplayName } = props;
+  const { limits, providers, selection } = props;
+  const providerDisplayName = useMemo(
+    () => resolveProviderDisplayName(providers, selection),
+    [providers, selection],
+  );
   const peak = peakWindow(limits.windows);
   if (!peak) {
     return null;

@@ -62,6 +62,7 @@ import {
 } from "../../components/desktopUpdate.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
+import { withoutOutputStyleTrait } from "./textGenerationTraits"; // Fork
 import {
   resolveEnvironmentIdentificationPillLabel,
   useEnvironmentStageLabel,
@@ -3365,16 +3366,12 @@ export function GeneralSettingsPanel() {
                       // first-kind-match) so a custom text-gen instance like
                       // `codex_personal` gets its own model list, not the
                       // default Codex one.
-                      textGenInstanceEntry?.models ?? []
+                      // Fork: without Claude's output style trait.
+                      withoutOutputStyleTrait(textGenInstanceEntry?.models ?? [])
                     }
                     model={textGenModel}
                     prompt=""
                     onPromptChange={() => {}}
-                    // Titles, commit messages, and branch names are generated
-                    // against a JSON schema, which an output style cannot usefully
-                    // change and could fight. Offering it here would be a control
-                    // that silently does nothing.
-                    excludeDescriptorIds={["outputStyle"]}
                     modelOptions={textGenModelOptions}
                     allowPromptInjectedEffort={false}
                     planModeEnabled={

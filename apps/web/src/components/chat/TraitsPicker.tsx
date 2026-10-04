@@ -92,6 +92,7 @@ type TraitsPersistence =
     };
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
+// Fork: Claude's output style trait.
 const OUTPUT_STYLE_DESCRIPTOR_ID = "outputStyle";
 const DEFAULT_OUTPUT_STYLE_VALUE = "default";
 
@@ -143,13 +144,12 @@ function getSelectedTraits(
   modelOptions: ProviderOptions | null | undefined,
   allowPromptInjectedEffort: boolean,
   planModeEnabled: boolean,
-  excludeDescriptorIds: ReadonlyArray<string> | undefined,
 ) {
   const caps = getProviderModelCapabilities(models, model, provider, planModeEnabled);
   const modelIsUnavailable =
     provider === "opencode" &&
     !models.some((candidate) => candidate.slug === normalizeModelSlug(model, provider));
-  const allDescriptors = modelIsUnavailable
+  const descriptors = modelIsUnavailable
     ? buildUnavailableModelOptionDescriptors(
         planModeEnabled
           ? modelOptions
@@ -159,12 +159,6 @@ function getSelectedTraits(
         caps,
         selections: modelOptions,
       });
-  // Dropped before anything reads them, so an excluded trait is invisible to
-  // rendering, the trigger label, and the selections written back on change.
-  const descriptors =
-    excludeDescriptorIds && excludeDescriptorIds.length > 0
-      ? allDescriptors.filter((descriptor) => !excludeDescriptorIds.includes(descriptor.id))
-      : allDescriptors;
   const selectDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
       descriptor.type === "select",
@@ -173,7 +167,7 @@ function getSelectedTraits(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "boolean" }> =>
       descriptor.type === "boolean",
   );
-  // Skips output style rather than taking [0] outright: a custom Claude model
+  // Fork: skips output style rather than taking [0] outright: a custom Claude model
   // advertises no effort trait, and output style must not be promoted into the
   // primary slot where ultrathink handling and the trigger label would treat it
   // as reasoning effort.
@@ -182,8 +176,6 @@ function getSelectedTraits(
   const contextWindowDescriptor =
     selectDescriptors.find((descriptor) => descriptor.id === "contextWindow") ?? null;
   const agentDescriptor = selectDescriptors.find((descriptor) => descriptor.id === "agent") ?? null;
-  const outputStyleDescriptor =
-    selectDescriptors.find((descriptor) => descriptor.id === OUTPUT_STYLE_DESCRIPTOR_ID) ?? null;
   const fastModeDescriptor =
     booleanDescriptors.find((descriptor) => descriptor.id === "fastMode") ?? null;
   const thinkingDescriptor =
@@ -218,7 +210,6 @@ function getSelectedTraits(
     primarySelectDescriptor,
     contextWindowDescriptor,
     agentDescriptor,
-    outputStyleDescriptor,
     fastModeDescriptor,
     thinkingDescriptor,
     effort,
@@ -240,7 +231,6 @@ function getTraitsSectionVisibility(input: {
   modelOptions: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
-  excludeDescriptorIds?: ReadonlyArray<string> | undefined;
 }) {
   const selected = getSelectedTraits(
     input.provider,
@@ -250,7 +240,6 @@ function getTraitsSectionVisibility(input: {
     input.modelOptions,
     input.allowPromptInjectedEffort ?? true,
     input.planModeEnabled,
-    input.excludeDescriptorIds,
   );
 
   const showEffort = selected.primarySelectDescriptor !== null;
@@ -258,7 +247,6 @@ function getTraitsSectionVisibility(input: {
   const showFastMode = selected.fastModeDescriptor !== null;
   const showContextWindow = selected.contextWindowDescriptor !== null;
   const showAgent = selected.agentDescriptor !== null;
-  const showOutputStyle = selected.outputStyleDescriptor !== null;
 
   return {
     ...selected,
@@ -267,14 +255,16 @@ function getTraitsSectionVisibility(input: {
     showFastMode,
     showContextWindow,
     showAgent,
-    showOutputStyle,
     hasAnyControls:
       showEffort ||
       showThinking ||
       showFastMode ||
       showContextWindow ||
       showAgent ||
-      showOutputStyle ||
+      // Fork: output style is a control even on a model with no effort trait.
+      selected.selectDescriptors.some(
+        (descriptor) => descriptor.id === OUTPUT_STYLE_DESCRIPTOR_ID,
+      ) ||
       (selected.modelIsUnavailable && selected.descriptors.length > 0),
   };
 }
@@ -287,7 +277,6 @@ export function shouldRenderTraitsControls(input: {
   modelOptions: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
-  excludeDescriptorIds?: ReadonlyArray<string> | undefined;
 }): boolean {
   return getTraitsSectionVisibility(input).hasAnyControls;
 }
@@ -303,12 +292,6 @@ export interface TraitsMenuContentProps {
   reportedModelSelection?: ModelSelection | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
-  /**
-   * Traits to leave out for this call site. Used where a trait the model
-   * advertises has no effect on the work being configured, so the picker never
-   * offers a control that silently does nothing.
-   */
-  excludeDescriptorIds?: ReadonlyArray<string> | undefined;
   triggerClassName?: string;
   isComposerOwned?: boolean;
 }
@@ -324,7 +307,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
-  excludeDescriptorIds,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -365,7 +347,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     modelOptions,
     allowPromptInjectedEffort,
     planModeEnabled,
-    excludeDescriptorIds,
   });
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
@@ -563,7 +544,7 @@ export function buildTraitsTriggerDisplay(input: {
     }
     if (descriptor.id === OUTPUT_STYLE_DESCRIPTOR_ID && descriptor.type === "select") {
       const styleValue = getProviderOptionCurrentValue(descriptor);
-      // Same call as fast mode makes below: the default is the near-universal
+      // Fork: same call as fast mode makes below: the default is the near-universal
       // case, and Claude's trigger never truncates. Only a deliberate style
       // earns space in the pill.
       if (
@@ -608,7 +589,6 @@ export const TraitsPicker = memo(function TraitsPicker({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
-  excludeDescriptorIds,
   triggerClassName,
   isComposerOwned,
   size = "sm",
@@ -630,7 +610,6 @@ export const TraitsPicker = memo(function TraitsPicker({
       modelOptions,
       allowPromptInjectedEffort,
       planModeEnabled,
-      excludeDescriptorIds,
     });
   if (
     !shouldRenderTraitsControls({
@@ -641,7 +620,6 @@ export const TraitsPicker = memo(function TraitsPicker({
       modelOptions,
       allowPromptInjectedEffort,
       planModeEnabled,
-      excludeDescriptorIds,
     })
   ) {
     return null;
@@ -755,7 +733,6 @@ export const TraitsPicker = memo(function TraitsPicker({
           reportedModelSelection={reportedModelSelection}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}
-          {...(excludeDescriptorIds ? { excludeDescriptorIds } : {})}
           {...persistence}
         />
       </MenuPopup>
