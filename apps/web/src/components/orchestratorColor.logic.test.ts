@@ -32,6 +32,43 @@ describe("orchestratorThreadIds", () => {
     ]);
     expect([...ids]).toEqual(["named"]);
   });
+
+  describe("a thread spawned from another project", () => {
+    const at = (projectId: string) => ({ environmentId: "env", projectId });
+
+    it("is an orchestrator when titled Orchestrator", () => {
+      const ids = orchestratorThreadIds([
+        { id: "home", ...at("t3code"), title: "Other", spawnedByThreadId: null },
+        { id: "fleet", ...at("fleet"), title: "Orchestrator", spawnedByThreadId: "home" },
+      ]);
+      expect(ids.has("fleet")).toBe(true);
+    });
+
+    it("is an orchestrator when it spawned sessions in its own project", () => {
+      const ids = orchestratorThreadIds([
+        { id: "home", ...at("t3code"), spawnedByThreadId: null },
+        { id: "fleet", ...at("fleet"), title: "Recovered", spawnedByThreadId: "home" },
+        { id: "probe", ...at("fleet"), spawnedByThreadId: "fleet" },
+      ]);
+      expect(ids.has("fleet")).toBe(true);
+      expect(ids.has("probe")).toBe(false);
+    });
+
+    it("leaves a same-project worker as crew, even one titled Orchestrator", () => {
+      const ids = orchestratorThreadIds([
+        { id: "boss", ...at("fleet"), spawnedByThreadId: null },
+        { id: "worker", ...at("fleet"), title: "Orchestrator", spawnedByThreadId: "boss" },
+      ]);
+      expect([...ids]).toEqual(["boss"]);
+    });
+
+    it("is top-level when its spawner is no longer listed", () => {
+      const ids = orchestratorThreadIds([
+        { id: "orphan", ...at("fleet"), title: "Orchestrator", spawnedByThreadId: "gone" },
+      ]);
+      expect([...ids]).toEqual(["orphan"]);
+    });
+  });
 });
 
 describe("orchestrator color menu", () => {

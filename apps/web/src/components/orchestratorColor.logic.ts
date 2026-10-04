@@ -101,21 +101,32 @@ export function parseOrchestratorColorMenuId(
  * title covers an orchestrator whose spawned sessions were all pruned, and a
  * retired "Orchestrator-<date>" keeps no tint. A handoff successor takes over
  * the spawned sessions, so it inherits the tint with them before the rename.
+ * A spawned thread is crew rather than top-level only when its spawner is in
+ * the list and in the same project. One spawned from another project, or by a
+ * spawner no longer listed, is top-level in its own project.
  */
 export function orchestratorThreadIds(
   threads: ReadonlyArray<{
     readonly id: string;
+    readonly environmentId?: string | undefined;
+    readonly projectId?: string | undefined;
     readonly title?: string | undefined;
     readonly spawnedByThreadId?: string | null | undefined;
   }>,
 ): ReadonlySet<string> {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
   const parents = new Set<string>();
   for (const thread of threads) {
     if (thread.spawnedByThreadId != null) parents.add(thread.spawnedByThreadId);
   }
   const orchestrators = new Set<string>();
   for (const thread of threads) {
-    if (thread.spawnedByThreadId != null) continue;
+    const spawner = thread.spawnedByThreadId != null ? byId.get(thread.spawnedByThreadId) : null;
+    const isCrew =
+      spawner != null &&
+      spawner.environmentId === thread.environmentId &&
+      spawner.projectId === thread.projectId;
+    if (isCrew) continue;
     if (parents.has(thread.id) || thread.title === "Orchestrator") orchestrators.add(thread.id);
   }
   return orchestrators;
