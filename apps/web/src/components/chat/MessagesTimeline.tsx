@@ -218,6 +218,7 @@ import {
   type TimelineLatestRun,
   type WorkGroupScrollAnchor,
 } from "./MessagesTimeline.logic";
+import { useCollapsedLatestTurnFold } from "./MessagesTimeline.fork"; // Fork: latest turn opens
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Spinner } from "../ui/spinner";
@@ -602,9 +603,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
   const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
   const openPullRequest = useOpenPrLink(citationThreadRef ?? undefined);
-  const expandCitedRun = useCallback((runId: RunId) => {
-    setExpandedRunIds((current) => (current.has(runId) ? current : new Set([...current, runId])));
-  }, []);
+  // Fork: the latest completed turn starts open; a collapse of it is kept apart.
+  const { collapsedLatestRunId, toggleLatestTurnFold, openLatestTurnFold } =
+    useCollapsedLatestTurnFold(listIdentityKey, latestRun);
+  const expandCitedRun = useCallback(
+    (runId: RunId) => {
+      if (openLatestTurnFold(runId)) return; // Fork: latest turn opens
+      setExpandedRunIds((current) => (current.has(runId) ? current : new Set([...current, runId])));
+    },
+    [openLatestTurnFold],
+  );
   // Nested tool state shares the bounded thread-position cache.
   const workGroupViewState = useMemo<WorkGroupViewState>(
     () =>
@@ -680,6 +688,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleTurnFold = useCallback(
     (runId: RunId) => {
       suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
+      if (toggleLatestTurnFold(runId)) return; // Fork: latest turn opens
       setExpandedRunIds((existing) => {
         const next = new Set(existing);
         if (next.has(runId)) {
@@ -690,7 +699,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         return next;
       });
     },
-    [suspendEndScrollMaintenanceForDisclosure],
+    [suspendEndScrollMaintenanceForDisclosure, toggleLatestTurnFold], // Fork
   );
   const onToggleWorkGroup = useCallback(
     (groupId: string, anchorKey: string) => {
@@ -765,6 +774,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         latestRun,
         runningRunId,
         expandedRunIds,
+        openLatestTurnFold: true, // Fork: latest turn opens
+        collapsedLatestRunId,
         expandedAttemptIds,
         expandedWorkGroupIds,
         isWorking,
@@ -788,6 +799,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     latestRun,
     runningRunId,
     expandedRunIds,
+    collapsedLatestRunId, // Fork: latest turn opens
     expandedAttemptIds,
     expandedWorkGroupIds,
     isWorking,

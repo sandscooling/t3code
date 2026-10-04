@@ -43,6 +43,7 @@ import {
   RunId,
 } from "@t3tools/contracts";
 import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
+import { turnFoldExpanded } from "./MessagesTimeline.logic.fork"; // Fork: latest turn opens
 import {
   resolveT3McpToolDefinition,
   resolveT3McpToolPresentation,
@@ -1207,6 +1208,9 @@ export function deriveMessagesTimelineRows(input: {
   latestRun?: TimelineLatestRun | null;
   runningRunId?: RunId | null;
   expandedRunIds?: ReadonlySet<RunId>;
+  /** Fork: the latest completed turn's fold starts open, unless it is `collapsedLatestRunId`. */
+  openLatestTurnFold?: boolean;
+  collapsedLatestRunId?: RunId | null;
   expandedAttemptIds?: ReadonlySet<RunAttemptId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
   isWorking: boolean;
@@ -1262,9 +1266,18 @@ export function deriveMessagesTimelineRows(input: {
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive,
   });
+  // Fork: the latest completed turn's fold starts open.
+  const runFoldExpanded = (runId: RunId) =>
+    turnFoldExpanded({
+      expandedRunIds: input.expandedRunIds,
+      latestRun: input.latestRun,
+      runId,
+      openLatestTurnFold: input.openLatestTurnFold,
+      collapsedLatestRunId: input.collapsedLatestRunId,
+    });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
-    if (!input.expandedRunIds?.has(fold.runId)) {
+    if (!runFoldExpanded(fold.runId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -1418,7 +1431,7 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: turnFold.createdAt,
         runId: turnFold.runId,
         label: turnFold.label,
-        expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
+        expanded: runFoldExpanded(turnFold.runId), // Fork: latest turn opens
       });
     }
 

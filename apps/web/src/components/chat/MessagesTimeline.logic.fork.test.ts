@@ -1,9 +1,14 @@
 // Fork-owned tests for MessagesTimeline.logic.test.ts.
-import { RuntimeRequestId } from "@t3tools/contracts";
+import { MessageId, RunId, RuntimeRequestId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { WorkLogEntry } from "../../session-logic";
-import { deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
+import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
+import { deriveMessagesTimelineRows, type TimelineLatestRun } from "./MessagesTimeline.logic";
+import {
+  citedCollapsedLatestRunId,
+  latestCompletedRunId,
+  toggledCollapsedLatestRunId,
+} from "./MessagesTimeline.logic.fork";
 
 // Fork: images and answered questions are content to look at, so the fold never
 // swallows them. Every test in this block is fork-owned.
@@ -103,5 +108,194 @@ describe("pinned work rows (fork)", () => {
   // Fork: the pin leaves ordinary tool calls folded.
   it("still folds plain tool calls", () => {
     expect(groupedIds([command("a"), command("b"), command("c")])).toEqual(["folded:3"]);
+  });
+});
+
+// Fork: the latest completed turn shows its work; older turns fold.
+describe("latest turn fold opens (fork)", () => {
+  const at = (second: number) => `2026-10-04T12:00:${String(second).padStart(2, "0")}Z`;
+  // One turn: a prompt, a tool call, and the final answer, ten seconds apart per turn.
+  const turn = (index: number): TimelineEntry[] => {
+    const runId = RunId.make(`turn-${index}`);
+    const start = index * 10;
+    return [
+      {
+        id: `user-${index}`,
+        kind: "message",
+        createdAt: at(start),
+        message: {
+          id: MessageId.make(`user-${index}`),
+          role: "user",
+          text: "Go",
+          runId,
+          createdAt: at(start),
+          updatedAt: at(start),
+          streaming: false,
+        },
+      },
+      {
+        id: `work-${index}`,
+        kind: "work",
+        createdAt: at(start + 1),
+        entry: {
+          id: `work-${index}`,
+          createdAt: at(start + 1),
+          runId,
+          label: "Ran command",
+          tone: "tool",
+        },
+      },
+      {
+        id: `final-${index}`,
+        kind: "message",
+        createdAt: at(start + 2),
+        message: {
+          id: MessageId.make(`final-${index}`),
+          role: "assistant",
+          text: "Done",
+          runId,
+          createdAt: at(start + 2),
+          updatedAt: at(start + 2),
+          streaming: false,
+        },
+      },
+    ];
+  };
+  const latest = (index: number, status: TimelineLatestRun["status"]): TimelineLatestRun => ({
+    runId: RunId.make(`turn-${index}`),
+    status,
+    startedAt: at(index * 10),
+    completedAt: status === "running" ? null : at(index * 10 + 2),
+  });
+  // Each turn's fold state, and whether its tool call is on screen.
+  const folds = (input: {
+    turns: number;
+    latestRun: TimelineLatestRun;
+    expandedRunIds?: ReadonlySet<RunId>;
+    collapsedLatestRunId?: RunId | null;
+    isWorking?: boolean;
+  }) => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: Array.from({ length: input.turns }, (_, index) => turn(index + 1)).flat(),
+      latestRun: input.latestRun,
+      expandedRunIds: input.expandedRunIds ?? new Set(),
+      openLatestTurnFold: true,
+      collapsedLatestRunId: input.collapsedLatestRunId ?? null,
+      isWorking: input.isWorking ?? false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    const workVisible = (index: number) =>
+      rows.some(
+        (row) =>
+          row.kind === "work" && row.groupedEntries.some((entry) => entry.id === `work-${index}`),
+      );
+    return Array.from({ length: input.turns }, (_, index) => {
+      const fold = rows.find((row) => row.id === `turn-fold:turn-${index + 1}`);
+      const state = fold?.kind === "turn-fold" ? (fold.expanded ? "open" : "folded") : "none";
+      return `${state}${workVisible(index + 1) ? "+work" : ""}`;
+    });
+  };
+
+  it("opens the latest completed turn and folds the older ones", () => {
+    expect(folds({ turns: 2, latestRun: latest(2, "completed") })).toEqual(["folded", "open+work"]);
+  });
+
+  it("keeps the latest turn collapsed once the user collapses it", () => {
+    expect(
+      folds({
+        turns: 2,
+        latestRun: latest(2, "completed"),
+        collapsedLatestRunId: RunId.make("turn-2"),
+      }),
+    ).toEqual(["folded", "folded"]);
+  });
+
+  it("folds the previous turn once a newer one completes, unless the user opened it", () => {
+    expect(folds({ turns: 3, latestRun: latest(3, "completed") })).toEqual([
+      "folded",
+      "folded",
+      "open+work",
+    ]);
+    expect(
+      folds({
+        turns: 3,
+        latestRun: latest(3, "completed"),
+        expandedRunIds: new Set([RunId.make("turn-1")]),
+      }),
+    ).toEqual(["open+work", "folded", "open+work"]);
+  });
+
+  // The user collapsed turn 1 and left the thread; turn 2 ran meanwhile, so
+  // nothing cleaned up the stale collapse.
+  it("keeps a collapsed turn folded after a newer turn arrives while away", () => {
+    expect(
+      folds({
+        turns: 2,
+        latestRun: latest(2, "completed"),
+        collapsedLatestRunId: RunId.make("turn-1"),
+      }),
+    ).toEqual(["folded", "open+work"]);
+    expect(
+      folds({
+        turns: 2,
+        latestRun: latest(2, "running"),
+        collapsedLatestRunId: RunId.make("turn-1"),
+        isWorking: true,
+      }),
+    ).toEqual(["folded", "none+work"]);
+  });
+
+  it("leaves an in-progress turn unfolded and the previous turn folded", () => {
+    expect(folds({ turns: 2, latestRun: latest(2, "running"), isWorking: true })).toEqual([
+      "folded",
+      "none+work",
+    ]);
+  });
+
+  it("keeps an interrupted latest turn on upstream's handling", () => {
+    expect(folds({ turns: 2, latestRun: latest(2, "interrupted") })).toEqual(["folded", "folded"]);
+    expect(
+      folds({
+        turns: 2,
+        latestRun: latest(2, "interrupted"),
+        expandedRunIds: new Set([RunId.make("turn-2")]),
+      }),
+    ).toEqual(["folded", "open+work"]);
+  });
+
+  it("routes a click on the latest completed turn to the fork's collapse", () => {
+    const latestCompleted = latestCompletedRunId(latest(2, "completed"));
+    const turn2 = RunId.make("turn-2");
+    expect(toggledCollapsedLatestRunId(null, latestCompleted, turn2)).toBe(turn2);
+    expect(toggledCollapsedLatestRunId(turn2, latestCompleted, turn2)).toBeNull();
+    // An older or interrupted turn stays on upstream's expandedRunIds toggle.
+    expect(
+      toggledCollapsedLatestRunId(null, latestCompleted, RunId.make("turn-1")),
+    ).toBeUndefined();
+    expect(
+      toggledCollapsedLatestRunId(null, latestCompletedRunId(latest(2, "interrupted")), turn2),
+    ).toBeUndefined();
+  });
+
+  // A citation into the latest turn must not add it to expandedRunIds: a later
+  // collapse would otherwise come back open once a newer run arrives.
+  it("opens a cited latest turn without adding it to upstream's opened set", () => {
+    const latestCompleted = latestCompletedRunId(latest(2, "completed"));
+    const turn2 = RunId.make("turn-2");
+    expect(citedCollapsedLatestRunId(turn2, latestCompleted, turn2)).toBeNull();
+    expect(citedCollapsedLatestRunId(null, latestCompleted, turn2)).toBeNull();
+    // An older turn is upstream's to add.
+    expect(citedCollapsedLatestRunId(null, latestCompleted, RunId.make("turn-1"))).toBeUndefined();
+    // Cite turn 1 while latest, collapse it, then turn 2 completes: still folded.
+    expect(
+      folds({
+        turns: 2,
+        latestRun: latest(2, "completed"),
+        collapsedLatestRunId: RunId.make("turn-1"),
+        expandedRunIds: new Set(),
+      }),
+    ).toEqual(["folded", "open+work"]);
   });
 });
