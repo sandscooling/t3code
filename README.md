@@ -35,7 +35,7 @@ Always available to every agent session, with no setting to turn on:
 - A globe on sidebar rows that pulses while an agent is using the browser.
 - Plan progress as a meter on thread hover.
 - Per-thread Claude output style.
-- A setting to stop threads renaming themselves.
+- A setting to stop threads naming themselves from their first message (Settings, General, "Generate thread titles").
 - Browser previews close once a thread settles.
 - A notification toast for a thread that wants an answer stays up instead of fading after a few seconds, and several show as a readable list rather than a collapsed pile. It appears even if the question arrived while the window was in the background, and comes back after a restart for any thread still waiting. It clears when you open that thread, use its "Open thread" button, or the thread stops waiting (answered anywhere, even while this client was disconnected, or failed). Failures still fade on their own, and a finished thread gets its sound and background popup but no toast.
 

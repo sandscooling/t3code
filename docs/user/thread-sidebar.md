@@ -158,17 +158,6 @@ rules to connected environments that support shared settings. Offline environmen
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
-## Spawned sessions
-
-An agent using the orchestration tools can start other sessions in any project. Each one
-is an ordinary thread with its own row, under the project it runs in. To keep a project's
-sessions together, turn on **Group threads by project** in Settings, Appearance; the
-project's orchestrator then leads its group.
-
-Settling the orchestrator settles the sessions it started. A session that is still
-working, or waiting on an answer from you, stays where it is. See
-[Agent orchestration](agent-orchestration.md).
-
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your

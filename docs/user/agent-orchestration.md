@@ -1,9 +1,9 @@
 # Agent orchestration
 
 An agent can start, list, wake, and settle other sessions in any project on its server, so one
-session can
-coordinate a set of workers as real threads rather than hidden subagents. Each worker shows in
-the sidebar, keeps its own history and checkpoints, and outlives the turn that started it.
+session can coordinate a set of workers as real threads rather than hidden subagents. Each worker
+shows in the sidebar, keeps its own history and checkpoints, and outlives the turn that started
+it.
 
 There is nothing to turn on: every agent session has these tools.
 
@@ -16,8 +16,7 @@ Every agent session gets seven tools:
   another, so one long-lived orchestrator can run work in all of your projects. It runs on that
   project's main checkout, or in an existing git worktree (see
   [Running sessions in worktrees](#running-sessions-in-worktrees)), and inherits the calling
-  session's permission mode. It also inherits the
-  caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
+  session's permission mode. It also inherits the caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
   session. No other open or settled session in that project may hold the name. With the handoff
   option, the new session replaces the caller instead; see below.
@@ -35,10 +34,10 @@ Every agent session gets seven tools:
   new turn with it. The message shows in that session as sent by another agent, with a link back
   to the sender.
 - **session_settle** settles a finished session, clearing it out of the inbox the same way the
-  settle button does, and settling anything that session started, in any project. A session that is still
-  running, waiting on an answer from you, or holding a queued turn is refused, so the orchestrator
-  cannot hide work you still need to see. A session cannot settle itself, because its own turn is
-  running while it asks.
+  settle button does, and settling anything that session started, in any project. A session that
+  is still running, waiting on an answer from you, or holding a queued turn is refused, so the
+  orchestrator cannot hide work you still need to see. A session cannot settle itself, because its
+  own turn is running while it asks.
 - **session_rename** renames a session, including the caller itself. The new name follows the same
   rules as a spawned session's name, and no other open or settled session in that project may
   hold it. To reuse a settled session's name, rename that session first.
@@ -74,6 +73,17 @@ T3 Code never creates, recreates, or deletes a worktree you attach this way. If 
 disappears, the session's next turn fails with a message saying so, instead of T3 Code rebuilding
 it. Deleting such a thread with "delete the worktree too" leaves the folder in place. Remove the
 worktree yourself with `git worktree remove` when the lane is done.
+
+## In the sidebar
+
+Each spawned session is an ordinary thread with its own row, under the project it runs in. To
+keep a project's sessions together, turn on **Group threads by project** in Settings,
+Appearance; the project's orchestrator then leads its group.
+
+A spawned session that has finished a turn shows **Idle** instead of Done, on desktop, web, and
+mobile, because it is waiting for its orchestrator rather than for you. Its finished turns make no
+sound, popup, or phone notification. A failure, a question, or an approval request from it still
+alerts you. The orchestrator itself, and threads you started, behave as usual.
 
 ## What stays stable
 
