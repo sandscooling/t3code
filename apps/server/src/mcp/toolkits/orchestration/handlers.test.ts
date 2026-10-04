@@ -10,9 +10,18 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   EnvironmentId,
+  EventId,
+  MessageId,
+  NodeId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderSessionId,
+  ProviderThreadId,
+  ProviderTurnId,
+  RunAttemptId,
+  RunId,
+  RuntimeRequestId,
   ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
@@ -150,7 +159,8 @@ function makeHarness(
     ProviderAdapterRegistry.makeLayer([adapter(claude), adapter(codex)]),
     { databaseLayer: database, runEffectWorker: false },
   );
-  const threadManagement = ThreadManagement.layer.pipe(Layer.provide(orchestrator));
+  // Merged so a test can write provider events through the real event sink.
+  const threadManagement = ThreadManagement.layer.pipe(Layer.provideMerge(orchestrator));
   const external = Layer.mergeAll(
     WorktreeSetupTracker.layer,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
@@ -360,6 +370,129 @@ const projectionOf = (threadId: string) =>
   Effect.gen(function* () {
     const threads = yield* ThreadManagement.ThreadManagementService;
     return yield* threads.getThreadProjection(ThreadId.make(threadId));
+  });
+
+/**
+ * Puts a steerable turn on an idle thread, as a provider mid-turn leaves it,
+ * and optionally a question it is waiting on. Returns the run.
+ */
+const runningTurn = (threadId: ThreadId, options: { readonly question?: boolean } = {}) =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const runId = RunId.make(`run:${threadId}`);
+    const attemptId = RunAttemptId.make(`attempt:${threadId}`);
+    const nodeId = NodeId.make(`node:${threadId}`);
+    const providerThreadId = ProviderThreadId.make(`provider-thread:${threadId}`);
+    const providerTurnId = ProviderTurnId.make(`provider-turn:${threadId}`);
+    const events: Array<OrchestrationV2DomainEvent> = [
+      {
+        id: EventId.make(`${threadId}:provider-thread`),
+        type: "provider-thread.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: providerThreadId,
+          driver: ProviderDriverKind.make(claude),
+          providerInstanceId: claude,
+          providerSessionId: null,
+          appThreadId: threadId,
+          ownerNodeId: null,
+          nativeThreadRef: null,
+          nativeConversationHeadRef: null,
+          status: "active",
+          firstRunOrdinal: 1,
+          lastRunOrdinal: 1,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      {
+        id: EventId.make(`${threadId}:run`),
+        type: "run.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: runId,
+          threadId,
+          ordinal: 1,
+          providerInstanceId: claude,
+          modelSelection: callerModel,
+          providerThreadId,
+          userMessageId: MessageId.make(`message:${threadId}`),
+          rootNodeId: nodeId,
+          activeAttemptId: attemptId,
+          status: "running",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          checkpointId: null,
+          contextHandoffId: null,
+        },
+      },
+      {
+        id: EventId.make(`${threadId}:attempt`),
+        type: "run-attempt.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: attemptId,
+          runId,
+          attemptOrdinal: 1,
+          rootNodeId: nodeId,
+          providerInstanceId: claude,
+          providerThreadId,
+          providerTurnId,
+          reason: "initial",
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      },
+      {
+        id: EventId.make(`${threadId}:turn`),
+        type: "provider-turn.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: providerTurnId,
+          providerThreadId,
+          nodeId,
+          runAttemptId: attemptId,
+          nativeTurnRef: null,
+          ordinal: 1,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      },
+    ];
+    if (options.question === true) {
+      events.push({
+        id: EventId.make(`${threadId}:question`),
+        type: "runtime-request.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: RuntimeRequestId.make(`question:${threadId}`),
+          nodeId: NodeId.make(`question-node:${threadId}`),
+          providerTurnId,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "pending",
+          responseCapability: {
+            type: "live",
+            providerSessionId: ProviderSessionId.make(`session:${threadId}`),
+          },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      });
+    }
+    yield* sink.write({ events });
+    return runId;
   });
 
 const tempDir = (prefix: string) =>
@@ -814,6 +947,41 @@ it.effect(
       });
       expect(queued.delivery).toBe("queued");
     }).pipe(Effect.provide(makeHarness([]))),
+);
+
+// A steer aborts the open question and the provider asks it again, leaving the
+// old card unanswerable (pingdotgg/t3code#15517).
+it.effect("wakes a session with a question open into its queue instead of steering", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const working = yield* seed({ id: "thread:working", title: "L5-dev" });
+    const asking = yield* seed({ id: "thread:asking", title: "L5-review" });
+    const workingRun = yield* runningTurn(working);
+    const askingRun = yield* runningTurn(asking, { question: true });
+    expect((yield* shellOf(asking)).pendingRuntimeRequest).toMatchObject({ kind: "user_input" });
+
+    // Both turns are alike, and a queue behind one succeeds (below). Without a
+    // question the wake steers instead, which needs the turn's live provider
+    // session, and no provider process runs here, so the steer is refused.
+    const steered = yield* refused(orchestratorId, "session_wake", {
+      name: working,
+      message: "Also check the tests.",
+    });
+    expect(steered).toContain("dispatch-failed");
+    expect((yield* projectionOf(working)).runs.map((run) => run.id)).toEqual([workingRun]);
+
+    const queued = yield* ok(orchestratorId, "session_wake", {
+      name: asking,
+      message: "Also check the tests.",
+    });
+    expect(queued.delivery).toBe("queued");
+    const projection = yield* projectionOf(asking);
+    expect(projection.runs.map((run) => [run.id === askingRun, run.status])).toEqual([
+      [true, "running"],
+      [false, "queued"],
+    ]);
+    expect(projection.runtimeRequests.map((request) => request.status)).toEqual(["pending"]);
+  }).pipe(Effect.provide(makeHarness([]))),
 );
 
 it.effect(

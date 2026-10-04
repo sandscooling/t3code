@@ -707,6 +707,11 @@ const make = Effect.gen(function* () {
     const target = yield* resolveSession(sessions, caller, input.name);
     // "auto" steers a running turn, queues behind one that cannot be steered,
     // and starts a turn otherwise. The dispatch also reopens a settled thread.
+    // A steer aborts an open question or approval and the provider asks again,
+    // stranding the old card (pingdotgg/t3code#15517), so that waits in the
+    // queue instead. With no run in flight, "queue" starts a turn like "auto".
+    // The shell is read outside the thread lock: a question raised in that
+    // gap still steers.
     const commandId = yield* newCommandId;
     const sent = yield* threads
       .sendToThread({
@@ -717,12 +722,12 @@ const make = Effect.gen(function* () {
         senderThreadId: caller.id,
         text: input.message,
         attachments: [],
-        mode: "auto",
+        mode: target.pendingRuntimeRequest === null ? "auto" : "queue",
         createdBy: "agent",
         creationSource: "mcp",
       })
       .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
-    // Only mode "restart" restarts a turn, so "auto" never reports it.
+    // Only mode "restart" restarts a turn, so "auto" and "queue" never report it.
     const delivery = sent.delivery as Exclude<typeof sent.delivery, "restarted">;
     return { threadId: target.id, name: target.title, delivery };
   });

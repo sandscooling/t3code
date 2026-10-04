@@ -13,7 +13,7 @@ The branch is `kevlingo/features`, kept current by merging upstream `main`. When
 
 Always available to every agent session, with no setting to turn on:
 
-- MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_rename`, `session_models`, `session_projects`. `session_list` reports each session as `running`, `monitoring` (its turn ended but a watch or background command is still going), or `ready`.
+- MCP tools that let one session drive others: `session_spawn`, `session_list`, `session_wake`, `session_settle`, `session_rename`, `session_models`, `session_projects`. `session_list` reports each session as `running`, `monitoring` (its turn ended but a watch or background command is still going), or `ready`. A `session_wake` to a session with a question or approval open waits in its queue instead of interrupting it.
 - `session_spawn` can pick the provider, model and reasoning effort, and can start work in any project on the server.
 - A spawned session that finishes a turn shows "Idle" in the sidebar and on mobile instead of "Done", until it is settled, and its finished turns make no sound, popup or phone notification (failures, questions and approvals still alert). A spawned session titled exactly "Orchestrator" is the exception: it reads Done and unread and alerts like any other thread. In the desktop and web sidebar, a "Waiting" thread shows how long its background work has been running, with an icon for what it waits on (a bot for an agent, a terminal for a command).
 - Spawned sessions record the thread that spawned them. Settling an orchestrator settles what it spawned.

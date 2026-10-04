@@ -83,7 +83,7 @@ const SessionListTool = Tool.make("session_list", {
 
 const SessionWakeTool = Tool.make("session_wake", {
   description:
-    "Send a message to an existing session: by name in your own project, or by the threadId session_list reports in any project. An idle session starts a turn, opening its provider process if none is running; a settled one reopens; a busy one gets the message inside its running turn where its provider allows that, or queued right behind it. `delivery` says which happened. The recipient sees the message as sent by you. Use the threadId for a session in another project, or one whose title has spaces. Fails if no open or settled session matches, or more than one shares that name.",
+    "Send a message to an existing session: by name in your own project, or by the threadId session_list reports in any project. An idle session starts a turn, opening its provider process if none is running; a settled one reopens; a busy one gets the message inside its running turn where its provider allows that, or queued right behind it, and always queued while it has a question or approval open. `delivery` says which happened. The recipient sees the message as sent by you. Use the threadId for a session in another project, or one whose title has spaces. Fails if no open or settled session matches, or more than one shares that name.",
   parameters: SessionWakeInput,
   success: SessionWakeResult,
   failure: OrchestrationToolError,
