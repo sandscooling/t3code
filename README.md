@@ -28,6 +28,7 @@ Always available to every agent session, with no setting to turn on:
 - An answered question stays out of the "+N tool calls" fold, so the tool calls after it cannot hide it.
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
 - A plan usage pill in the composer, showing how much of the current plan window is used.
+- No "Resume with less context" banner on old Claude threads, so sending a message never compacts first. Compact stays available from the composer.
 - The background work banner shows how long the newest command or watch has been running.
 
 ### Threads and sidebar
