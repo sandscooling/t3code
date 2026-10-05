@@ -545,7 +545,7 @@ export const layer = Layer.effect(
                   text: prompt,
                   attachments: [],
                   modelSelection: active.modelSelection,
-                  // Fork: queue, never steer; a steer cuts into the turn (upstream #15517).
+                  // Scheduled prompts must not interrupt tools in the bound thread.
                   mode: "queue",
                   createdBy: active.createdBy,
                   creationSource: active.creationSource,

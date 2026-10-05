@@ -4,8 +4,8 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 
-import { makeKeyedSerialExecutor } from "./KeyedSerialExecutor.ts";
 import { ProjectionStoreThreadNotFoundError } from "./ProjectionStore.ts";
 import { settleSpawnedThreads, spawnedThreadIdsOf } from "./spawnedSessions.ts";
 
@@ -22,7 +22,7 @@ const makeHarness = (
     const dispatched: Array<unknown> = [];
     const dispatchedIds: Array<ThreadId> = [];
     const locked: Array<ThreadId> = [];
-    const executor = yield* makeKeyedSerialExecutor<ThreadId>();
+    const executor = yield* KeyedLock.make<ThreadId>();
     const deps = {
       projectionStore: {
         getSpawnedThreadIds: () =>

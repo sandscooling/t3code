@@ -295,15 +295,25 @@ const make = Effect.gen(function* () {
       .dispatch(command)
       .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
 
-  /** The calling session, which must hold the orchestration capability. */
+  /**
+   * The calling session, which must hold the orchestration capability. The
+   * session tools act as that thread, so an MCP client signed in from outside
+   * T3 Code (no thread) is refused.
+   */
   const loadCaller = Effect.fn("SessionMcpService.loadCaller")(function* (
     scope: McpInvocationScope,
   ) {
     if (!scope.capabilities.has("orchestration")) {
       return yield* toolError("capability-unavailable", "this credential cannot control threads");
     }
+    if (scope.thread === undefined) {
+      return yield* toolError(
+        "thread-not-found",
+        "the session tools act as the calling T3 thread; this MCP client is not running inside one",
+      );
+    }
     const caller = yield* threads
-      .getThreadShell(scope.threadId)
+      .getThreadShell(scope.thread.threadId)
       .pipe(Effect.mapError((error) => toolError("thread-not-found", describe(error))));
     if (caller === null || caller.deletedAt !== null) {
       return yield* toolError("thread-not-found", "the calling session has no thread");

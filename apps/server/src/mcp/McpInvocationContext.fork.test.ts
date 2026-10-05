@@ -15,9 +15,13 @@ it.effect("refuses orchestration to a credential that only grants preview", () =
   // credential must not unlock session spawning.
   const invocation: McpInvocationContext.McpInvocationScope = {
     environmentId: EnvironmentId.make("environment-1"),
-    threadId: ThreadId.make("thread-1"),
-    providerSessionId: "provider-session-1",
-    providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+    requestNamespace: "provider-session-1",
+    thread: {
+      threadId: ThreadId.make("thread-1"),
+      providerSessionId: "provider-session-1",
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+    },
+    client: undefined,
     capabilities: new Set(["preview"]),
     issuedAt: 1,
   };
@@ -33,6 +37,6 @@ it.effect("refuses orchestration to a credential that only grants preview", () =
     const scope = yield* McpInvocationContext.requireMcpCapability("preview").pipe(
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
     );
-    expect(scope.threadId).toBe(invocation.threadId);
+    expect(scope.thread?.threadId).toBe(invocation.thread?.threadId);
   });
 });

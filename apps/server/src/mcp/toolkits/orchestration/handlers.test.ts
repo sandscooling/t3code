@@ -268,9 +268,13 @@ const callTool = (
     return yield* server.callTool({ name, arguments: args }).pipe(
       Effect.provideService(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment-session-tools"),
-        threadId: caller,
-        providerSessionId: "provider-session-session-tools",
-        providerInstanceId: claude,
+        requestNamespace: "provider-session-session-tools",
+        thread: {
+          threadId: caller,
+          providerSessionId: "provider-session-session-tools",
+          providerInstanceId: claude,
+        },
+        client: undefined,
         capabilities: new Set(capabilities),
         issuedAt: 1,
       }),
@@ -510,6 +514,26 @@ it.effect("refuses every tool without the orchestration capability", () =>
     const result = yield* callTool(orchestratorId, "session_list", {}, ["preview"]);
     expect(result.isError).toBe(true);
     expect(contentText(result)).toContain("capability-unavailable");
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("refuses an MCP client signed in from outside a thread", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const server = yield* McpServer.McpServer;
+    const result = yield* server.callTool({ name: "session_list", arguments: {} }).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment-session-tools"),
+        requestNamespace: "client:session-1",
+        thread: undefined,
+        client: { sessionId: "session-1", label: "Claude Code", runtimeModeCeiling: "full-access" },
+        capabilities: new Set(["orchestration"] as const),
+        issuedAt: 1,
+      }),
+      Effect.provideService(McpSchema.McpServerClient, client),
+    );
+    expect(result.isError).toBe(true);
+    expect(contentText(result)).toContain("not running inside one");
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

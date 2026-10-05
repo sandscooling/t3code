@@ -13,8 +13,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import type { KeyedLock } from "@t3tools/shared/KeyedLock";
+
 import type { ProjectionStoreV2Shape } from "./ProjectionStore.ts";
-import type { KeyedSerialExecutor } from "./KeyedSerialExecutor.ts";
 
 /** The live threads whose spawnedByThreadId is `threadId`, from the SQL projection. */
 export const querySpawnedThreadIds = Effect.fn("ProjectionStore.getSpawnedThreadIds")(function* (
@@ -67,7 +68,7 @@ type SettleCommand = Extract<OrchestrationV2ServerCommand, { readonly type: "thr
 export const settleSpawnedThreads = <E>(
   deps: {
     readonly projectionStore: Pick<ProjectionStoreV2Shape, "getSpawnedThreadIds" | "getThread">;
-    readonly threadDispatch: KeyedSerialExecutor<ThreadId>;
+    readonly threadDispatch: Pick<KeyedLock<ThreadId>, "withLock">;
     readonly dispatchWithReceipt: (command: SettleCommand) => Effect.Effect<unknown, E>;
   },
   command: OrchestrationV2ServerCommand,

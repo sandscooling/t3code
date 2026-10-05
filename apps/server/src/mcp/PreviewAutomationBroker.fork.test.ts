@@ -23,9 +23,13 @@ const makeBroker = PreviewAutomationBroker.make.pipe(Effect.provide(NodeServices
 
 const scope = {
   environmentId: EnvironmentId.make("environment-1"),
-  threadId: ThreadId.make("thread-1"),
-  providerSessionId: "provider-session-1",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "provider-session-1",
+  thread: {
+    threadId: ThreadId.make("thread-1"),
+    providerSessionId: "provider-session-1",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
   capabilities: new Set(["preview"] as const),
   issuedAt: 1,
 };
