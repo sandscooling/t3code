@@ -9,6 +9,7 @@ import type * as Scope from "effect/Scope";
 import { beforeEach, describe, expect, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewManager from "./Manager.ts";
 
@@ -107,6 +108,13 @@ const fileSystemLayer = FileSystem.layerNoop({
 });
 
 const layer = PreviewManager.layer.pipe(
+  Layer.provideMerge(
+    Layer.succeed(DesktopRendererHistory.DesktopRendererHistory, {
+      register: () => Effect.void,
+      recordMetrics: () => Effect.void,
+      shutdown: Effect.void,
+    }),
+  ),
   Layer.provideMerge(browserSessionLayer),
   Layer.provideMerge(environmentLayer),
   Layer.provideMerge(fileSystemLayer),

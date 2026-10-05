@@ -56,15 +56,25 @@ describe("buildTraitsTriggerDisplay", () => {
     // not spend horizontal space the way a deliberate style does.
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("default")])).toEqual({
       label: "High · 1M",
-      speedIcon: null,
     });
   });
 
   it("shows the output style once it is set to something deliberate", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")])).toEqual({
       label: "High · 1M · Explanatory",
-      speedIcon: null,
     });
+  });
+
+  it("keeps a deliberate output style separate from fast mode paired with reasoning", () => {
+    const fastMode: ProviderOptionDescriptor = {
+      id: "fastMode",
+      label: "Fast Mode",
+      type: "boolean",
+      currentValue: true,
+    };
+    expect(
+      display([EFFORT, fastMode, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")]),
+    ).toEqual({ label: "High Fast · 1M · Explanatory" });
   });
 
   it("omits an output style that resolves to its default without an explicit value", () => {
@@ -79,6 +89,6 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "Learning", label: "Learning" },
       ],
     };
-    expect(display([EFFORT, unset])).toEqual({ label: "High", speedIcon: null });
+    expect(display([EFFORT, unset])).toEqual({ label: "High" });
   });
 });
