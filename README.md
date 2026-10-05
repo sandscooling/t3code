@@ -58,6 +58,7 @@ Always available to every agent session, with no setting to turn on:
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Carried from open upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315); drop it when that lands.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
+- A scheduled task bound to a busy thread waits for its turn to end instead of interrupting it.
 
 ### Windows test suite
 
