@@ -1,8 +1,9 @@
 /**
  * Fork-owned: the `session_*` MCP tools on Orchestrator v2. A session is an
  * ordinary top-level thread the user can watch and talk to, started with a
- * name, filed under a group, and linked to the session that spawned it, so an
- * orchestrator can run a crew across projects. v2's own `delegate_task`
+ * name, filed under a group, and linked to the session that spawned it unless
+ * spawned standalone or released, so an orchestrator can run a crew across
+ * projects. v2's own `delegate_task`
  * children are hidden subagents and its thread tools stop at the caller's
  * project; these reach any project by threadId.
  */
@@ -25,6 +26,8 @@ import {
   type SessionModelsResult,
   type SessionProjectsInput,
   type SessionProjectsResult,
+  type SessionReleaseInput,
+  type SessionReleaseResult,
   type SessionRenameInput,
   type SessionRenameResult,
   type SessionSettleInput,
@@ -89,6 +92,10 @@ export class SessionMcpService extends Context.Service<
       scope: McpInvocationScope,
       input: SessionRenameInput,
     ) => Result<SessionRenameResult>;
+    readonly release: (
+      scope: McpInvocationScope,
+      input: SessionReleaseInput,
+    ) => Result<SessionReleaseResult>;
   }
 >()("t3/mcp/toolkits/orchestration/SessionMcpService") {}
 
@@ -453,6 +460,15 @@ const make = Effect.gen(function* () {
     input: SessionSpawnInput,
   ) {
     yield* requireMessage(input.message);
+    // A handoff successor takes the caller's place under the caller's
+    // spawner, and detaching it silently would hide it from that spawner,
+    // which can session_release it instead.
+    if (input.standalone === true && input.handoff === true) {
+      return yield* toolError(
+        "invalid-arguments",
+        "standalone and handoff cannot be combined: a handoff successor keeps your spawner; have that spawner session_release it afterwards",
+      );
+    }
     const { caller, sessions, projects } = yield* loadScope(scope);
     const project = yield* resolveProject(projects, input.project ?? caller.projectId);
     const clash = sessions.find(
@@ -487,7 +503,14 @@ const make = Effect.gen(function* () {
     // session the caller's sibling, since settling the old orchestrator must
     // not take its successor with it.
     const handoff = input.handoff === true;
-    const spawnedByThreadId = handoff ? yield* liveSpawner(caller.spawnedByThreadId) : caller.id;
+    // A standalone session records no spawner at all, the way a thread the
+    // user made has none, so nothing the caller does later reaches it.
+    const spawnedByThreadId =
+      input.standalone === true
+        ? undefined
+        : handoff
+          ? yield* liveSpawner(caller.spawnedByThreadId)
+          : caller.id;
     const commandId = yield* newCommandId;
     const threadId = ThreadId.make(commandId);
     // A spawn that fails once its thread exists archives that thread, so no
@@ -545,7 +568,7 @@ const make = Effect.gen(function* () {
       commandId: yield* newCommandId,
       threadId,
       group: input.group,
-      spawnedByThreadId,
+      ...(spawnedByThreadId === undefined ? {} : { spawnedByThreadId }),
     }).pipe(
       Effect.catch((error) =>
         abandon(`its group and spawner were not recorded: ${error.detail ?? error.reason}`),
@@ -808,6 +831,39 @@ const make = Effect.gen(function* () {
     return { threadId: target.id, name: input.name, previousName };
   });
 
+  /**
+   * The reverse of a spawn's parent link: the session keeps its group and
+   * state, and only stops naming the caller as its spawner, so the caller's
+   * settle and handoff no longer reach it.
+   */
+  const release = Effect.fn("SessionMcpService.release")(function* (
+    scope: McpInvocationScope,
+    input: SessionReleaseInput,
+  ) {
+    const { caller, sessions } = yield* loadScope(scope);
+    const target = yield* resolveSession(sessions, caller, input.name);
+    if (target.spawnedByThreadId !== caller.id) {
+      const spawner =
+        target.spawnedByThreadId == null
+          ? null
+          : (sessions.find((thread) => thread.id === target.spawnedByThreadId)?.title ??
+            target.spawnedByThreadId);
+      return yield* toolError(
+        "not-spawner",
+        spawner === null
+          ? `session ${target.title} has no spawner, so there is nothing to release`
+          : `session ${target.title} was spawned by ${spawner} (${target.spawnedByThreadId}), not you; only its spawner can release it`,
+      );
+    }
+    yield* dispatch({
+      type: "thread.metadata.update",
+      commandId: yield* newCommandId,
+      threadId: target.id,
+      spawnedByThreadId: null,
+    });
+    return { threadId: target.id, name: target.title };
+  });
+
   return SessionMcpService.of({
     spawn,
     models,
@@ -816,6 +872,7 @@ const make = Effect.gen(function* () {
     wake,
     settle,
     rename,
+    release,
   });
 });
 

@@ -9,7 +9,7 @@ There is nothing to turn on: every agent session has these tools.
 
 ## The tools
 
-Every agent session gets seven tools:
+Every agent session gets eight tools:
 
 - **session_spawn** starts a new session, titled with the name you give it, filed under a group,
   and kicked off with an opening message. It starts in the caller's project unless the agent names
@@ -19,7 +19,10 @@ Every agent session gets seven tools:
   session's permission mode. It also inherits the caller's provider, model, and reasoning effort unless the agent names others, so an orchestrator
   can run one prompt on several models side by side, or hand a review to Codex from a Claude
   session. No other open or settled session in that project may hold the name. With the handoff
-  option, the new session replaces the caller instead; see below.
+  option, the new session replaces the caller instead; see below. With the `standalone` option,
+  the new session is not part of the caller's crew: settling or handing off the caller never
+  touches it. Use it when one orchestrator sets up a new project and starts that project's own
+  orchestrator.
 - **session_models** lists the providers and models a spawned session can use, with each model's
   options such as reasoning effort. Only providers that are enabled and installed appear.
 - **session_projects** lists the projects on this server that the other tools can reach.
@@ -41,6 +44,8 @@ Every agent session gets seven tools:
 - **session_rename** renames a session, including the caller itself. The new name follows the same
   rules as a spawned session's name, and no other open or settled session in that project may
   hold it. To reuse a settled session's name, rename that session first.
+- **session_release** detaches a session the caller started, as if it had been spawned
+  `standalone`. Nothing else about it changes. Only the session that started it can release it.
 
 Names and groups use letters, digits, dots, underscores, and hyphens only, so a ticket id such
 as `T-1234` works well as a group and `T-1234-dev` as a name.
@@ -94,7 +99,8 @@ works well titled `orchestrator`, driving one group per ticket.
 
 ## Settling what a session started
 
-Each spawned session remembers the session that started it. Settling the orchestrator settles
+Each spawned session remembers the session that started it, unless it was spawned `standalone`
+or later released. Settling the orchestrator settles
 the sessions it started, whether you settle it from the sidebar, with the settle button, or an
 agent uses **session_settle**, so one click clears the whole ticket from the inbox. A session
 that is still running, or that is waiting on an answer from you, is left where it is rather than

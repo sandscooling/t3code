@@ -6,6 +6,8 @@ import {
   SessionModelsResult,
   SessionProjectsInput,
   SessionProjectsResult,
+  SessionReleaseInput,
+  SessionReleaseResult,
   SessionRenameInput,
   SessionRenameResult,
   SessionSettleInput,
@@ -27,7 +29,7 @@ const dependencies = [
 
 const SessionSpawnTool = Tool.make("session_spawn", {
   description:
-    "Start a new agent session as its own top-level thread the user can watch, titled `name`, filed under `group`, and kicked off with `message`. It starts in your own project, or in the one `project` names from session_projects. The session runs in that project's main checkout unless you pass `worktree`: `{ path, branch }` attaches it to a git worktree you already created for that project (checked against git worktree list), and `{ sameAs }` puts it in another session's worktree. T3 never creates, recreates, or deletes these worktrees, and never runs the project's setup script for a spawned session: prepare the directory yourself. It inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Pass `handoff` to replace yourself with the new session: it becomes your sibling, takes over every session you spawned, stays in your worktree, and is pinned in the sidebar in your pinned slot. Reports what the session runs on, its branch and worktree path, and which sessions a handoff moved. Fails if an open or settled session in that project already has that name.",
+    "Start a new agent session as its own top-level thread the user can watch, titled `name`, filed under `group`, and kicked off with `message`. It starts in your own project, or in the one `project` names from session_projects. The session runs in that project's main checkout unless you pass `worktree`: `{ path, branch }` attaches it to a git worktree you already created for that project (checked against git worktree list), and `{ sameAs }` puts it in another session's worktree. T3 never creates, recreates, or deletes these worktrees, and never runs the project's setup script for a spawned session: prepare the directory yourself. It inherits this session's permission mode. It also inherits this session's provider, model, and options unless you pass `instanceId`, `model`, or `options` from session_models, which lets you run the same prompt on several models or hand a review to another provider. Pass `handoff` to replace yourself with the new session: it becomes your sibling, takes over every session you spawned, stays in your worktree, and is pinned in the sidebar in your pinned slot. Pass `standalone` to start a session that is not your child, typically the orchestrator of a new project: settling you never settles it and a handoff of yours never moves it; to detach a session you already spawned, use session_release. Reports what the session runs on, its branch and worktree path, and which sessions a handoff moved. Fails if an open or settled session in that project already has that name.",
   parameters: SessionSpawnInput,
   success: SessionSpawnResult,
   failure: OrchestrationToolError,
@@ -124,6 +126,20 @@ const SessionRenameTool = Tool.make("session_rename", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const SessionReleaseTool = Tool.make("session_release", {
+  description:
+    "Detach a session you spawned so it no longer has a spawner, as if spawned with `standalone`: by name in your own project, or by the threadId session_list reports in any project. Afterwards settling you does not settle it, and a handoff of yours does not move it. Use it when a session you started, such as a new project's orchestrator, should outlive you. Nothing else changes: it keeps its group, stays open or settled as it was, and keeps running. Works on settled sessions too. Fails if you are not its spawner, naming the session that is, or if it has none.",
+  parameters: SessionReleaseInput,
+  success: SessionReleaseResult,
+  failure: OrchestrationToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Release a session")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionModelsTool,
@@ -132,4 +148,5 @@ export const OrchestrationToolkit = Toolkit.make(
   SessionWakeTool,
   SessionSettleTool,
   SessionRenameTool,
+  SessionReleaseTool,
 );

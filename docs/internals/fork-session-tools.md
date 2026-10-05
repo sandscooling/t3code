@@ -15,7 +15,7 @@ never touch it.
 ## The tools
 
 The session tools (`session_spawn`, `session_models`, `session_projects`, `session_list`,
-`session_wake`, `session_settle`, `session_rename`) are served on the same `t3-code` MCP endpoint
+`session_wake`, `session_settle`, `session_rename`, `session_release`) are served on the same `t3-code` MCP endpoint
 as upstream's tools, and require the `orchestration` capability, which every provider session's
 credential carries. They are thin handlers over
 [SessionMcpService](../../apps/server/src/mcp/toolkits/orchestration/SessionMcpService.ts), which
@@ -47,8 +47,12 @@ to record), it is archived, so a half-made session does not hold the name agains
 
 ## Spawner, settle cascade, and handoff
 
-A spawned thread records its `group` and `spawnedByThreadId` (the caller) through
-`thread.metadata.update`. The spawner stays ungrouped, since one orchestrator drives many lanes.
+A spawned thread records its `group` and, unless spawned `standalone`, its `spawnedByThreadId`
+(the caller) through `thread.metadata.update`. A standalone spawn omits the field, as a thread the
+user made does, so a hub orchestrator can start a project's orchestrator without making it crew.
+`session_release` lets the recorded spawner, and only it, clear the link later by setting it to
+null, with no other side effect. The spawner stays ungrouped, since one orchestrator drives many
+lanes.
 The settle cascade is not in the tool: it is
 [spawnedSessions.ts](../../apps/server/src/orchestration-v2/spawnedSessions.ts), reached from the
 Orchestrator's `dispatchWithReceipt`. Every explicit `thread.settle`, from the tool, the sidebar,
@@ -62,7 +66,9 @@ A handoff successor takes the caller's spawner, so it is the caller's sibling an
 orchestrator does not take it along. Only after the successor exists does it adopt the caller's
 spawned sessions; then it is pinned in the caller's slot, and the caller records
 `successorThreadId`, which a client reading the caller follows. The pin and the successor link are
-cosmetic and never fail a handoff. The Orchestrator refuses a `spawnedByThreadId` or
+cosmetic and never fail a handoff. A handoff cannot be `standalone`: a successor detached that
+way would vanish from its spawner's cascade unannounced, so the spawner releases it instead. The
+Orchestrator refuses a `spawnedByThreadId` or
 `successorThreadId` that points at the thread itself or at a missing or deleted thread.
 
 Because a successor inherits its predecessor's spawner, a top-level orchestrator and all its

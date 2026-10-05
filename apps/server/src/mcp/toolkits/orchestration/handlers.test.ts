@@ -1308,3 +1308,106 @@ it.effect("archives a session whose spawn failed after its thread existed, freei
     expect(retried.threadId).not.toBe(orphanId);
   }).pipe(Effect.provide(makeHarness([], [], new Set(["L10-dev"])))),
 );
+
+it.effect(
+  "spawns a standalone session with no spawner, out of reach of the caller's settle and handoff",
+  () =>
+    Effect.gen(function* () {
+      const root = yield* seed({ id: "thread:root", title: "Root" });
+      const lead = yield* seed({ id: "thread:lead", title: "Lead", spawnedBy: root });
+      const standalone = yield* ok(lead, "session_spawn", {
+        name: "Fleet-orch",
+        group: "orchestrator",
+        project: "fleet",
+        message: "Run this project.",
+        standalone: true,
+      });
+      expect(standalone).toMatchObject({ projectId: otherProjectId, adopted: [] });
+      expect(yield* shellOf(standalone.threadId)).toMatchObject({
+        spawnedByThreadId: null,
+        group: "orchestrator",
+        projectId: otherProjectId,
+      });
+      yield* ok(lead, "session_spawn", { name: "L7-dev", group: "L7", message: "Go." });
+
+      expect(
+        yield* refused(lead, "session_spawn", {
+          name: "Lead-x",
+          group: "leads",
+          message: "Take over.",
+          standalone: true,
+          handoff: true,
+        }),
+      ).toContain("invalid-arguments");
+
+      // Both spawned sessions are mid-turn, so a child would show as left open.
+      expect(yield* ok(root, "session_settle", { name: lead })).toMatchObject({
+        settledWith: [],
+        leftOpen: ["L7-dev"],
+      });
+      expect((yield* shellOf(standalone.threadId)).settledOverride).toBeNull();
+
+      const successor = yield* ok(lead, "session_spawn", {
+        name: "Lead-2",
+        group: "leads",
+        message: "Take over.",
+        handoff: true,
+      });
+      expect(successor.adopted).toEqual(["L7-dev"]);
+      expect((yield* shellOf(successor.threadId)).spawnedByThreadId).toBe(root);
+      expect((yield* shellOf(standalone.threadId)).spawnedByThreadId).toBeNull();
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect(
+  "releases only sessions the caller spawned, open or settled, so its settle no longer cascades",
+  () =>
+    Effect.gen(function* () {
+      const lead = yield* seed({ id: "thread:lead", title: "Lead" });
+      const other = yield* seed({ id: "thread:other", title: "Other" });
+      yield* seed({ id: "thread:idle", title: "L8-dev", spawnedBy: lead, group: "L8" });
+      yield* seed({
+        id: "thread:done",
+        title: "L8-old",
+        projectId: otherProjectId,
+        spawnedBy: lead,
+        settled: true,
+      });
+      yield* seed({ id: "thread:foreign", title: "Foreign", spawnedBy: other });
+      yield* seed({ id: "thread:loner", title: "Loner" });
+
+      const foreign = yield* refused(lead, "session_release", { name: "Foreign" });
+      expect(foreign).toContain("not-spawner");
+      expect(foreign).toContain("spawned by Other (thread:other)");
+      expect(yield* refused(lead, "session_release", { name: "Loner" })).toContain(
+        "has no spawner",
+      );
+      expect((yield* shellOf("thread:foreign")).spawnedByThreadId).toBe(other);
+
+      expect(yield* ok(lead, "session_release", { name: "L8-dev" })).toEqual({
+        threadId: "thread:idle",
+        name: "L8-dev",
+      });
+      expect(yield* shellOf("thread:idle")).toMatchObject({
+        spawnedByThreadId: null,
+        group: "L8",
+        settledOverride: null,
+      });
+      // By threadId in another project, on a settled session, which stays settled.
+      expect(yield* ok(lead, "session_release", { name: "thread:done" })).toMatchObject({
+        name: "L8-old",
+      });
+      expect(yield* shellOf("thread:done")).toMatchObject({
+        spawnedByThreadId: null,
+        settledOverride: "settled",
+      });
+      expect(yield* refused(lead, "session_release", { name: "L8-dev" })).toContain(
+        "has no spawner",
+      );
+
+      // A plain thread.settle, as the sidebar sends it, no longer reaches it.
+      yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: lead }));
+      expect((yield* shellOf(lead)).settledOverride).toBe("settled");
+      expect((yield* shellOf("thread:idle")).settledOverride).toBeNull();
+    }).pipe(Effect.provide(makeHarness([]))),
+);

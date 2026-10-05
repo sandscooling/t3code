@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 
 /**
  * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
- * and settle other sessions in any project on its server. Sessions are real threads, so they
+ * settle, and release other sessions in any project on its server. Sessions are real threads, so they
  * show in the sidebar, checkpoint on their own, and outlive the turn that
  * created them. What the sessions are for (tickets, roles, review) is the
  * calling agent's business; nothing here knows about it.
@@ -106,6 +106,12 @@ export const SessionSpawnInput = Schema.Struct({
     }),
   ),
   worktree: Schema.optional(SessionWorktree),
+  standalone: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Start the session with no spawner, like a thread the user made, instead of as your child. Settling you never settles it, and a handoff of yours never moves it. Use this for the orchestrator of a new project you are setting up, often with `project`. Cannot be combined with `handoff`.",
+    }),
+  ),
 });
 export type SessionSpawnInput = typeof SessionSpawnInput.Type;
 
@@ -291,6 +297,17 @@ export const SessionRenameResult = Schema.Struct({
 });
 export type SessionRenameResult = typeof SessionRenameResult.Type;
 
+export const SessionReleaseInput = Schema.Struct({
+  name: SessionRef,
+});
+export type SessionReleaseInput = typeof SessionReleaseInput.Type;
+
+export const SessionReleaseResult = Schema.Struct({
+  threadId: Schema.String,
+  name: Schema.String,
+});
+export type SessionReleaseResult = typeof SessionReleaseResult.Type;
+
 export const OrchestrationToolErrorReason = Schema.Literals([
   "capability-unavailable",
   "invalid-name",
@@ -304,6 +321,10 @@ export const OrchestrationToolErrorReason = Schema.Literals([
   "settle-blocked",
   /** The worktree to attach is missing, is the main checkout, or has another branch checked out. */
   "invalid-worktree",
+  /** Spawn options that cannot be combined, such as `standalone` with `handoff`. */
+  "invalid-arguments",
+  /** session_release was pointed at a session the caller did not spawn. */
+  "not-spawner",
   "dispatch-failed",
 ]);
 export type OrchestrationToolErrorReason = typeof OrchestrationToolErrorReason.Type;

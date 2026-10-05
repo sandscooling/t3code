@@ -47,6 +47,12 @@ const handlers = {
       const service = yield* SessionMcpService.SessionMcpService;
       return yield* service.rename(scope, input);
     }),
+  session_release: (input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* SessionMcpService.SessionMcpService;
+      return yield* service.release(scope, input);
+    }),
 } satisfies Parameters<typeof OrchestrationToolkit.toLayer>[0];
 
 export const OrchestrationToolkitHandlersLive = OrchestrationToolkit.toLayer(handlers);
