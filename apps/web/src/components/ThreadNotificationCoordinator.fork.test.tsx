@@ -22,6 +22,8 @@ const state = vi.hoisted(() => ({
   limited: false,
   subagent: false,
   gone: false,
+  // Reuse the last thread object, as the shell reducer does for an unchanged thread.
+  unchanged: false,
   background: [] as Array<{ taskId: string; kind: "command" | "monitor"; held?: boolean }>,
   add: vi.fn(
     (_toast: {
@@ -95,10 +97,16 @@ function mockThreadShell() {
   };
 }
 
+let lastThreadShell: ReturnType<typeof mockThreadShell> | undefined;
+function threadShell() {
+  if (!state.unchanged || lastThreadShell === undefined) lastThreadShell = mockThreadShell();
+  return lastThreadShell;
+}
+
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: () => ({
     status: state.live ? "live" : "disconnected",
-    snapshot: Option.some({ threads: state.gone ? [] : [mockThreadShell()] }),
+    snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
   }),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -157,6 +165,7 @@ beforeEach(() => {
     limited: false,
     subagent: false,
     gone: false,
+    unchanged: false,
     background: [],
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -249,6 +258,21 @@ describe("thread notifications", () => {
     state.live = true;
     await render();
     expect(state.close).not.toHaveBeenCalled();
+  });
+
+  // Fork: upstream skips a thread whose shell object did not change; it still waits.
+  it("keeps the standing toast when the shell refreshes without changing its thread", async () => {
+    await render();
+    state.input = true;
+    await render();
+    state.unchanged = true;
+    await render();
+    await render();
+    expect(state.close).not.toHaveBeenCalled();
+    state.unchanged = false;
+    state.input = false;
+    await render();
+    expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
   });
 
   // Fork: a question raised in the background still waits as a toast.

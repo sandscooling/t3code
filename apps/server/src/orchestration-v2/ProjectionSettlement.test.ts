@@ -18,8 +18,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Statement from "effect/sql/Statement";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -521,12 +521,9 @@ it.effect("shell failure lookups stay on the thread's own turn items", () =>
     const itemLookups = plan.filter((row) => row.detail.startsWith("SEARCH item "));
     assert.lengthOf(itemLookups, 2);
     assert.isTrue(itemLookups.every((row) => row.detail.includes("turn_items_thread_run_idx")));
-    // Fork: the plan meter's todo-list lookup stays on the run's index too.
-    const todoLookups = plan.filter((row) => row.detail.startsWith("SEARCH todo "));
-    assert.isNotEmpty(todoLookups);
-    assert.isTrue(
-      todoLookups.every((row) => row.detail.includes("turn_items_run_ordinal_idx")),
-      todoLookups.map((row) => row.detail).join("; "),
-    );
+    // The pending secret request lookup is bounded the same way.
+    const secretLookups = plan.filter((row) => row.detail.startsWith("SEARCH secret "));
+    assert.lengthOf(secretLookups, 1);
+    assert.include(secretLookups[0]!.detail, "turn_items_thread_run_idx");
   }).pipe(Effect.provide(SqlLayer)),
 );

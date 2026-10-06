@@ -34,7 +34,6 @@ Always available to every agent session, with no setting to turn on:
 
 - A setting to group the sidebar by project (Settings, Appearance, "Group threads by project"). Each project folds and shows how many of its threads are working or monitoring, and a project's orchestrator leads its group as the first row under the header, staying visible when the project is folded only while it is pinned; settled threads stay in one list. Groups keep a fixed order that activity never changes; right-click a group header to move it. Upstream's beta Working section applies only to the ungrouped list; a grouped list keeps busy threads in their project.
 - A globe on sidebar rows that pulses while an agent is using the browser.
-- Plan progress as a meter on thread hover.
 - Per-thread Claude output style.
 - A setting to stop threads naming themselves from their first message (Settings, General, "Generate thread titles").
 - Browser previews close once a thread settles.
@@ -54,7 +53,7 @@ Always available to every agent session, with no setting to turn on:
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
-- Claude's newer task tools (create, update, list) fill the tasks drawer and the hover progress meter, as `TodoWrite` did. Carried from open upstream PR [#14964](https://github.com/pingdotgg/t3code/pull/14964); drop it when that lands.
+- Claude's newer task tools (create, update, list) fill the tasks drawer, as `TodoWrite` did. Carried from open upstream PR [#14964](https://github.com/pingdotgg/t3code/pull/14964); drop it when that lands.
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Carried from open upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315); drop it when that lands.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.

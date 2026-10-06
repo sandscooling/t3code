@@ -5,6 +5,7 @@ import type {
   EnvironmentId,
   MessageId,
   OrchestrationProjectShell,
+  OrchestrationV2ProviderGoal,
   OrchestrationV2RunStatus,
   OrchestrationV2ProviderFailureClass,
   OrchestrationV2ThreadProjection,
@@ -112,6 +113,8 @@ export interface EnvironmentThreadShell {
   >;
   /** Provider instances that have owned the root conversation, oldest first. */
   readonly providerInstanceHistory: ReadonlyArray<ProviderInstanceId>;
+  /** Native `/goal` on the active provider thread. */
+  readonly goal: OrchestrationV2ProviderGoal | null;
   readonly itemCount: number;
   readonly visibleItemCount: number;
   readonly createdAt: string;
@@ -140,12 +143,11 @@ export interface EnvironmentThreadShell {
   readonly lastVisitedAt?: string | null;
   /** Pending title regeneration marker; null when no request is in flight. */
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
-  // Fork: session lane, spawn lineage, handoff successor and the plan meter.
+  // Fork: session lane, spawn lineage and handoff successor.
   // Absent when the server omits them (a thread created in v2 has no lane).
   readonly group?: OrchestrationV2ThreadShell["group"];
   readonly spawnedByThreadId?: OrchestrationV2ThreadShell["spawnedByThreadId"];
   readonly successorThreadId?: OrchestrationV2ThreadShell["successorThreadId"];
-  readonly planProgress?: OrchestrationV2ThreadShell["planProgress"];
   readonly deletedAt: string | null;
   readonly source: OrchestrationV2ThreadShell;
 }
@@ -178,10 +180,13 @@ function terminalRunStatus(status: OrchestrationV2RunStatus): boolean {
 // latestRun keeps the latest run's status for history presentation.
 // A failed latest run outranks the roster, so the failure stays visible.
 function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
-  if (thread.latestRunId === null && thread.activeProviderThreadId === null) return null;
   const parkAtIdle =
     backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) &&
     thread.status !== "failed";
+  // A pull request watch can hold a thread that never ran.
+  if (thread.latestRunId === null && thread.activeProviderThreadId === null && !parkAtIdle) {
+    return null;
+  }
   const status = parkAtIdle ? "idle" : (thread.activityRunStatus ?? thread.status);
   return {
     status,
@@ -261,6 +266,7 @@ export function presentThreadShell(
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],
+    goal: thread.goal ?? null,
     itemCount: thread.itemCount,
     visibleItemCount: thread.visibleItemCount,
     createdAt: iso(thread.createdAt),
@@ -294,7 +300,6 @@ export function presentThreadShell(
     ...(thread.successorThreadId === undefined
       ? {}
       : { successorThreadId: thread.successorThreadId }),
-    ...(thread.planProgress === undefined ? {} : { planProgress: thread.planProgress }),
     deletedAt: nullableIso(thread.deletedAt),
     source: thread,
   };

@@ -3,7 +3,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { GlobeIcon } from "lucide-react";
 
 import { useThreadBrowserAutomationActive } from "../browser/browserAutomationActivityStore";

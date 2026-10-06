@@ -10,8 +10,8 @@ import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ClaudeSettings, EnvironmentId, type ServerProviderSlashCommand } from "@t3tools/contracts";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import { ChildProcessSpawner } from "effect/process";
 
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import {

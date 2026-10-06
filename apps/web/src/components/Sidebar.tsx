@@ -221,7 +221,7 @@ import {
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import { createSidebarCollisionDetection, restrictBelowSidebarLabel } from "./Sidebar.drag";
-// Fork: grouped sidebar, orchestrator tints, globe and plan meter.
+// Fork: grouped sidebar, orchestrator tints and globe.
 import { createGroupAwareSidebarSortingStrategy } from "./Sidebar.groups";
 import { useSidebarProjectGroups } from "./useSidebarProjectGroups";
 import { useOrchestratorColors } from "./useOrchestratorColors";
@@ -230,7 +230,6 @@ import {
   SidebarBrowserStatusLine,
   useSidebarBrowserStatus,
 } from "./SidebarBrowserStatus";
-import { SidebarPlanMeter } from "./SidebarPlanMeter";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
@@ -454,8 +453,6 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
-        {/* Fork: the plan meter leads */}
-        <SidebarPlanMeter thread={thread} />
         {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
@@ -1283,7 +1280,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const topStatus =
     status === "working"
       ? {
-          label: "Working",
+          // A native /goal keeps the agent going across turns until it is met.
+          label: thread.goal?.status === "active" ? "Goal" : "Working",
           icon: "working" as const,
           // No shimmer: a label that animates forever is noise in a sidebar
           // full of them (and repaints every vsync on high-refresh displays).
