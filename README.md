@@ -20,7 +20,7 @@ Always available to every agent session, with no setting to turn on:
 - `session_spawn` with `handoff` replaces a long-running orchestrator: the successor becomes its sibling and takes over every session it spawned, so the old one can be settled. The successor is pinned automatically, in the old one's pinned slot if it had one. A client reading the old orchestrator when it hands off follows to the successor.
 - `session_spawn` can attach a session to an existing git worktree you created, by path and branch or by naming a session already in it; a handoff successor stays in its predecessor's worktree. T3 never creates, recreates, or deletes these attached worktrees.
 - The command palette's "New thread in..." takes a count, so `fleet 5` starts five sessions at once.
-- Each project can mark its orchestrator's sidebar card with a colored bar down its left edge. Right-click the orchestrator, or the project header when threads are grouped by project, and pick "Orchestrator color". A thread counts as the orchestrator once it spawns a session or is named exactly `Orchestrator`, and a handoff successor keeps the color. The choice is saved on this device only.
+- Each project can mark its orchestrator's sidebar card with a colored bar down its left edge. Right-click the orchestrator, or the project header when threads are grouped by project, and pick "Orchestrator color". A thread counts as the orchestrator only when it is named exactly `Orchestrator`, so a session spawned by a chained crew member never takes the color, and a handoff successor takes it once it renames itself. The choice is saved on this device only.
 
 ### Chat and composer
 

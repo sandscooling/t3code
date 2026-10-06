@@ -8,20 +8,15 @@ import {
 } from "./orchestratorColor.logic";
 
 describe("orchestratorThreadIds", () => {
-  it("counts only top-level threads that spawned a session", () => {
+  it("ignores a top-level thread that spawned sessions but is not titled Orchestrator", () => {
+    // A chained crew: each member is released to top level and spawns the next.
     const ids = orchestratorThreadIds([
-      { id: "orchestrator", spawnedByThreadId: null },
-      { id: "dev", spawnedByThreadId: "orchestrator" },
-      { id: "helper", spawnedByThreadId: "dev" },
-      { id: "lone", spawnedByThreadId: null },
-      { id: "legacy" },
+      { id: "orchestrator", title: "Orchestrator" },
+      { id: "cr", title: "refund-owed-cr-3", spawnedByThreadId: null },
+      { id: "browser", title: "refund-owed-browser", spawnedByThreadId: "cr" },
+      { id: "legacy", title: "Other" },
     ]);
     expect([...ids]).toEqual(["orchestrator"]);
-  });
-
-  it("counts a spawner created in v2, whose own spawnedByThreadId key is absent", () => {
-    const ids = orchestratorThreadIds([{ id: "boss" }, { id: "dev", spawnedByThreadId: "boss" }]);
-    expect([...ids]).toEqual(["boss"]);
   });
 
   it("counts a top-level thread titled Orchestrator even with no spawned sessions", () => {
@@ -44,19 +39,9 @@ describe("orchestratorThreadIds", () => {
       expect(ids.has("fleet")).toBe(true);
     });
 
-    it("is an orchestrator when it spawned sessions in its own project", () => {
-      const ids = orchestratorThreadIds([
-        { id: "home", ...at("t3code"), spawnedByThreadId: null },
-        { id: "fleet", ...at("fleet"), title: "Recovered", spawnedByThreadId: "home" },
-        { id: "probe", ...at("fleet"), spawnedByThreadId: "fleet" },
-      ]);
-      expect(ids.has("fleet")).toBe(true);
-      expect(ids.has("probe")).toBe(false);
-    });
-
     it("leaves a same-project worker as crew, even one titled Orchestrator", () => {
       const ids = orchestratorThreadIds([
-        { id: "boss", ...at("fleet"), spawnedByThreadId: null },
+        { id: "boss", ...at("fleet"), title: "Orchestrator", spawnedByThreadId: null },
         { id: "worker", ...at("fleet"), title: "Orchestrator", spawnedByThreadId: "boss" },
       ]);
       expect([...ids]).toEqual(["boss"]);

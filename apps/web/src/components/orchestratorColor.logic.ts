@@ -96,14 +96,13 @@ export function parseOrchestratorColorMenuId(
 }
 
 /**
- * Ids of the threads that are orchestrators: a top-level thread that has
- * spawned at least one session, or one titled exactly "Orchestrator". The
- * title covers an orchestrator whose spawned sessions were all pruned, and a
- * retired "Orchestrator-<date>" keeps no tint. A handoff successor takes over
- * the spawned sessions, so it inherits the tint with them before the rename.
- * A spawned thread is crew rather than top-level only when its spawner is in
- * the list and in the same project. One spawned from another project, or by a
- * spawner no longer listed, is top-level in its own project.
+ * Ids of the threads that are orchestrators: a top-level thread titled exactly
+ * "Orchestrator". Spawning sessions does not count, because chained crews
+ * release each successor to top level and it spawns the next. A retired
+ * "Orchestrator-<date>" keeps no tint, and a handoff successor takes it once it
+ * renames itself. A spawned thread is crew rather than top-level only when its
+ * spawner is in the list and in the same project. One spawned from another
+ * project, or by a spawner no longer listed, is top-level in its own project.
  */
 export function orchestratorThreadIds(
   threads: ReadonlyArray<{
@@ -115,19 +114,15 @@ export function orchestratorThreadIds(
   }>,
 ): ReadonlySet<string> {
   const byId = new Map(threads.map((thread) => [thread.id, thread]));
-  const parents = new Set<string>();
-  for (const thread of threads) {
-    if (thread.spawnedByThreadId != null) parents.add(thread.spawnedByThreadId);
-  }
   const orchestrators = new Set<string>();
   for (const thread of threads) {
+    if (thread.title !== "Orchestrator") continue;
     const spawner = thread.spawnedByThreadId != null ? byId.get(thread.spawnedByThreadId) : null;
     const isCrew =
       spawner != null &&
       spawner.environmentId === thread.environmentId &&
       spawner.projectId === thread.projectId;
-    if (isCrew) continue;
-    if (parents.has(thread.id) || thread.title === "Orchestrator") orchestrators.add(thread.id);
+    if (!isCrew) orchestrators.add(thread.id);
   }
   return orchestrators;
 }
