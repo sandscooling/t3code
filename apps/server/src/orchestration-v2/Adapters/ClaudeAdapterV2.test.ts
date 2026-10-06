@@ -61,7 +61,7 @@ import { OrchestratorToolkit } from "../../mcp/toolkits/orchestrator/tools.ts";
 // Fork: the session_* tools.
 import { OrchestrationToolkit } from "../../mcp/toolkits/orchestration/tools.ts";
 import { ClaudeExecutableFileCheck } from "../../provider/Drivers/ClaudeExecutable.ts";
-import type { EventNdjsonLogger } from "../../provider/Layers/EventNdjsonLogger.ts";
+import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import {
   ProviderAdapterV2RuntimePolicy,
   type ProviderAdapterV2Event,

@@ -52,15 +52,15 @@ import * as RunExecutionService from "../../../orchestration-v2/RunExecutionServ
 import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
+import * as ProviderReplayHarness from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as SqlitePersistence from "../../../persistence/Sqlite.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
 import * as WorktreeSetupTracker from "../../../project/WorktreeSetupTracker.ts";
-import * as ProviderAuthService from "../../../provider/Services/ProviderAuthService.ts";
-import { makeProviderRegistryLayer } from "../../../provider/testUtils/providerRegistryMock.ts";
+import * as ProviderAuthService from "../../../provider/ProviderAuthService.ts";
+import * as ProviderRegistryMock from "../../../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as TextGeneration from "../../../textGeneration/TextGeneration.ts";
@@ -153,10 +153,10 @@ function makeHarness(
   setupRuns: Array<string> = [],
   failLaunchOnce: Set<string> = new Set(),
 ) {
-  const database = SqlitePersistenceMemory;
-  const orchestrator = makeOrchestratorV2ReplayLayerWithRegistry(
+  const database = SqlitePersistence.layerMemory;
+  const orchestrator = ProviderReplayHarness.layerWithRegistry(
     { name: "session-tools" },
-    ProviderAdapterRegistry.makeLayer([adapter(claude), adapter(codex)]),
+    ProviderAdapterRegistry.layerFromAdapters([adapter(claude), adapter(codex)]),
     { databaseLayer: database, runEffectWorker: false },
   );
   // Merged so a test can write provider events through the real event sink.
@@ -195,7 +195,7 @@ function makeHarness(
     }),
     Layer.mock(TextGeneration.TextGeneration)({}),
     ServerSettings.layerTest(),
-    makeProviderRegistryLayer(providers),
+    ProviderRegistryMock.layer(providers),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
       folderForThread: () => Effect.succeed(Option.none()),

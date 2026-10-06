@@ -2447,7 +2447,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           relatedThreadId === command.threadId
             ? null
             : yield* projectionStore.getThread(relatedThreadId).pipe(
-                Effect.catchTag("ProjectionStoreThreadNotFoundError", () => Effect.succeed(null)),
+                Effect.catchTags({
+                  ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+                }),
                 mapDispatchError(command),
               );
         if (related === null || related.deletedAt !== null) {

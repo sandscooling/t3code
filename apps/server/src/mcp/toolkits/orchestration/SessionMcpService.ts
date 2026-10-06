@@ -56,7 +56,7 @@ import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
-import { ProviderRegistry } from "../../../provider/Services/ProviderRegistry.ts";
+import { ProviderRegistry } from "../../../provider/ProviderRegistry.ts";
 import type { McpInvocationScope } from "../../McpInvocationContext.ts";
 
 type Result<A> = Effect.Effect<A, OrchestrationToolError>;
@@ -383,9 +383,10 @@ const make = Effect.gen(function* () {
       }
       return worktrees;
     }).pipe(
-      Effect.catchTag("GitCommandError", (error) =>
-        toolError("invalid-worktree", `could not list git worktrees: ${error.message}`),
-      ),
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          toolError("invalid-worktree", `could not list git worktrees: ${error.message}`),
+      }),
     );
 
   /**

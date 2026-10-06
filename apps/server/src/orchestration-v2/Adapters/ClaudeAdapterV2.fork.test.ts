@@ -51,7 +51,7 @@ import * as IdAllocator from "../IdAllocator.ts";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
 import { runOrchestratorV2Scenario } from "../testkit/OrchestratorScenario.ts";
-import { makeOrchestratorV2ProviderReplayLayer } from "../testkit/ProviderReplayHarness.ts";
+import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import {
   assertBaseProjection,
   assertSemanticProjectionIntegrity,
@@ -499,7 +499,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         );
       }).pipe(
         Effect.provide(
-          makeOrchestratorV2ProviderReplayLayer(scenario, ClaudeOrchestratorReplayHarness),
+          ProviderReplayHarness.layerProviderReplay(scenario, ClaudeOrchestratorReplayHarness),
         ),
         provideDeterministicTestRuntime,
         Effect.scoped,
