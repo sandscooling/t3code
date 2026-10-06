@@ -1,43 +1,16 @@
-// Fork: the globe a sidebar row shows while its thread has a browser tab, lit
-// and pulsing while an agent drives it. Sidebar.tsx keeps only the call sites.
+// Fork: the globe a sidebar row shows while its thread has a browser tab open.
+// Sidebar.tsx keeps only the call sites.
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { GlobeIcon } from "lucide-react";
 
-import { useThreadBrowserAutomationActive } from "../browser/browserAutomationActivityStore";
-import { cn } from "../lib/utils";
 import { previewStateAtom } from "../previewStateStore";
 import type { SidebarThreadSummary } from "../types";
-import { synchronizeTerminalPulse } from "./ThreadStatusIndicators";
 
-export interface BrowserStatusIndicator {
-  label: "Agent using browser" | "Browser tab open";
-  colorClass: string;
-  pulse: boolean;
-}
-
-export function browserStatusIndicator(input: {
-  readonly hasPreviewSession: boolean;
-  readonly isAutomating: boolean;
-}): BrowserStatusIndicator | null {
-  if (input.isAutomating) {
-    return {
-      label: "Agent using browser",
-      colorClass: "text-sky-600 dark:text-sky-300/90",
-      pulse: true,
-    };
-  }
-  if (input.hasPreviewSession) {
-    return {
-      label: "Browser tab open",
-      colorClass: "text-muted-foreground/40",
-      pulse: false,
-    };
-  }
-  return null;
-}
+const LABEL = "Browser tab open";
+const COLOR_CLASS = "text-muted-foreground/40";
 
 // Sidebar rows only need "does this thread have a browser open", and one row
 // exists per thread on screen. Deriving the boolean keeps a row from
@@ -49,32 +22,22 @@ const threadHasPreviewSessionAtom = Atom.family((threadKey: string) =>
   ),
 );
 
-/** The globe state for one thread's sidebar row. */
-export function useSidebarBrowserStatus(ref: ScopedThreadRef): BrowserStatusIndicator | null {
-  const threadKey = scopedThreadKey(ref);
-  return browserStatusIndicator({
-    hasPreviewSession: useAtomValue(threadHasPreviewSessionAtom(threadKey)),
-    isAutomating: useThreadBrowserAutomationActive(threadKey),
-  });
+/** Whether one thread's sidebar row shows the globe. */
+export function useSidebarBrowserStatus(ref: ScopedThreadRef): boolean {
+  return useAtomValue(threadHasPreviewSessionAtom(scopedThreadKey(ref)));
 }
 
-/** The globe beside the row title, pulsing in step with the terminal icon. */
-export function SidebarBrowserStatusIcon(props: {
-  status: BrowserStatusIndicator | null;
-  threadId: string;
-}) {
+/** The globe beside the row title. */
+export function SidebarBrowserStatusIcon(props: { status: boolean; threadId: string }) {
   if (!props.status) return null;
   return (
     <span
       role="img"
-      aria-label={props.status.label}
+      aria-label={LABEL}
       data-testid={`sidebar-browser-status-${props.threadId}`}
-      className={cn("inline-flex shrink-0 items-center justify-center", props.status.colorClass)}
+      className={`inline-flex shrink-0 items-center justify-center ${COLOR_CLASS}`}
     >
-      <GlobeIcon
-        className={cn("size-3.5", props.status.pulse && "motion-safe:animate-status-pulse")}
-        onAnimationStart={synchronizeTerminalPulse}
-      />
+      <GlobeIcon className="size-3.5" />
     </span>
   );
 }
@@ -84,14 +47,14 @@ export function SidebarBrowserStatusIcon(props: {
 export function SidebarBrowserStatusLine(props: {
   thread: Pick<SidebarThreadSummary, "environmentId" | "id">;
 }) {
-  const status = useSidebarBrowserStatus(
+  const hasBrowserTab = useSidebarBrowserStatus(
     scopeThreadRef(props.thread.environmentId, props.thread.id),
   );
-  if (!status) return null;
+  if (!hasBrowserTab) return null;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <GlobeIcon aria-hidden className={cn("size-3 shrink-0", status.colorClass)} />
-      <div className="min-w-0 truncate text-foreground/75">{status.label}</div>
+      <GlobeIcon aria-hidden className={`size-3 shrink-0 ${COLOR_CLASS}`} />
+      <div className="min-w-0 truncate text-foreground/75">{LABEL}</div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   type PreviewAutomationOpenInput,
   type PreviewAutomationRecordingStatus,
   type PreviewAutomationResizeResult,
+  type PreviewAutomationSelectResult,
   type PreviewAutomationSetColorSchemeResult,
   type PreviewAutomationSnapshot,
   type PreviewAutomationStatus,
@@ -97,6 +98,28 @@ const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
   };
 });
 
+// Fork: the broker drops a host that misses its deadline, which fails every
+// thread's in-flight preview call. So for operations whose host waits on the
+// input's timeoutMs, the broker waits a moment longer, and a wait that runs out
+// comes back as the host's own error with the host still connected. Their
+// documented 15 s default is sent explicitly, since an absent timeoutMs would
+// give both sides the same 15 s. An action that chains several waits (click
+// scrolls, measures, then clicks) can still outlast this; covering all of them
+// at the 45 s cap would break the 60 s tool-call limit.
+const PREVIEW_DEFAULT_TIMEOUT_MS = 15_000;
+export const PREVIEW_BROKER_GRACE_MS = 2_000;
+export const PREVIEW_HOST_TIMED_OPERATIONS: ReadonlySet<PreviewAutomationOperation> = new Set([
+  "navigate",
+  "resize",
+  "click",
+  "type",
+  "hover",
+  "select",
+  "drag",
+  "upload",
+  "waitFor",
+]);
+
 const invokeTargeted = <A extends object>(
   operation: PreviewAutomationOperation,
   input: {
@@ -106,14 +129,16 @@ const invokeTargeted = <A extends object>(
   requestedTimeoutMs?: number,
 ) => {
   const { tabId, ...requestedInput } = input;
-  // Fork: the desktop waits on the input's timeoutMs, so cap it there as well as the broker's.
+  // Fork: the host waits on the input's timeoutMs, so cap it there as well as the broker's.
+  const hostTimed = PREVIEW_HOST_TIMED_OPERATIONS.has(operation);
+  const requested = requestedTimeoutMs ?? (hostTimed ? PREVIEW_DEFAULT_TIMEOUT_MS : undefined);
   const timeoutMs =
-    requestedTimeoutMs === undefined
-      ? undefined
-      : Math.min(requestedTimeoutMs, PREVIEW_AUTOMATION_MAX_TIMEOUT_MS);
+    requested === undefined ? undefined : Math.min(requested, PREVIEW_AUTOMATION_MAX_TIMEOUT_MS);
   const operationInput =
     timeoutMs === undefined ? requestedInput : { ...requestedInput, timeoutMs };
-  return invoke<A>(operation, operationInput, timeoutMs, tabId).pipe(
+  const brokerTimeoutMs =
+    timeoutMs === undefined ? undefined : timeoutMs + (hostTimed ? PREVIEW_BROKER_GRACE_MS : 0);
+  return invoke<A>(operation, operationInput, brokerTimeoutMs, tabId).pipe(
     Effect.map(({ result, toolIcon }) => ({
       ...result,
       ...(toolIcon ? { toolIcon } : {}),
@@ -196,6 +221,7 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
 });
 
 const handlers = {
+  preview_dialog: (input) => invokeTargeted<PreviewAutomationStatus>("dialog", input),
   preview_status: (input) => invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
   preview_open: (input) =>
     invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
@@ -212,6 +238,11 @@ const handlers = {
   },
   preview_click: (input) => invokeTargeted<object>("click", input, input.timeoutMs),
   preview_type: (input) => invokeTargeted<object>("type", input, input.timeoutMs),
+  preview_hover: (input) => invokeTargeted<object>("hover", input, input.timeoutMs),
+  preview_select: (input) =>
+    invokeTargeted<PreviewAutomationSelectResult>("select", input, input.timeoutMs),
+  preview_drag: (input) => invokeTargeted<object>("drag", input, input.timeoutMs),
+  preview_upload: (input) => invokeTargeted<object>("upload", input, input.timeoutMs),
   preview_press: (input) => invokeTargeted<object>("press", input),
   preview_scroll: (input) => invokeTargeted<object>("scroll", input),
   preview_evaluate: ({ tabId, ...input }) =>

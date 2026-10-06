@@ -30,6 +30,7 @@ import {
 import { assert, describe, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -235,6 +236,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "turn.terminal" }>>();
     const adapter = ClaudeAdapterV2.makeClaudeAdapterV2({
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+      crypto: yield* Crypto.Crypto,
       settings: DEFAULT_CLAUDE_SETTINGS,
       environment: {},
       attachmentsDir,

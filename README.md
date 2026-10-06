@@ -33,7 +33,7 @@ Always available to every agent session, with no setting to turn on:
 ### Threads and sidebar
 
 - A setting to group the sidebar by project (Settings, Appearance, "Group threads by project"). Each project folds and shows how many of its threads are working or monitoring, and a project's orchestrator leads its group as the first row under the header, staying visible when the project is folded only while it is pinned; settled threads stay in one list. Groups keep a fixed order that activity never changes; right-click a group header to move it. Upstream's beta Working section applies only to the ungrouped list; a grouped list keeps busy threads in their project.
-- A globe on sidebar rows that pulses while an agent is using the browser.
+- A globe on sidebar rows of threads that have a browser tab open, including threads you are not viewing.
 - Per-thread Claude output style.
 - A setting to stop threads naming themselves from their first message (Settings, General, "Generate thread titles").
 - Browser previews close once a thread settles.
@@ -41,10 +41,8 @@ Always available to every agent session, with no setting to turn on:
 
 ### Browser automation
 
-- Snapshots work on background tabs that are not painted on screen.
-- Smaller snapshots: a compacted accessibility tree without text-only nodes.
-- A stuck browser request no longer leaves the globe on.
-- `preview_wait_for` gives up before the server does, so a condition that never matches returns an error instead of dropping the browser host.
+- Snapshots leave out a page's `console.debug` lines, so its errors stay among the console entries a snapshot keeps.
+- `preview_wait_for`, `preview_navigate` and the action tools (click, type, hover, select, drag, upload) give up before the server does, so a condition or element that never appears returns an error instead of dropping the shared browser host for every thread.
 
 ### Fixes
 
@@ -55,7 +53,7 @@ Always available to every agent session, with no setting to turn on:
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
 - Claude's newer task tools (create, update, list) fill the tasks drawer, as `TodoWrite` did. Carried from open upstream PR [#14964](https://github.com/pingdotgg/t3code/pull/14964); drop it when that lands.
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
-- Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit, and a browser host reset by a timeout reports that it is reconnecting instead of telling the agent to give up.
+- Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
 
 ### Windows test suite

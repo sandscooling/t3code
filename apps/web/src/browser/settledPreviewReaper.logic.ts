@@ -3,13 +3,12 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 /**
  * Which threads should have their browser preview sessions closed.
  *
- * An offscreen preview tab is not parked the way an idle terminal is. The host
- * keeps every open session mounted for every thread, and
- * hostedBrowserWebviewStyle deliberately holds the guest CSS-visible while it
- * sits at -100000px so offscreen automation keeps working. That is the right
- * call for a thread an agent may still drive, and it means a settled thread's
- * tab goes on running the page's timers, fetches and sockets indefinitely.
- * A reactive app polling on a four-day-old thread is pure waste.
+ * An offscreen preview tab is not parked the way an idle terminal is. Its page
+ * keeps running on the server, or in the desktop's webview, for as long as the
+ * session exists. That is the right call for a thread an agent may still
+ * drive, and it means a settled thread's tab goes on running the page's
+ * timers, fetches and sockets indefinitely. A reactive app polling on a
+ * four-day-old thread is pure waste.
  *
  * Settled is read straight off the shell, which the server stamps. That is the
  * same flag the sidebar partitions on, so a tab is only reaped once its thread

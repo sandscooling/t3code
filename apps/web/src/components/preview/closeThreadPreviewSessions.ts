@@ -19,13 +19,9 @@ interface CloseThreadPreviewSessionsInput<E> {
  * Closes every preview session on a thread in one request, applying the same
  * optimistic local removal `closePreviewSession` does for a single tab.
  *
- * The local half is not just latency hiding here. Server preview events only
- * reach the store through `usePreviewSession`, which is mounted for the routed
- * thread alone, so a thread closed while it sits in the background never hears
- * its own "closed" event: its sidebar globe would keep reporting a tab, and
- * ElectronBrowserHost — which renders from this same store — would keep the
- * guest mounted and running. Both would otherwise resolve only when the thread
- * is next opened and its list reconciles.
+ * The sidebar globe and ElectronBrowserHost both read this store, so the local
+ * half drops the globe and unmounts a desktop webview at once rather than when
+ * the server's "closed" event arrives through PreviewSessionsFeed.
  *
  * A failed close restores every session it removed.
  */

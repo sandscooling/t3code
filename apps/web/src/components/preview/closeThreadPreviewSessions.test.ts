@@ -55,8 +55,8 @@ describe("closeThreadPreviewSessions", () => {
       threadRef,
     });
 
-    // The sidebar globe and ElectronBrowserHost both read this map, and a
-    // background thread never receives the server's "closed" event.
+    // The sidebar globe and ElectronBrowserHost both read this map, so it
+    // drops the tab before the server's "closed" event arrives.
     expect(readThreadPreviewState(threadRef).sessions).toEqual({});
     // Stale list snapshots must not resurrect what is already closing.
     applyPreviewServerSnapshot(threadRef, first);

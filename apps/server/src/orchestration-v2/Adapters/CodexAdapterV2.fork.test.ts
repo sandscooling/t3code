@@ -18,6 +18,7 @@ import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexReplay from "effect-codex-app-server/replay";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -290,6 +291,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       };
       const adapter = CodexAdapterV2.makeCodexAdapterV2({
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+        crypto: yield* Crypto.Crypto,
         settings: DEFAULT_CODEX_SETTINGS,
         environment: {},
         clientFactory,

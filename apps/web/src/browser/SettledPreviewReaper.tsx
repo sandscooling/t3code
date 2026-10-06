@@ -22,15 +22,14 @@ import { selectReapableThreadKeys } from "./settledPreviewReaper.logic";
 /**
  * Closes browser preview sessions belonging to settled threads.
  *
- * ElectronBrowserHost mounts every open session for every thread, and
- * hostedBrowserWebviewStyle keeps those guests CSS-visible while parked
- * offscreen so background automation keeps working. Nothing throttles them, so
- * a settled thread's tab keeps running its page: timers, polling, sockets. The
- * server owns the session records, so the close goes there, and the local
- * store is updated optimistically alongside it the way the close button does:
- * the host renders from that store, so dropping the session there is what
- * stops the webview and lets desktopTabLifetime tear the guest down through
- * the path it already uses.
+ * Every tab lives on its environment's server: in the server's own Chromium,
+ * or in a `<webview>` that ElectronBrowserHost mounts for its desktop's own
+ * server. Either way a settled thread's tab keeps running its page (timers,
+ * polling, sockets) until someone closes it; the server only closes agent tabs
+ * nobody watches, after 30 idle minutes. The close goes to the server, and the
+ * local store is updated optimistically alongside it the way the close button
+ * does, so a desktop webview unmounts at once. PreviewSessionsFeed keeps every
+ * thread's sessions in that store, not only the routed thread's.
  *
  * Reads the settled flag the server stamps on the shell, the same one the
  * sidebar partitions on, so a tab is only reaped once its thread has moved out
