@@ -1,5 +1,6 @@
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { isSilencedCrewAlert } from "@t3tools/shared/crewSession"; // Fork: quiet crew completions
+import { backgroundWorkTaskHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -152,10 +153,14 @@ function EnvironmentNotifications({
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       // Commands left running (a dev server) read as ready; subagents, monitors,
-      // and commands someone waits for wait. Waiting re-arms the alert, so a
-      // completion that already alerted alerts again when the held work ends.
+      // and commands someone waits for wait. Fork: a held command re-arms the
+      // alert, so a completion that already alerted alerts again when it ends.
+      // Other waiting (a pull request watch) keeps the prior completion.
       const completion =
-        status === "waiting"
+        status === "waiting" &&
+        thread.pendingBackgroundTasks.some(
+          (task) => task.kind === "command" && backgroundWorkTaskHoldsCompletion(task),
+        )
           ? null
           : status === "ready" &&
               thread.latestRun?.status === "completed" &&

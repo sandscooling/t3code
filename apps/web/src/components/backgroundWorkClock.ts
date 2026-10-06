@@ -16,18 +16,26 @@ export function backgroundWorkClockStartedAt(
  * Only tasks that hold completion count, so an unheld command started after a
  * subagent neither resets the clock nor changes the icon.
  */
-export function sidebarWaitingOn(
-  tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
-): { readonly kind: "agent" | "command"; readonly startedAt: string | null } | null {
+export function sidebarWaitingOn(tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>): {
+  readonly kind: "agent" | "command" | "pull-request";
+  readonly startedAt: string | null;
+} | null {
   const holding = tasks.filter(backgroundWorkTaskHoldsCompletion);
   const task = newestTask(holding) ?? holding[0];
   if (task === undefined) {
     return null;
   }
   return {
-    kind: task.kind === "subagent" ? "agent" : "command",
+    kind:
+      task.kind === "subagent" ? "agent" : isPullRequestWatch(task) ? "pull-request" : "command",
     startedAt: task.startedAt ?? null,
   };
+}
+
+// A pull request watch is a monitor whose task id the shared code prefixes
+// (pullRequestWatchTasks in orchestrationV2PendingBackgroundWork.ts).
+function isPullRequestWatch(task: OrchestrationV2PendingBackgroundTask): boolean {
+  return task.kind === "monitor" && task.taskId.startsWith("pull-request-watch:");
 }
 
 function newestTask(

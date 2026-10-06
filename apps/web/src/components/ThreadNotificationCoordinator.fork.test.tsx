@@ -309,6 +309,37 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
+  // Fork: only a held command re-arms the completion alert; a pull request
+  // watch makes the thread wait too, but its run already alerted.
+  it("does not alert the same completion again after a pull request watch ends", async () => {
+    state.mode = "notifications-and-sound";
+    await render();
+    state.completedAt = "2026-09-13T10:00:00.000Z";
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(1);
+    state.background = [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }];
+    await render();
+    state.background = [];
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(1);
+  });
+
+  it("still alerts again when a held command ends alongside a pull request watch", async () => {
+    state.mode = "notifications-and-sound";
+    await render();
+    state.completedAt = "2026-09-13T10:00:00.000Z";
+    await render();
+    state.background = [
+      { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
+      { taskId: "bench", kind: "command", held: true },
+    ];
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(1);
+    state.background = [];
+    await render();
+    expect(state.sound).toHaveBeenCalledTimes(2);
+  });
+
   it("lets a failure toast fall away on its own", async () => {
     await render();
     state.sessionError = true;

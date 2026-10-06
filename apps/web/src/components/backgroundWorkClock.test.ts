@@ -58,6 +58,20 @@ describe("sidebarWaitingOn", () => {
     }
   });
 
+  it("names a pull request watch, without a clock since a watch has no start time", () => {
+    expect(
+      sidebarWaitingOn([{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }]),
+    ).toEqual({ kind: "pull-request", startedAt: null });
+  });
+
+  it("prefers a clocked holding task over a pull request watch", () => {
+    const watch = { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" as const };
+    expect(sidebarWaitingOn([watch, subagent])).toEqual({
+      kind: "agent",
+      startedAt: "2026-10-02T10:00:00.000Z",
+    });
+  });
+
   it("keeps the icon without a clock when no holding task reports a start time", () => {
     expect(sidebarWaitingOn([{ taskId: "agent", kind: "subagent" }])).toEqual({
       kind: "agent",

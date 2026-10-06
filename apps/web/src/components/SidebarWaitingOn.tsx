@@ -3,12 +3,19 @@ import { BotIcon, TerminalIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { sidebarWaitingOn } from "./backgroundWorkClock";
+import { PullRequestGlyph } from "./pullRequest/pullRequestIcons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+const WAITING_ON = {
+  agent: { label: "Waiting on an agent", Icon: BotIcon },
+  command: { label: "Waiting on a command", Icon: TerminalIcon },
+  "pull-request": { label: "Waiting on a pull request", Icon: PullRequestGlyph.pullRequest },
+} as const;
 
 /**
  * Fork: the sidebar's Waiting pill tail. An icon for what holds the thread
- * (bot for an agent, terminal for a command) and its duration, which the
- * caller's ticking component renders.
+ * (bot for an agent, terminal for a command, pull request for a watch) and its
+ * duration, which the caller's ticking component renders.
  */
 export function SidebarWaitingOn(props: {
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
@@ -18,8 +25,7 @@ export function SidebarWaitingOn(props: {
   if (waitingOn === null) {
     return null;
   }
-  const label = waitingOn.kind === "agent" ? "Waiting on an agent" : "Waiting on a command";
-  const Icon = waitingOn.kind === "agent" ? BotIcon : TerminalIcon;
+  const { label, Icon } = WAITING_ON[waitingOn.kind];
   return (
     <>
       <Tooltip>
