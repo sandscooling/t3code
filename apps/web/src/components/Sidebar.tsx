@@ -1204,7 +1204,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   });
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const terminalProcessCount = runningTerminalIds.length;
-  const browserStatus = useSidebarBrowserStatus(threadRef); // Fork: the globe
+  const browserStatus = useSidebarBrowserStatus(threadRef, thread); // Fork: the globe
   // Unsent composer text on this thread. The open thread shows its own
   // composer, so the marker only decorates rows you have navigated away from.
   const hasUnsentDraft = useThreadHasUnsentDraft(threadRef) && !props.isActive;

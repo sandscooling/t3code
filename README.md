@@ -33,7 +33,7 @@ Always available to every agent session, with no setting to turn on:
 ### Threads and sidebar
 
 - A setting to group the sidebar by project (Settings, Appearance, "Group threads by project"). Each project folds and shows how many of its threads are working or monitoring, and a project's orchestrator leads its group as the first row under the header, staying visible when the project is folded only while it is pinned; settled threads stay in one list. Groups keep a fixed order that activity never changes; right-click a group header to move it. Upstream's beta Working section applies only to the ungrouped list; a grouped list keeps busy threads in their project.
-- A globe on sidebar rows of threads that have a browser tab open, including threads you are not viewing.
+- A globe on a sidebar thread, including threads you are not viewing, shows it has a browser tab open. It turns blue and pulses ("Agent using browser") while that thread's agent is working, so you can jump in and watch or steer browser checks. It cannot see individual browser calls, so a thread that opened a tab and moved on to other work keeps pulsing until its turn ends or the tab closes.
 - Per-thread Claude output style.
 - A setting to stop threads naming themselves from their first message (Settings, General, "Generate thread titles").
 - Browser previews close once a thread settles.
