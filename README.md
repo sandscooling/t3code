@@ -45,6 +45,7 @@ Always available to every agent session, with no setting to turn on:
 - `preview_wait_for`, `preview_navigate` and the action tools (click, type, hover, select, drag, upload) give up before the server does, so a condition or element that never appears returns an error instead of dropping the shared browser host for every thread.
 - In the desktop app, an agent can drive a browser tab nobody is looking at: snapshots, clicks, key presses, resizes, animations and recordings work as if the tab were shown. While the agent acts, the tab draws through a single, nearly invisible pixel in the window's top-left corner, and when it stops the tab goes back to sleep.
 - A snapshot whose screenshot cannot be taken within 5 seconds still returns the page's text, with a note saying the image is missing, and a stuck browser action no longer blocks every later action on that tab (upstream issue [#16567](https://github.com/pingdotgg/t3code/issues/16567)).
+- In the desktop app, an agent's typing and key presses go only to the page, never to your own T3 window, including fields inside another site's iframe such as Stripe card fields. A key that cannot be delivered fails the tool instead of going anywhere else. An agent's click no longer takes keyboard focus away from what you were typing in.
 
 ### Fixes
 

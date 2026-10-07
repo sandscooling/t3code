@@ -24,7 +24,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { createCdpRelayConnection, type CdpRelayConnection } from "./CdpRelay.ts";
-import * as GuestKeys from "./guestKeys.fork.ts"; // Fork
+import * as GuestInput from "./guestInput.fork.ts"; // Fork
 
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(DesktopBrowserEvent));
 const decodeCommand = Schema.decodeUnknownOption(Schema.fromJsonString(DesktopBrowserCommand));
@@ -113,12 +113,12 @@ export const make = Effect.gen(function* () {
     const relay: CdpRelayConnection = createCdpRelayConnection(
       {
         send: (method, params, sessionId) =>
-          // Fork: keys go to the guest's own widget, never through CDP (see guestKeys.fork.ts).
-          GuestKeys.isGuestKeyMethod(method)
-            ? GuestKeys.sendGuestKeys(webContents, method, params)
-            : sessionId === undefined
+          // Fork: agent input stays in the guest, the app's focus with the user (guestInput.fork.ts).
+          GuestInput.routeGuestCommand(webContents, debuggee, method, params, () =>
+            sessionId === undefined
               ? debuggee.sendCommand(method, params)
               : debuggee.sendCommand(method, params, sessionId),
+          ),
         targetId: () =>
           debuggee
             .sendCommand("Target.getTargetInfo")
@@ -186,6 +186,7 @@ export const make = Effect.gen(function* () {
     };
     tabs.set(id, tab);
     debuggee.debugger.on("message", tab.onMessage);
+    GuestInput.trackFrameSessions(debuggee.debugger); // Fork: keys for out-of-process iframes
     emit({ type: "attached", ...key });
   };
 

@@ -9,6 +9,7 @@ import * as NodeEvents from "node:events";
 import { vi } from "vite-plus/test";
 
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+import * as FrameKeys from "./frameKeys.fork.ts";
 import * as GuestKeys from "./guestKeys.fork.ts";
 
 const decodeEvent = Schema.decodeUnknownSync(Schema.fromJsonString(DesktopBrowserEvent));
@@ -29,9 +30,23 @@ const key = { threadId: "thread-1", tabId: "tab-1" };
  * `before-input-event` synchronously for key-down and key-up, never for chars,
  * and a guest that lost its widget emits nothing.
  */
-const makeGuest = (options: { readonly widget?: boolean } = {}) => {
+const makeGuest = (
+  options: {
+    readonly widget?: boolean;
+    /** What the focus walk finds: a multi-line editor, or a single-line field. */
+    readonly multiline?: boolean;
+    /** What the page's wait for the keys answers; settled at once by default. */
+    readonly settled?: Promise<boolean>;
+  } = {},
+) => {
   const emitter = new NodeEvents.EventEmitter();
   const sent: Array<GuestKeys.GuestKeyPacket> = [];
+  const expressions: Array<string> = [];
+  let waiting: () => void = () => undefined;
+  /** Resolves when the reply starts waiting on the page. */
+  const settling = new Promise<void>((resolve) => {
+    waiting = resolve;
+  });
   const agentKeyDuringEvent: Array<boolean> = [];
   emitter.on("before-input-event", () =>
     agentKeyDuringEvent.push(GuestKeys.isAgentKey(guest as unknown as Electron.WebContents)),
@@ -39,6 +54,7 @@ const makeGuest = (options: { readonly widget?: boolean } = {}) => {
   const guest = Object.assign(emitter, {
     isDestroyed: () => false,
     isCrashed: () => false,
+    hostWebContents: null,
     setIgnoreMenuShortcuts: vi.fn(),
     sendInputEvent: (packet: GuestKeys.GuestKeyPacket) => {
       sent.push(packet);
@@ -51,26 +67,44 @@ const makeGuest = (options: { readonly widget?: boolean } = {}) => {
     getUserAgent: () => "Electron",
   });
   const commands: Array<string> = [];
+  // The page's debugger: one frame, whose focus walk (`frameKeys.fork.ts`) finds
+  // a field of its own, then event counts of 5, then a wait as `settled` says.
   const debuggee = {
     on: () => undefined,
     off: () => undefined,
-    sendCommand: (method: string) => {
+    sendCommand: (method: string, params: Record<string, unknown> = {}) => {
       commands.push(method);
-      return Promise.resolve(
-        method === "Target.getTargetInfo" ? { targetInfo: { targetId: "GUEST" } } : {},
-      );
+      if (method === "Target.getTargetInfo") {
+        return Promise.resolve({ targetInfo: { targetId: "GUEST" } });
+      }
+      if (method === "Page.getFrameTree")
+        return Promise.resolve({ frameTree: { frame: { id: "MAIN" } } });
+      if (method === "Page.createIsolatedWorld") return Promise.resolve({ executionContextId: 1 });
+      if (method !== "Runtime.evaluate") return Promise.resolve({});
+      const expression = String(params["expression"]);
+      expressions.push(expression);
+      if (expression.includes("__t3KeyTarget = active")) {
+        return Promise.resolve({
+          result: { value: { frame: false, multiline: options.multiline ?? false } },
+        });
+      }
+      if (expression.startsWith("new Promise")) {
+        waiting();
+        return (options.settled ?? Promise.resolve(true)).then((value) => ({ result: { value } }));
+      }
+      return Promise.resolve({ result: { value: { keyup: 5, keydown: 5, keypress: 5 } } });
     },
   };
-  return {
-    tab: {
-      webContents: guest as unknown as Electron.WebContents,
-      debugger: debuggee as unknown as Electron.Debugger,
-    },
-    guest,
-    sent,
-    commands,
-    agentKeyDuringEvent,
+  const tab = {
+    webContents: guest as unknown as Electron.WebContents,
+    debugger: debuggee as unknown as Electron.Debugger,
   };
+  /** The main-path target the focus walk would hand `sendGuestKeys`. */
+  const target = (multiline = options.multiline ?? false) => {
+    const found = { session: undefined, contextId: 1, multiline };
+    return { ...found, frame: FrameKeys.targetFrame(tab.debugger, found) };
+  };
+  return { tab, guest, sent, commands, agentKeyDuringEvent, expressions, settling, target };
 };
 
 /** Sends one CDP command on the page session and reads its reply. */
@@ -176,9 +210,69 @@ describe("guestKeys", () => {
     const tab = makeGuest();
     Object.assign(tab.guest, { isDestroyed: () => true });
     await expect(
-      GuestKeys.sendGuestKeys(tab.tab.webContents, "Input.insertText", { text: "x" }),
+      GuestKeys.sendGuestKeys(tab.tab.webContents, "Input.insertText", { text: "x" }, tab.target()),
     ).rejects.toThrow(/did not reach the preview page/);
     expect(tab.sent).toEqual([]);
+  });
+
+  it("replies only once the page has counted the keys it was sent", async () => {
+    let settle: (value: boolean) => void = () => undefined;
+    const settled = new Promise<boolean>((resolve) => {
+      settle = resolve;
+    });
+    const tab = makeGuest({ settled });
+    let replied = false;
+    const reply = GuestKeys.sendGuestKeys(
+      tab.tab.webContents,
+      "Input.dispatchKeyEvent",
+      { type: "keyUp", key: "x" },
+      tab.target(),
+    ).then(() => {
+      replied = true;
+    });
+    // The counts are read before the key is sent, and the wait is for one more keyup.
+    await tab.settling;
+    expect(tab.expressions.at(-1)).toContain('get("keyup") ?? 0) >= 6');
+    expect(tab.sent.map(({ type }) => type)).toEqual(["keyUp"]);
+    expect(replied).toBe(false);
+    settle(true);
+    await reply;
+    expect(replied).toBe(true);
+  });
+
+  it.effect("takes the line-break rule from the field the focus walk found", () =>
+    Effect.gen(function* () {
+      const typed = (multiline: boolean) =>
+        Effect.gen(function* () {
+          const host = yield* DesktopBrowserHost.make;
+          const tab = makeGuest({ multiline });
+          host.attach(key, tab.tab);
+          const reply = yield* roundTrip(host, "Input.insertText", { text: "a\nb\r\nc\rd" });
+          expect(reply.error).toBeUndefined();
+          return tab.sent.map(({ keyCode }) => keyCode).join("");
+        });
+      // A "\n" char inserts nothing, so a textarea gets the Enter key's "\r".
+      expect(yield* typed(true)).toBe("a\rb\rc\rd");
+      // In a single-line field "\r" would submit its form, so breaks are dropped,
+      // even while another frame holds a contenteditable body.
+      expect(yield* typed(false)).toBe("abcd");
+    }).pipe(Effect.scoped),
+  );
+
+  it("settles each command on the event its packets end with", () => {
+    const settleOf = (method: string, params: Record<string, unknown>) =>
+      GuestKeys.settleEvent(GuestKeys.guestKeyPackets(method, params));
+    // A cancelled key-down drops its keypress, so a key-down waits for itself.
+    expect(settleOf("Input.dispatchKeyEvent", { type: "keyDown", key: "x", text: "x" })).toEqual({
+      type: "keydown",
+      count: 1,
+    });
+    expect(settleOf("Input.dispatchKeyEvent", { type: "keyUp", key: "x" })).toEqual({
+      type: "keyup",
+      count: 1,
+    });
+    expect(settleOf("Input.insertText", { text: "abc" })).toEqual({ type: "keypress", count: 3 });
+    expect(settleOf("Input.insertText", { text: "" })).toBeNull();
   });
 
   describe("guestKeyPackets", () => {
