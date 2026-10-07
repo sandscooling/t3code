@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { createCdpRelayConnection, type CdpRelayConnection } from "./CdpRelay.ts";
+import * as GuestKeys from "./guestKeys.fork.ts"; // Fork
 
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(DesktopBrowserEvent));
 const decodeCommand = Schema.decodeUnknownOption(Schema.fromJsonString(DesktopBrowserCommand));
@@ -112,9 +113,12 @@ export const make = Effect.gen(function* () {
     const relay: CdpRelayConnection = createCdpRelayConnection(
       {
         send: (method, params, sessionId) =>
-          sessionId === undefined
-            ? debuggee.sendCommand(method, params)
-            : debuggee.sendCommand(method, params, sessionId),
+          // Fork: keys go to the guest's own widget, never through CDP (see guestKeys.fork.ts).
+          GuestKeys.isGuestKeyMethod(method)
+            ? GuestKeys.sendGuestKeys(webContents, method, params)
+            : sessionId === undefined
+              ? debuggee.sendCommand(method, params)
+              : debuggee.sendCommand(method, params, sessionId),
         targetId: () =>
           debuggee
             .sendCommand("Target.getTargetInfo")

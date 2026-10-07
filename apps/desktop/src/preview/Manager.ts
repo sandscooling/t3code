@@ -63,6 +63,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as AutomationDrawing from "./automationDrawing.fork.ts"; // Fork
+import * as GuestKeys from "./guestKeys.fork.ts"; // Fork
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -1525,6 +1526,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       });
     };
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
+      if (GuestKeys.isAgentKey(wc)) return; // Fork: an agent's key belongs to the page alone.
       syncMenuShortcuts(wc, input);
       const host = wc.hostWebContents;
       const forwarded =
