@@ -66,6 +66,9 @@ import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as TextGeneration from "../../../textGeneration/TextGeneration.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import { OrchestrationToolkitHandlersLive } from "./handlers.ts";
+import * as SessionMcpService from "./SessionMcpService.ts";
+import { OrchestrationToolkit } from "./tools.ts";
 
 // Fork: the session_* tools, end to end through the MCP server, on a real v2
 // orchestrator with an in-memory database. Provider processes never start, so
@@ -236,12 +239,41 @@ function makeHarness(
       });
     }),
   ).pipe(Layer.provide(realLaunch));
-  return McpHttpServer.OrchestrationToolkitRegistrationLive.pipe(
-    Layer.provideMerge(McpServer.McpServer.layer),
-    Layer.provideMerge(
-      Layer.mergeAll(threadManagement, launch, external, NodeServices.layer, NodeCrypto.layer),
-    ),
+  const services = Layer.mergeAll(
+    threadManagement,
+    launch,
+    external,
+    NodeServices.layer,
+    NodeCrypto.layer,
   );
+  // The access gate refuses a caller with no live run, and these callers are
+  // idle threads, so the gate alone sees every caller mid-turn. The session
+  // service reads the real threads.
+  const liveCallers = Layer.effect(
+    ThreadManagement.ThreadManagementService,
+    Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      return ThreadManagement.ThreadManagementService.of({
+        ...threads,
+        getThreadShell: (threadId) =>
+          threads
+            .getThreadShell(threadId)
+            .pipe(
+              Effect.map((shell) =>
+                shell === null || shell.activeRunId !== null
+                  ? shell
+                  : { ...shell, activeRunId: RunId.make(`run:${threadId}:mid-turn`) },
+              ),
+            ),
+      });
+    }),
+  ).pipe(Layer.provide(threadManagement));
+  return McpHttpServer.toolkitRegistration(OrchestrationToolkit, OrchestrationToolkitHandlersLive)
+    .pipe(
+      Layer.provide(SessionMcpService.layer.pipe(Layer.provide(services))),
+      Layer.provide(liveCallers),
+    )
+    .pipe(Layer.provideMerge(McpServer.McpServer.layer), Layer.provideMerge(services));
 }
 
 const client = McpSchema.McpServerClient.of({
@@ -521,19 +553,25 @@ it.effect("refuses an MCP client signed in from outside a thread", () =>
   Effect.gen(function* () {
     yield* seedOrchestrator;
     const server = yield* McpServer.McpServer;
-    const result = yield* server.callTool({ name: "session_list", arguments: {} }).pipe(
-      Effect.provideService(McpInvocationContext.McpInvocationContext, {
-        environmentId: EnvironmentId.make("environment-session-tools"),
-        requestNamespace: "client:session-1",
-        thread: undefined,
-        client: { sessionId: "session-1", label: "Claude Code", runtimeModeCeiling: "full-access" },
-        capabilities: new Set(["orchestration"] as const),
-        issuedAt: 1,
-      }),
-      Effect.provideService(McpSchema.McpServerClient, client),
-    );
-    expect(result.isError).toBe(true);
-    expect(contentText(result)).toContain("not running inside one");
+    // A read and a change: both are refused before the session service runs.
+    for (const [name, args] of [
+      ["session_list", {}],
+      ["session_spawn", { name: "outsider", group: "outside", message: "Hi." }],
+    ] as const) {
+      const result = yield* server.callTool({ name, arguments: args }).pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          environmentId: EnvironmentId.make("environment-session-tools"),
+          requestNamespace: "client:session-1",
+          thread: undefined,
+          client: { sessionId: "session-1", label: "Claude Code", access: "full-access" },
+          capabilities: new Set(["orchestration"] as const),
+          issuedAt: 1,
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+      expect(result.isError, name).toBe(true);
+      expect(contentText(result), name).toContain("acts as the calling T3 thread");
+    }
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

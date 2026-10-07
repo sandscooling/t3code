@@ -18,6 +18,7 @@ import { McpSchema, McpServer } from "effect/ai";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import {
   PREVIEW_BROKER_GRACE_MS,
@@ -53,6 +54,7 @@ const client = McpSchema.McpServerClient.of({
 });
 const TestLayer = McpHttpServer.layerPreviewToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(PreviewAutomationBroker.layer),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-http-server-test-" })),
   Layer.provideMerge(NodeServices.layer),
