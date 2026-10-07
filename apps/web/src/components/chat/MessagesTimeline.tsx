@@ -168,7 +168,8 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { HtmlRenderFrame } from "./HtmlRenderFrame";
+// Fork: html renders show as panel cards.
+import { HtmlRenderPanelCard } from "./HtmlRenderFrame.fork";
 import { McpAppFrame } from "./McpAppFrame";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -2782,10 +2783,12 @@ function HtmlRenderTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "htm
 
   return (
     <div className="min-w-0 px-1">
-      <HtmlRenderFrame
+      {/* Fork: a card that opens the page in the right panel. */}
+      <HtmlRenderPanelCard
         // A recycled row must not keep another page's frozen frame.
         key={row.htmlRender.attachmentId}
         environmentId={ctx.activeThreadEnvironmentId}
+        threadRef={ctx.threadRef}
         htmlRender={row.htmlRender}
         onOpen={ctx.onFileOpen}
       />

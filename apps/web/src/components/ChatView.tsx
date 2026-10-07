@@ -441,6 +441,8 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { MessagesTimeline, type MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
+// Fork: new html renders open in the right panel.
+import { useAutoOpenHtmlRenders } from "./chat/htmlRenderPanel.fork";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
@@ -3952,6 +3954,13 @@ export default function ChatView(props: ChatViewProps) {
     [optimisticUserMessages],
   );
   const timelineEntries = isServerThread ? serverTimelineEntries : draftTimelineEntries;
+  // Fork: a new html render in this thread opens in the right panel, unless it only opens as a sheet.
+  useAutoOpenHtmlRenders({
+    threadKey: activeThreadKey,
+    enabled: !shouldUsePlanSidebarSheet,
+    entries: timelineEntries,
+    open: openFileAttachment,
+  });
   const timelineMessages = useMemo(
     () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
     [timelineEntries],
