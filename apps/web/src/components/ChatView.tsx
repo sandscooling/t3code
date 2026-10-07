@@ -3958,7 +3958,7 @@ export default function ChatView(props: ChatViewProps) {
   useAutoOpenHtmlRenders({
     threadKey: activeThreadKey,
     enabled: !shouldUsePlanSidebarSheet,
-    entries: timelineEntries,
+    turnItems: serverVisibleTurnItems,
     open: openFileAttachment,
   });
   const timelineMessages = useMemo(
