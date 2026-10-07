@@ -411,5 +411,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () =>
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
+    // Fork: see apps/desktop/src/preview/automationDrawing.fork.ts.
+    onAutomationDrawing: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, drawing: unknown) => {
+        if (typeof drawing !== "object" || drawing === null) return;
+        listener(drawing as { threadId: string; tabId: string; active: boolean });
+      };
+      ipcRenderer.on(IpcChannels.PREVIEW_AUTOMATION_DRAWING_CHANNEL, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IpcChannels.PREVIEW_AUTOMATION_DRAWING_CHANNEL, wrappedListener);
+    },
   },
 } satisfies DesktopBridge);

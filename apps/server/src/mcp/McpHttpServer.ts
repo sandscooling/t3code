@@ -36,6 +36,7 @@ import * as ThreadHandlers from "./toolkits/thread/handlers.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { unavailableScreenshotNote } from "../preview/ServerBrowserPage.fork.ts"; // Fork
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 // Fork: the session_* tools, beside upstream's orchestrator tools.
@@ -512,6 +513,8 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                 const saved = {
                   url: cutText(snapshot.url, MAX_SNAPSHOT_IDENTIFIER_CHARS),
                   screenshotPath,
+                  // Fork: a capture that timed out saved only a placeholder.
+                  ...unavailableScreenshotNote(screenshot),
                 };
                 return new McpSchema.CallToolResult({
                   isError: false,

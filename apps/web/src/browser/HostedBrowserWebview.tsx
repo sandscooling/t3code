@@ -24,6 +24,7 @@ import { BrowserDeviceToolbar } from "./BrowserDeviceToolbar";
 import { BrowserViewportResizeHandles } from "./BrowserViewportResizeHandles";
 import { acquireDesktopTab, type AcquiredDesktopTab, withDesktopTab } from "./desktopTabLifetime";
 import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
+import { useAgentDrawing, withAgentDrawingPlacement } from "./agentDrawing.fork"; // Fork
 import { usePreviewWebviewConfig } from "./previewWebviewConfigState";
 import { useBrowserViewportResize } from "./useBrowserViewportResize";
 import {
@@ -109,6 +110,7 @@ export function HostedBrowserWebview(props: {
     (state) => (state.activityByTabId[runtimeTabId] ?? 0) > 0,
   );
   const recordingActive = useActiveBrowserRecordingTabIds().has(runtimeTabId);
+  const agentDrawing = useAgentDrawing(threadRef.threadId, tabId, serverDriven); // Fork
   usePreviewBridge({ threadRef, tabId, runtimeTabId, serverDriven });
 
   const serverColorScheme = serverRendering?.colorScheme;
@@ -316,7 +318,11 @@ export function HostedBrowserWebview(props: {
     <div
       ref={wrapperRef}
       className="fixed overflow-hidden bg-muted/35"
-      style={{ ...wrapperStyle, overscrollBehavior: "contain" }}
+      // Fork: a parked tab the agent acts on peeks so it keeps drawing.
+      style={{
+        ...withAgentDrawingPlacement(wrapperStyle, { agentDrawing, renderingActive }),
+        overscrollBehavior: "contain",
+      }}
       onScroll={syncContentPresentation}
       data-preview-rendering={renderingActive ? "active" : "suspended"}
       data-preview-viewport={runtimeTabId}

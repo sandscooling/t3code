@@ -12,6 +12,7 @@ import { useTheme } from "~/hooks/useTheme";
 import { useActivePreviewSessions } from "~/previewStateStore";
 import { useEnvironmentScope } from "~/state/session";
 
+import { useAgentDrawingEvents } from "./agentDrawing.fork"; // Fork
 import { readPreviewAnnotationTheme } from "./annotationTheme";
 import { useBrowserPointerStore } from "./browserPointerStore";
 import { HostedBrowserWebview } from "./HostedBrowserWebview";
@@ -91,6 +92,7 @@ export function ElectronBrowserHost() {
       useBrowserPointerStore.getState().apply(event);
     });
   }, []);
+  useAgentDrawingEvents(); // Fork
 
   if (!isElectron) return null;
   return (

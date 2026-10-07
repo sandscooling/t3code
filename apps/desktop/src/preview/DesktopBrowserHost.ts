@@ -81,6 +81,11 @@ export class DesktopBrowserHost extends Context.Service<
       readonly x: number;
       readonly y: number;
     }>;
+    /** Fork: whether the server needs an attached tab drawing (see `automationDrawing.fork.ts`). */
+    readonly drawing: Stream.Stream<{
+      readonly key: DesktopBrowserTabKey;
+      readonly active: boolean;
+    }>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -92,6 +97,11 @@ export const make = Effect.gen(function* () {
     readonly x: number;
     readonly y: number;
   }>(16);
+  // Fork: every switch matters, so none is dropped.
+  const drawing = yield* PubSub.unbounded<{
+    readonly key: DesktopBrowserTabKey;
+    readonly active: boolean;
+  }>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
@@ -148,6 +158,7 @@ export const make = Effect.gen(function* () {
     if (!tab) return;
     tabs.delete(id);
     tab.debuggee.debugger.off("message", tab.onMessage);
+    runFork(PubSub.publish(drawing, { key, active: false })); // Fork
     emit({ type: "detached", ...key });
   };
 
@@ -185,6 +196,12 @@ export const make = Effect.gen(function* () {
         runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
         return;
       }
+      if (command.value.type === "drawing") {
+        // Fork
+        const { threadId, tabId, active } = command.value;
+        runFork(PubSub.publish(drawing, { key: { threadId, tabId }, active }));
+        return;
+      }
       if (command.value.type === "release") {
         // A new server connection starts with a fresh relay and fresh sessions.
         tab.relay = null;
@@ -199,6 +216,8 @@ export const make = Effect.gen(function* () {
       [...tabs.values()],
       (tab) => {
         tab.relay = null;
+        // Fork: a new backend holds none of the old one's drawing leases.
+        runFork(PubSub.publish(drawing, { key: tab.key, active: false }));
         return PubSub.publish(outbox, { type: "attached", ...tab.key });
       },
       { discard: true },
@@ -207,6 +226,7 @@ export const make = Effect.gen(function* () {
 
   return DesktopBrowserHost.of({
     pointers: Stream.fromPubSub(pointers),
+    drawing: Stream.fromPubSub(drawing), // Fork
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {

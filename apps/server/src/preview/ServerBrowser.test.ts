@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock"; // Fork
 import type { BrowserContext, Page } from "playwright-core";
 import { beforeEach, expect, vi } from "vite-plus/test";
 
@@ -44,7 +45,9 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       return context as unknown as BrowserContext;
     }
     async scratchPage() {
-      return makeContext().page as unknown as Page;
+      const page = makeContext().page;
+      scratchPages.push(page); // Fork
+      return page as unknown as Page;
     }
     async connectDesktopPage(endpoint: string) {
       const context = makeContext();
@@ -164,6 +167,10 @@ const desktopRenders = (tabId: string) => {
   return desktopTabs.has(tabId);
 };
 const releasedDesktopTabs: Array<string> = [];
+/** Fork: the drawing switches the server sent, as `[tabId, active]`. */
+const desktopDrawing: Array<readonly [string, boolean]> = [];
+/** Fork: scratch pages handed out, such as a recording's encoder. */
+const scratchPages: Array<ReturnType<typeof makeContext>["page"]> = [];
 const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
 const testThread = {
   threadId: ThreadId.make("browser-test-thread"),
@@ -215,6 +222,7 @@ const dependencies = Layer.mergeAll(
         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
       ),
     pointer: () => Effect.void,
+    drawing: (key, active) => Effect.sync(() => desktopDrawing.push([key.tabId, active])), // Fork
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
@@ -258,6 +266,8 @@ beforeEach(() => {
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
+  desktopDrawing.length = 0; // Fork
+  scratchPages.length = 0; // Fork
   desktopConnections.length = 0;
 });
 
@@ -1087,6 +1097,60 @@ it.live("a desktop page the desktop takes back reconnects instead of closing", (
       expect(sessions.map((session) => session.tabId)).toContain(opened.tabId);
       yield* browser.attachViewer(viewerInput(opened.tabId, false));
       expect(desktopConnections).toHaveLength(2);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+// Fork: a desktop tab nobody shows draws no frames, so the agent's action switches drawing on.
+it.live("an agent action on a desktop tab keeps it drawing; a headless tab needs nothing", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { broker, tabId: headlessTabId } = yield* ready;
+      yield* broker.invoke({ scope, tabId: headlessTabId, operation: "snapshot", input: {} });
+      expect(desktopDrawing).toEqual([]);
+      desktopRendersNext = true;
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { reuseExistingTab: false, show: false },
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      yield* broker.invoke({ scope, tabId, operation: "snapshot", input: {} });
+      while (desktopDrawing.length === 0) yield* Effect.yieldNow;
+      expect(desktopDrawing).toEqual([[tabId, true]]);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+// Fork: copying frames into the main process is not free, so a full recording lets go.
+it.effect("a recording whose encoder is full stops keeping its desktop tab drawing", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* Effect.yieldNow;
+      desktopRendersNext = true;
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { reuseExistingTab: false, show: false },
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      yield* broker.invoke({ scope, tabId, operation: "recordingStart", input: {} });
+      const drainTasks = Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+      // The recording keeps the tab drawing after its start action's linger.
+      yield* TestClock.adjust("2 seconds");
+      yield* drainTasks;
+      expect(desktopDrawing.filter(([, active]) => !active)).toEqual([]);
+      // The encoder refuses the next frame: it is at its size cap.
+      const session = desktopConnections[0]!.context.sessions.at(-1)!;
+      const onFrame = session.on.mock.calls.find(([name]) => name === "Page.screencastFrame")![1];
+      scratchPages.at(-1)!.evaluate.mockResolvedValueOnce(false as never);
+      onFrame({ data: "ZnJhbWU=", metadata: { deviceWidth: 1280 }, sessionId: 1 });
+      yield* drainTasks;
+      expect(session.send).toHaveBeenCalledWith("Page.stopScreencast");
+      yield* TestClock.adjust("1 second");
+      yield* drainTasks;
+      expect(desktopDrawing.at(-1)).toEqual([tabId, false]);
     }),
   ).pipe(Effect.provide(layer)),
 );

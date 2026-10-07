@@ -71,6 +71,7 @@ import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import * as DesktopBrowserChannel from "./DesktopBrowserChannel.ts";
 import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
+import * as ServerBrowserFork from "./ServerBrowser.fork.ts"; // Fork
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { ServerBrowserContexts } from "./ServerBrowserContexts.ts";
@@ -441,6 +442,8 @@ const make = Effect.gen(function* () {
   const previewBrowser = yield* PreviewBrowser.PreviewBrowser;
   const desktopChannel = yield* DesktopBrowserChannel.DesktopBrowserChannel;
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
+  // Fork: a desktop tab the agent acts on keeps drawing even when nobody shows it.
+  const drawing = yield* ServerBrowserFork.make(desktopChannel.drawing);
   const launchServices = yield* Effect.context<ChildProcessSpawner.ChildProcessSpawner>();
   // The fix every host error names, rendered for how this server was launched.
   const setupCommand = yield* resolveRootCliCommand(PreviewBrowserHost.SETUP_SUBCOMMAND);
@@ -655,6 +658,7 @@ const make = Effect.gen(function* () {
     else void tab.page.close().catch(constVoid);
     if (tab.isolatedContext) void tab.page.context().close().catch(constVoid);
     void tab.recording?.encoder.close().catch(constVoid);
+    drawing.recording(tab, false); // Fork
     void NodeFSP.rm(downloadDir(tab), { recursive: true, force: true }).catch(constVoid);
     reportLiveTabs();
     if (closeSession) {
@@ -1239,6 +1243,8 @@ const make = Effect.gen(function* () {
               [frame.data, cssWidth] as const,
             )
             .then(async (accepted) => {
+              // Fork: a full encoder takes no more frames, so the tab can stop drawing.
+              if (!accepted && tab.recording?.session === opened) drawing.recording(tab, false);
               if (!accepted) await opened.send("Page.stopScreencast");
             })
             .catch(constVoid)
@@ -1259,6 +1265,7 @@ const make = Effect.gen(function* () {
           framesInFlight,
         };
         tab.recording = recording;
+        drawing.recording(tab, true); // Fork: a screencast gets no frames from a parked tab.
         return recording;
       } catch (cause) {
         // A start that fails partway must not leave its encoder page behind.
@@ -1333,6 +1340,7 @@ const make = Effect.gen(function* () {
       } finally {
         await recording.encoder.close().catch(constVoid);
         tab.recording = null;
+        drawing.recording(tab, false); // Fork
       }
       const data = Buffer.concat(chunks);
       if (!mimeType || data.byteLength === 0) {
@@ -1613,7 +1621,10 @@ const make = Effect.gen(function* () {
         );
       const generation = tab.control.generation;
       try {
-        return await executeTabOperation(tab, request);
+        // Fork: the tab draws while it works, and a stuck action stops holding the queue.
+        return await drawing.agentAction(tab, request.timeoutMs, () =>
+          executeTabOperation(tab, request),
+        );
       } finally {
         if (generation !== tab.control.generation) ServerBrowserPage.invalidateRefs(tab.page);
       }

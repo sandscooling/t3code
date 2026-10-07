@@ -32,6 +32,7 @@ import * as NodeURL from "node:url";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
+import * as AutomationDrawing from "../../preview/automationDrawing.fork.ts"; // Fork
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
 import * as IpcChannels from "../channels.ts";
@@ -54,6 +55,7 @@ export const installPreviewEventForwarding = Effect.fn(
   yield* manager.subscribePointerEvents((event) =>
     electronWindow.sendAll(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, event),
   );
+  yield* AutomationDrawing.forwardAutomationDrawing(); // Fork
 });
 
 export const setForwardedShortcuts = DesktopIpc.makeIpcMethod({

@@ -28,6 +28,7 @@ import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { UNAVAILABLE_SCREENSHOT_PNG } from "../preview/ServerBrowserPage.fork.ts"; // Fork
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
 const threadId = ThreadId.make("thread-mcp-test");
@@ -446,6 +447,24 @@ it.effect("saves the snapshot PNG on request and reports its path", () =>
       const [only, ...others] = pathOnly.content;
       expect(others).toEqual([]);
       expect(only?.type === "text" ? decodeJsonText(only.text) : null).toEqual(saved);
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
+// Fork: the path-only result carries no page text, so the placeholder note rides along.
+it.effect("a saved snapshot whose capture timed out says its file is a placeholder", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* serveSnapshots("mcp-save-placeholder-client", {
+        ...snapshotResult,
+        screenshot: { ...snapshotResult.screenshot, data: UNAVAILABLE_SCREENSHOT_PNG },
+      });
+      const pathOnly = yield* callSnapshot({ save: true, includeImage: false });
+      expect(pathOnly.structuredContent).toEqual({
+        url: snapshotResult.url,
+        screenshotPath: expect.any(String),
+        note: expect.stringMatching(/^\[Screenshot unavailable: /),
+      });
     }),
   ).pipe(Effect.provide(layerTest)),
 );

@@ -62,6 +62,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+import * as AutomationDrawing from "./automationDrawing.fork.ts"; // Fork
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -385,7 +386,7 @@ interface ManagedListeners {
   readonly webContents: Electron.WebContents;
 }
 
-type FrameCaptureConsumer = "picture-in-picture" | "recording";
+type FrameCaptureConsumer = "picture-in-picture" | "recording" | "automation"; // Fork: automation
 
 interface FrameCaptureSession {
   readonly recordingInputOptions?: RecordingInputOptions;
@@ -1721,9 +1722,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         cancelPickElement(tabId),
         closePictureInPicture(tabId),
         stopFrameCapture(tabId, "recording"),
+        stopFrameCapture(tabId, "automation"), // Fork
       ],
       {
-        concurrency: 3,
+        concurrency: 4,
         discard: true,
       },
     );
@@ -3316,6 +3318,16 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     return browserHost.pointers.pipe(
       Stream.runForEach(emitAgentPointer),
       Effect.forkIn(parentScope),
+      // Fork: the server's drawing switches, applied for the same lifetime.
+      Effect.andThen(
+        AutomationDrawing.applyAutomationDrawing(browserHost.drawing, {
+          window: Ref.get(mainWindowRef).pipe(Effect.map(Option.getOrUndefined)),
+          tabs: SynchronizedRef.get(tabsRef).pipe(Effect.map((tabs) => tabs.values())),
+          webContents: requireWebContents,
+          unthrottle: (tabId) => startFrameCapture(tabId, "automation"),
+          restore: (tabId) => stopFrameCapture(tabId, "automation"),
+        }).pipe(Effect.forkIn(parentScope)),
+      ),
       Effect.asVoid,
     );
   });

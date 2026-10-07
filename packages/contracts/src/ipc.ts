@@ -1314,6 +1314,10 @@ export interface DesktopPreviewBridge {
   };
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
+  // Fork: the server is acting on one of its tabs, which must keep drawing while it does.
+  onAutomationDrawing?: (
+    listener: (event: { threadId: string; tabId: string; active: boolean }) => void,
+  ) => () => void;
 }
 
 export type ConfirmDialogVariant = "default" | "destructive";

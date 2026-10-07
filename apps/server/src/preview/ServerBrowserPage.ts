@@ -21,6 +21,12 @@ import { constVoid } from "effect/Function";
 import type { CDPSession, Locator, Page } from "playwright-core";
 import * as NodeCrypto from "node:crypto";
 import { BrowserControlInterrupted } from "./SessionControl.ts";
+// Fork: bounded captures (upstream #16567).
+import {
+  noteUnavailableScreenshot,
+  screenshotUnavailable,
+  withCaptureDeadline,
+} from "./ServerBrowserPage.fork.ts";
 
 const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
@@ -167,11 +173,14 @@ export const captureViewport = async (
       scale: options.scale,
     };
   }
-  const { data } = await cdp.send("Page.captureScreenshot", {
-    format: options.format,
-    ...(options.quality === undefined ? {} : { quality: options.quality }),
-    ...(clip ? { clip } : {}),
-  });
+  // Fork: a page that draws no frames never answers a capture.
+  const { data } = await withCaptureDeadline(
+    cdp.send("Page.captureScreenshot", {
+      format: options.format,
+      ...(options.quality === undefined ? {} : { quality: options.quality }),
+      ...(clip ? { clip } : {}),
+    }),
+  );
   return data;
 };
 
@@ -196,7 +205,8 @@ export const snapshot = async (input: {
       >
     >,
     input.page.ariaSnapshot({ mode: "ai", boxes: true, timeout: DEFAULT_TIMEOUT_MS }),
-    captureViewport(input.page, input.cdp, { format: "png", scale }),
+    // Fork: a capture that times out still lets the text answer.
+    captureViewport(input.page, input.cdp, { format: "png", scale }).catch(screenshotUnavailable),
   ]);
   if (state.generation !== generation) {
     throw new ServerBrowserOperationError(
@@ -211,7 +221,7 @@ export const snapshot = async (input: {
       state.refs.set(ref, nativeRef);
       return `[ref=${ref}]`;
     });
-  return {
+  return noteUnavailableScreenshot({
     ...page,
     accessibilityTree,
     consoleEntries: [...input.consoleEntries],
@@ -223,7 +233,7 @@ export const snapshot = async (input: {
       width: Math.round(viewport.width * input.renderScale * scale),
       height: Math.round(viewport.height * input.renderScale * scale),
     },
-  };
+  }); // Fork
 };
 
 /**
