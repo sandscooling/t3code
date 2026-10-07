@@ -44,12 +44,14 @@ import {
   getProviderOptionCurrentValue,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
+import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attachedWorktrees.ts";
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
@@ -114,14 +116,19 @@ const requireMessage = (message: string) =>
  * Where a session stands, for an orchestrator deciding whether to wait. A run
  * still finishing up counts as running; background work a finished turn left
  * behind (a watch, a background command) shows as monitoring, since the
- * session will speak again on its own.
+ * session will speak again on its own. `held` is whether the server paused its
+ * queue (after a Stop, a server restart, or a provider failure): the shell
+ * presents only the newest unheld run, so without it a session with messages
+ * stuck in that queue reads as ready.
  */
-const sessionStatus = (thread: OrchestrationV2ThreadShell): SessionStatus =>
+const sessionStatus = (thread: OrchestrationV2ThreadShell, held: boolean): SessionStatus =>
   thread.activeRunId !== null || thread.activityRunStatus != null || thread.status === "queued"
     ? "running"
-    : (thread.pendingBackgroundTasks ?? []).length > 0
-      ? "monitoring"
-      : "ready";
+    : held
+      ? "held"
+      : (thread.pendingBackgroundTasks ?? []).length > 0
+        ? "monitoring"
+        : "ready";
 
 /** Finds a project by the projectId, name, or path session_projects reports. */
 const resolveProject = (projects: ReadonlyArray<Project>, ref: string): Result<Project> =>
@@ -284,6 +291,33 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
+  const sql = yield* SqlClient.SqlClient;
+
+  /**
+   * Threads with a held queued run. Upstream holds a thread's queue after a
+   * Stop, a server restart, or a provider failure, until a user resumes it,
+   * and the thread shell never shows those runs, so the session tools read
+   * them here, from the projection.
+   */
+  const heldQueueThreadIds = Effect.suspend(
+    () => sql<{ readonly thread_id: string }>`
+      SELECT DISTINCT thread_id FROM orchestration_v2_projection_runs
+      WHERE status = 'queued' AND json_extract(payload_json, '$.queueHeld') = 1
+    `,
+  ).pipe(
+    Effect.map((rows) => new Set(rows.map((row) => row.thread_id))),
+    Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
+  );
+  const hasHeldQueue = (threadId: ThreadId) =>
+    sql<{ readonly held: number }>`
+      SELECT 1 AS held FROM orchestration_v2_projection_runs
+      WHERE thread_id = ${threadId} AND status = 'queued'
+        AND json_extract(payload_json, '$.queueHeld') = 1
+      LIMIT 1
+    `.pipe(
+      Effect.map((rows) => rows.length > 0),
+      Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
+    );
 
   const newCommandId = crypto.randomUUIDv4.pipe(
     Effect.orDie,
@@ -710,6 +744,7 @@ const make = Effect.gen(function* () {
           ? null
           : (yield* resolveProject(projects, input.project)).id;
     const projectNames = new Map(projects.map((project) => [project.id, project.title]));
+    const held = yield* heldQueueThreadIds;
     return {
       sessions: sessions
         .filter((thread) => projectId === null || thread.projectId === projectId)
@@ -724,7 +759,7 @@ const make = Effect.gen(function* () {
           group: thread.group ?? null,
           projectId: thread.projectId,
           project: projectNames.get(thread.projectId) ?? thread.projectId,
-          status: sessionStatus(thread),
+          status: sessionStatus(thread, held.has(thread.id)),
           self: thread.id === caller.id,
           branch: thread.branch,
           worktreePath: thread.worktreePath,
@@ -746,6 +781,33 @@ const make = Effect.gen(function* () {
     // queue instead. With no run in flight, "queue" starts a turn like "auto".
     // The shell is read outside the thread lock: a question raised in that
     // gap still steers.
+    // A Stop, a server restart, or a provider failure holds the queue until
+    // something resumes it, and a message sent past a held queue starts at
+    // once, ahead of the ones waiting there. So a wake resumes it first, which
+    // starts its head run when nothing else is running, and its own message
+    // joins the end of that queue, even behind a running turn it could steer.
+    // Only a provider failure leaves the latest executed run failed (Stop
+    // interrupts it, a restart cancels it), and resuming then would hand the
+    // next message to the provider that just failed, which fails it and holds
+    // the queue again. That is refused instead. latestExecutedRun skips a
+    // cancelled queued run that never started, which the shell's run may be.
+    const held = yield* hasHeldQueue(target.id);
+    if (held) {
+      const { runs } = yield* threads
+        .getThreadRecords(target.id, ["runs"])
+        .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
+      if (latestExecutedRun(runs)?.status === "failed") {
+        return yield* toolError(
+          "queue-held",
+          `session ${target.title} has messages held after its last turn failed in the provider; ask the user to resume the queue in the app once the provider works, or drop messages with t3_queue_cancel (t3_queue_list shows them)`,
+        );
+      }
+      yield* dispatch({
+        type: "queue.resume",
+        commandId: yield* newCommandId,
+        threadId: target.id,
+      });
+    }
     const commandId = yield* newCommandId;
     const sent = yield* threads
       .sendToThread({
@@ -756,7 +818,7 @@ const make = Effect.gen(function* () {
         senderThreadId: caller.id,
         text: input.message,
         attachments: [],
-        mode: target.pendingRuntimeRequest === null ? "auto" : "queue",
+        mode: held || target.pendingRuntimeRequest !== null ? "queue" : "auto",
         createdBy: "agent",
         creationSource: "mcp",
       })

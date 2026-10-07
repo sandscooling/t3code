@@ -239,10 +239,13 @@ function makeHarness(
       });
     }),
   ).pipe(Layer.provide(realLaunch));
+  // The database is the orchestrator's own (layers memoize), so the session
+  // service's held-queue query reads the runs the orchestrator writes.
   const services = Layer.mergeAll(
     threadManagement,
     launch,
     external,
+    database,
     NodeServices.layer,
     NodeCrypto.layer,
   );
@@ -1043,6 +1046,171 @@ it.effect("wakes a session with a question open into its queue instead of steeri
       [false, "queued"],
     ]);
     expect(projection.runtimeRequests.map((request) => request.status)).toEqual(["pending"]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+// Fleet's agents-diet-dev, 2026-10-07: a wake queued behind an open question,
+// then the user pressed Stop. Stop holds the queue (upstream, by design) and
+// nothing resumes it, so the wake never ran while session_list read `ready`.
+// A server restart and a provider failure hold the queue the same way.
+
+const statusOf = (threadId: ThreadId) =>
+  ok(orchestratorId, "session_list", {}).pipe(
+    Effect.map(
+      (list) =>
+        (list.sessions as ReadonlyArray<{ threadId: string; status: string }>).find(
+          (session) => session.threadId === threadId,
+        )?.status,
+    ),
+  );
+
+/** Each run's message text, status, and whether it is held, in run order. */
+const queueOf = (threadId: ThreadId) =>
+  projectionOf(threadId).pipe(
+    Effect.map((projection) =>
+      projection.runs.map((run) => [
+        projection.messages.find((message) => message.id === run.userMessageId)?.text,
+        run.status,
+        run.queueHeld === true,
+      ]),
+    ),
+  );
+
+/** A session whose turn asked a question, with `messages` woken into the queue behind it. */
+const askingWithQueue = (id: string, title: string, messages: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const threadId = yield* seed({ id, title });
+    const runId = yield* runningTurn(threadId, { question: true });
+    for (const message of messages) {
+      const woken = yield* ok(orchestratorId, "session_wake", { name: threadId, message });
+      expect(woken.delivery).toBe("queued");
+    }
+    return { threadId, runId };
+  });
+
+/**
+ * What each hold leaves: the turn ends `ended` (a Stop interrupts it, a server
+ * restart cancels it, a provider failure fails it) and every queued run is
+ * held, as holdStoppedThread, ProviderRuntimeRecoveryService, and
+ * startNextQueuedRun write it. This turn has no root node to stop for real.
+ */
+const endTurnHoldingQueue = (
+  threadId: ThreadId,
+  runId: RunId,
+  ended: "interrupted" | "cancelled" | "failed",
+) =>
+  Effect.gen(function* () {
+    const before = yield* projectionOf(threadId);
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    yield* sink.write({
+      events: [
+        ...before.runs
+          .filter((run) => run.status === "queued")
+          .map((run): OrchestrationV2DomainEvent => ({
+            id: EventId.make(`${run.id}:held`),
+            type: "run.updated",
+            threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: { ...run, queueHeld: true },
+          })),
+        ...before.runtimeRequests.map((request): OrchestrationV2DomainEvent => ({
+          id: EventId.make(`${request.id}:cancelled`),
+          type: "runtime-request.updated",
+          threadId,
+          occurredAt: now,
+          payload: { ...request, status: "cancelled", resolvedAt: now },
+        })),
+        ...before.providerTurns.map((turn): OrchestrationV2DomainEvent => ({
+          id: EventId.make(`${turn.id}:${ended}`),
+          type: "provider-turn.updated",
+          threadId,
+          occurredAt: now,
+          payload: { ...turn, status: ended, completedAt: now },
+        })),
+        {
+          id: EventId.make(`${runId}:${ended}`),
+          type: "run.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: { ...before.runs[0]!, status: ended, completedAt: now },
+        },
+      ],
+    });
+    expect(yield* statusOf(threadId)).toBe("held");
+  });
+
+it.effect(
+  "reports a queue Stop held, and a wake resumes it in order instead of running ahead",
+  () =>
+    Effect.gen(function* () {
+      const { threadId, runId } = yield* askingWithQueue("thread:stopped", "L6-dev", [
+        "First.",
+        "Then.",
+      ]);
+      yield* endTurnHoldingQueue(threadId, runId, "interrupted");
+      expect(yield* queueOf(threadId)).toEqual([
+        [undefined, "interrupted", false],
+        ["First.", "queued", true],
+        ["Then.", "queued", true],
+      ]);
+
+      // The wake resumes the queue: the first held message starts, and the new
+      // one waits behind every held one rather than starting first.
+      const last = yield* ok(orchestratorId, "session_wake", { name: threadId, message: "Last." });
+      expect(last.delivery).toBe("queued");
+      const resumed = yield* projectionOf(threadId);
+      expect(yield* queueOf(threadId)).toEqual([
+        [undefined, "interrupted", false],
+        ["First.", "starting", false],
+        ["Then.", "queued", false],
+        ["Last.", "queued", false],
+      ]);
+      const positions = resumed.runs.slice(2).map((run) => run.queuePosition ?? 0);
+      expect(positions[0]!).toBeLessThan(positions[1]!);
+      expect(yield* statusOf(threadId)).toBe("running");
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("resumes a queue a server restart held", () =>
+  Effect.gen(function* () {
+    const { threadId, runId } = yield* askingWithQueue("thread:restarted", "L7-dev", ["First."]);
+    yield* endTurnHoldingQueue(threadId, runId, "cancelled");
+
+    const second = yield* ok(orchestratorId, "session_wake", {
+      name: threadId,
+      message: "Second.",
+    });
+    expect(second.delivery).toBe("queued");
+    expect(yield* queueOf(threadId)).toEqual([
+      [undefined, "cancelled", false],
+      ["First.", "starting", false],
+      ["Second.", "queued", false],
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+// Resuming would hand the next message to the provider that just failed, which
+// fails it and holds the queue again: each retried wake would spend a message.
+it.effect("refuses a wake to a queue a provider failure held, leaving it held", () =>
+  Effect.gen(function* () {
+    const { threadId, runId } = yield* askingWithQueue("thread:failed", "L8-dev", ["First."]);
+    yield* endTurnHoldingQueue(threadId, runId, "failed");
+
+    const refusal = yield* refused(orchestratorId, "session_wake", {
+      name: threadId,
+      message: "Second.",
+    });
+    expect(refusal).toContain("queue-held");
+    expect(refusal).toContain("t3_queue_cancel");
+    expect(yield* queueOf(threadId)).toEqual([
+      [undefined, "failed", false],
+      ["First.", "queued", true],
+    ]);
+    expect(yield* statusOf(threadId)).toBe("held");
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
+import * as SqlClient from "effect/sql/SqlClient"; // Fork: held-queue reads
 
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
@@ -42,8 +43,9 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
-  // Fork: the session_* tools' service launches threads.
+  // Fork: the session_* tools' service launches threads and reads held queues.
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+  Layer.succeed(SqlClient.SqlClient, {} as never),
 );
 
 const ToolsListPayload = Schema.fromJsonString(

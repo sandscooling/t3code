@@ -218,11 +218,14 @@ export type SessionListInput = typeof SessionListInput.Type;
 
 /**
  * `running` while a turn is in flight (preparing, queued, starting, running,
- * or finishing up), `monitoring` when the last turn ended but left background
- * work such as a watch or a background command going, `ready` otherwise.
- * session_wake reaches every one of them.
+ * or finishing up), `held` when no turn runs but messages wait in a queue the
+ * server paused after a Stop, a server restart, or a provider failure (nothing
+ * sends them until the queue is resumed), `monitoring`
+ * when the last turn ended but left background work such as a watch or a
+ * background command going, `ready` otherwise. session_wake reaches every one
+ * of them.
  */
-export const SessionStatus = Schema.Literals(["running", "monitoring", "ready"]);
+export const SessionStatus = Schema.Literals(["running", "held", "monitoring", "ready"]);
 export type SessionStatus = typeof SessionStatus.Type;
 
 export const SessionSummary = Schema.Struct({
@@ -250,7 +253,7 @@ export const SessionWakeInput = Schema.Struct({
   name: SessionRef,
   message: Schema.String.annotate({
     description:
-      "The message to send. On an idle session it starts a turn, opening its provider process if none is running; on a busy one it is delivered into the running turn, or queued behind it.",
+      "The message to send. On an idle session it starts a turn, opening its provider process if none is running; on a busy one it is delivered into the running turn, or queued behind it. On a session with a paused queue (after a Stop or a server restart) it resumes that queue and is queued behind the messages already there, even while a turn runs; after a provider failure it is refused instead.",
   }),
 });
 export type SessionWakeInput = typeof SessionWakeInput.Type;
@@ -325,6 +328,11 @@ export const OrchestrationToolErrorReason = Schema.Literals([
   "invalid-arguments",
   /** session_release was pointed at a session the caller did not spawn. */
   "not-spawner",
+  /**
+   * session_wake refused a session whose queue is held after a provider
+   * failure: resuming it would send the next message to the failing provider.
+   */
+  "queue-held",
   "dispatch-failed",
 ]);
 export type OrchestrationToolErrorReason = typeof OrchestrationToolErrorReason.Type;
