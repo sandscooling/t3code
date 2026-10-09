@@ -10,6 +10,7 @@ import {
   PreviewViewportSize,
 } from "./preview.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { BrowserProfileId } from "./browserProfile.ts";
 
 const BoundedUrl = Schema.String.check(Schema.isTrimmed())
   .check(Schema.isNonEmpty())
@@ -22,6 +23,8 @@ const URL_GUIDANCE =
 // The schema still accepts 60000 so older agents are capped, not rejected.
 export const PREVIEW_AUTOMATION_MAX_TIMEOUT_MS = 45_000;
 const TIMEOUT_MS_DESCRIPTION = `Maximum wait in milliseconds. Defaults to 15000; values above ${PREVIEW_AUTOMATION_MAX_TIMEOUT_MS} are capped at ${PREVIEW_AUTOMATION_MAX_TIMEOUT_MS} so the call returns before the 60 s tool-call limit.`;
+const PROFILE_GUIDANCE =
+  "Browser profile for a new tab, by id or name (case-insensitive) from preview_status profiles. Omit to use the user's default profile. A tab keeps the profile it opened with.";
 const OptionalTimeoutMs = Schema.optional(
   Schema.Int.check(Schema.isGreaterThan(0))
     .check(Schema.isLessThanOrEqualTo(60_000))
@@ -67,16 +70,26 @@ const PreviewAutomationTabTargetFields = {
   tabId: Schema.optional(
     PreviewTabId.annotate({
       description:
-        "Exact collaborative browser tab to target. Omit to use this agent session's current tab.",
+        "Exact collaborative browser tab to target, including a tab the user opened (see preview_status tabs). Omit to use this agent session's current tab, or the user's visible tab when this session has none.",
     }),
   ).annotate({
     description:
-      "Exact collaborative browser tab to target. Omit to use this agent session's current tab.",
+      "Exact collaborative browser tab to target, including a tab the user opened (see preview_status tabs). Omit to use this agent session's current tab, or the user's visible tab when this session has none.",
   }),
 };
 
 export const PreviewAutomationTabTargetInput = Schema.Struct(PreviewAutomationTabTargetFields);
 export type PreviewAutomationTabTargetInput = typeof PreviewAutomationTabTargetInput.Type;
+
+/** `human`: a person controls the tab now; `agent`: an agent session opened it; `unclaimed`: neither. */
+export const PreviewAutomationTabOwner = Schema.Literals(["agent", "human", "unclaimed"]);
+
+export const PreviewAutomationProfile = Schema.Struct({
+  id: BrowserProfileId,
+  name: Schema.String,
+  incognito: Schema.optional(Schema.Boolean),
+});
+export type PreviewAutomationProfile = typeof PreviewAutomationProfile.Type;
 
 export const PreviewAutomationStatus = Schema.Struct({
   available: Schema.Boolean,
@@ -87,7 +100,7 @@ export const PreviewAutomationStatus = Schema.Struct({
   loading: Schema.Boolean,
   control: Schema.optional(
     Schema.Struct({
-      owner: Schema.Literals(["agent", "human", "unclaimed"]),
+      owner: PreviewAutomationTabOwner,
       ownedByCaller: Schema.Boolean,
       generation: Schema.Number,
     }),
@@ -121,16 +134,28 @@ export const PreviewAutomationStatus = Schema.Struct({
       }),
     ),
   ),
-  /** Server hosts: every tab this agent session owns, including popups its pages opened. */
+  /**
+   * Server hosts: every tab in the thread, including ones the user or another
+   * agent session opened. Any of them can be read; acting needs `ownedByCaller`,
+   * or an `unclaimed` tab while no human controls it.
+   */
   tabs: Schema.optional(
     Schema.Array(
       Schema.Struct({
         tabId: PreviewTabId,
         url: Schema.NullOr(Schema.String),
         openerTabId: Schema.optional(PreviewTabId),
+        owner: Schema.optional(PreviewAutomationTabOwner),
+        ownedByCaller: Schema.optional(Schema.Boolean),
+        visible: Schema.optional(Schema.Boolean),
+        profileId: Schema.optional(BrowserProfileId),
       }),
     ),
   ),
+  /** Server hosts: the browser profiles preview_open accepts, as the user's client reported them. */
+  profiles: Schema.optional(Schema.Array(PreviewAutomationProfile)),
+  /** Server hosts: the profile preview_open uses when given none. */
+  defaultProfileId: Schema.optional(BrowserProfileId),
 });
 export type PreviewAutomationStatus = typeof PreviewAutomationStatus.Type;
 
@@ -168,6 +193,11 @@ export const PreviewAutomationOpenInput = Schema.Struct({
         "Reuse tabId when supplied, otherwise this agent session's current tab. Defaults to true; set false to create a new tab.",
     }),
   ),
+  profileId: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(64)).annotate({
+      description: PROFILE_GUIDANCE,
+    }),
+  ).annotate({ description: PROFILE_GUIDANCE }),
 })
   .check(
     Schema.makeFilter(

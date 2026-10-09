@@ -56,6 +56,9 @@ export const installPreviewEventForwarding = Effect.fn(
     electronWindow.sendAll(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, event),
   );
   yield* AutomationDrawing.forwardAutomationDrawing(); // Fork
+  yield* manager.subscribeOpenLinks((event) =>
+    electronWindow.sendAll(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, event),
+  );
 });
 
 export const setForwardedShortcuts = DesktopIpc.makeIpcMethod({

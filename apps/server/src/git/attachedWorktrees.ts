@@ -23,7 +23,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { ServerConfig } from "../config.ts";
-import { makeProviderFailure } from "../orchestration-v2/ProviderFailure.ts";
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 
 /** A turn start on an attached worktree whose directory is gone. */
 export class AttachedWorktreeMissingError extends Schema.TaggedError<AttachedWorktreeMissingError>()(

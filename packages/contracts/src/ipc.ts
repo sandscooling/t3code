@@ -325,6 +325,11 @@ export const DesktopCliCommandStateSchema = Schema.Struct({
   installedPath: Schema.NullOr(Schema.String),
   /** Whether a new terminal finds it; false when the folder is not on PATH yet. */
   onPath: Schema.Boolean,
+  /**
+   * Another `t3` a new terminal runs instead, earlier on PATH. Install refuses
+   * while it is there, since a link behind it would never run.
+   */
+  shadowedBy: Schema.optionalKey(Schema.String),
 });
 export type DesktopCliCommandState = typeof DesktopCliCommandStateSchema.Type;
 
@@ -656,6 +661,14 @@ export interface DesktopPreviewPointerEvent {
   y: number;
   sequence: number;
   createdAt: string;
+}
+
+/** A `target="_blank"` link the previewed page asked to open beside itself. */
+export interface DesktopPreviewOpenLinkEvent {
+  tabId: string;
+  url: string;
+  /** True for middle-click / Cmd-click, which should not take focus. */
+  background: boolean;
 }
 
 /** Recording decorations are forwarded separately from the captured page pixels. */
@@ -1335,6 +1348,7 @@ export interface DesktopPreviewBridge {
   onAutomationDrawing?: (
     listener: (event: { threadId: string; tabId: string; active: boolean }) => void,
   ) => () => void;
+  onOpenLink: (listener: (event: DesktopPreviewOpenLinkEvent) => void) => () => void;
 }
 
 export type ConfirmDialogVariant = "default" | "destructive";

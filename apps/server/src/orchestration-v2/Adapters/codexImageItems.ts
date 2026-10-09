@@ -2,7 +2,7 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import type * as CodexSchema from "effect-codex-app-server/schema";
 
-import type { ProviderAdapterV2Event } from "../ProviderAdapter.ts";
+import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
 import type { CodexDynamicToolItem } from "./CodexAdapterV2.ts";
 
 /**

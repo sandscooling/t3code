@@ -11,7 +11,7 @@
 import type { ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 
-import { buildSelectOptionDescriptor } from "./providerSnapshot.ts";
+import { buildSelectOptionDescriptor } from "@t3tools/provider-core/server/snapshotProbe";
 
 /**
  * The CLI's zero-state output style. Selecting it means "do not pass
