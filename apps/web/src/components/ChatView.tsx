@@ -39,7 +39,6 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import * as Schema from "effect/Schema";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -705,6 +704,10 @@ const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
 const DiffPanel = lazy(() => import("./DiffPanel"));
+// Fork: carries upstream #17234.
+const selectClaudeResumeCompactionEnabled = (settings: {
+  claudeResumeCompactionEnabled: boolean;
+}) => settings.claudeResumeCompactionEnabled;
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -4196,12 +4199,10 @@ export default function ChatView(props: ChatViewProps) {
       selectedProvider,
     ],
   );
-  const [resumeCompactionPermanentlyDismissed, setResumeCompactionPermanentlyDismissed] =
-    useLocalStorage(
-      `t3code:resume-compaction-dismissed:${environmentId}:${activeProviderInstanceId ?? "claudeAgent"}`,
-      false,
-      Schema.Boolean,
-    );
+  // Fork: carries upstream #17234. The setting replaces the per-environment
+  // localStorage dismissal. Only the user writes it, so it stays a two-way
+  // switch; a native "Don't ask again" hides the offer in its own thread only.
+  const resumeCompactionEnabled = useClientSettings(selectClaudeResumeCompactionEnabled);
   const nativeResumeCompactionDismissed = useMemo(
     () =>
       hasDismissedResumeCompaction(
@@ -4214,15 +4215,6 @@ export default function ChatView(props: ChatViewProps) {
       ),
     [serverProjection?.runtimeRequests],
   );
-  useEffect(() => {
-    if (nativeResumeCompactionDismissed && !resumeCompactionPermanentlyDismissed) {
-      setResumeCompactionPermanentlyDismissed(true);
-    }
-  }, [
-    nativeResumeCompactionDismissed,
-    resumeCompactionPermanentlyDismissed,
-    setResumeCompactionPermanentlyDismissed,
-  ]);
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -7771,7 +7763,7 @@ export default function ChatView(props: ChatViewProps) {
   // multi-model sends never compact first, so the offer hides for them.
   const resumeCompactionTokens =
     activeContextWindow &&
-    !resumeCompactionPermanentlyDismissed &&
+    resumeCompactionEnabled && // Fork: upstream #17234
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&
     !hasHeldQueuedRuns &&

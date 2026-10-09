@@ -406,6 +406,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
   },
+  // Fork: carries upstream #17234.
+  {
+    id: "claude-resume-compaction",
+    title: "Compact old Claude threads",
+    to: "/settings/general",
+    searchTerms: ["compact compaction resume idle cache full history context tokens send claude"],
+  },
   {
     id: "send-shortcut",
     title: "Send shortcut",
