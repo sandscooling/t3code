@@ -257,6 +257,7 @@ export const sendGuestKeys = async (
   method: string,
   params: Record<string, unknown>,
   target: MainKeyTarget,
+  signal?: AbortSignal,
 ): Promise<Record<string, never>> => {
   if (guest.isDestroyed() || guest.isCrashed()) throw new GuestKeyError(NOT_DELIVERED);
   const packets = guestKeyPackets(method, params, target);
@@ -268,6 +269,8 @@ export const sendGuestKeys = async (
       )
     : null;
   if (guest.isDestroyed() || guest.isCrashed()) throw new GuestKeyError(NOT_DELIVERED);
+  // A key given up on while the page was read must not land after the input sent since.
+  signal?.throwIfAborted();
   let seen = 0;
   const count = () => {
     seen += 1;

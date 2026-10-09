@@ -202,6 +202,7 @@ export const sendFrameKeys = async (
   target: KeyTarget & { readonly session: string },
   method: string,
   params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<Record<string, never>> => {
   const send = sender(debuggee);
   let command: { readonly method: string; readonly params: Record<string, unknown> } | null;
@@ -217,6 +218,8 @@ export const sendFrameKeys = async (
   if ((await evaluateIn(send, target.session, target.contextId, STILL_FOCUSED)) !== true) {
     throw new GuestKeyError("The key was not sent: the frame's focus moved after it was found.");
   }
+  // A key given up on while the frame was read must not land after the input sent since.
+  signal?.throwIfAborted();
   await asAgentKey(guest, () => send(command.method, command.params, target.session));
   return {};
 };

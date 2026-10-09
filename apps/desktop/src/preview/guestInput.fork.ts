@@ -13,6 +13,8 @@
  *   had before returns keyboard focus to it, while the page keeps its own
  *   focused element, so the agent's later keys still land there (#13914
  *   measured the same on Windows).
+ * - Input commands reach the guest in the order the server sent them, so a
+ *   press held up by that focus hop is never overtaken by its release.
  * - `Target.sendMessageToTarget` is refused: a raw message would carry a
  *   command past these checks.
  */
@@ -32,19 +34,32 @@ const isPointerPress = (method: string, params: Record<string, unknown>) =>
 /** Where the app's focus was before each guest's pending press, by guest id. */
 const FOCUS_STORE = "__t3AgentPressFocus";
 
-/** Runs in the app's window: remembers its focused element for one guest's press. */
-export const rememberFocusExpression = (guestId: number) =>
-  `((globalThis.${FOCUS_STORE} ??= new Map()).set(${guestId}, document.activeElement), true)`;
+/**
+ * Runs in the app's window: remembers its focused element for one guest's
+ * press. A press that starts before the last one's restore (a double click)
+ * keeps the element the first one remembered, which may already have lost
+ * focus to the `<webview>`.
+ */
+export const rememberFocusExpression = (guestId: number) => `(() => {
+  const store = (globalThis.${FOCUS_STORE} ??= new Map());
+  const held = store.get(${guestId});
+  if (held) held.presses += 1;
+  else store.set(${guestId}, { element: document.activeElement, presses: 1 });
+  return true;
+})()`;
 
 /**
  * Runs in the app's window after the press: undoes only a focus move onto this
  * guest's own `<webview>`, so focus the user already had in that page, or
- * moved elsewhere meanwhile, stays where it is.
+ * moved elsewhere meanwhile, stays where it is. Only the last of overlapping
+ * presses restores.
  */
 export const restoreFocusExpression = (guestId: number) => `(() => {
   const store = globalThis.${FOCUS_STORE};
-  const previous = store?.get(${guestId});
+  const held = store?.get(${guestId});
+  if (held && --held.presses > 0) return false;
   store?.delete(${guestId});
+  const previous = held?.element;
   const active = document.activeElement;
   if (!active || active === previous || active.tagName !== "WEBVIEW") return false;
   if (typeof active.getWebContentsId !== "function" || active.getWebContentsId() !== ${guestId}) return false;
@@ -92,14 +107,87 @@ const sendKeys = async (
   debuggee: Electron.Debugger,
   method: string,
   params: Record<string, unknown>,
+  signal: AbortSignal,
 ) => {
   // An unsupported command is refused before the page is read.
   guestKeyPackets(method, params);
   const target = await findKeyTarget(debuggee);
   return target.session === undefined
-    ? sendGuestKeys(guest, method, params, { ...target, frame: targetFrame(debuggee, target) })
-    : sendFrameKeys(guest, debuggee, { ...target, session: target.session }, method, params);
+    ? sendGuestKeys(
+        guest,
+        method,
+        params,
+        { ...target, frame: targetFrame(debuggee, target) },
+        signal,
+      )
+    : sendFrameKeys(
+        guest,
+        debuggee,
+        { ...target, session: target.session },
+        method,
+        params,
+        signal,
+      );
 };
+
+/**
+ * Past this a queued command is dropped and the next one goes: one that never
+ * reaches the guest must not hold the rest, nor land after them once it can.
+ */
+export const INPUT_HOLD_DEADLINE_MS = 10_000;
+
+/** Each guest's newest queued input command, settled once it has gone to the guest. */
+const inputTails = new WeakMap<Electron.WebContents, Promise<void>>();
+
+/**
+ * Runs `send` once every input command queued before it for `guest` has gone
+ * to the guest. Playwright fires a click's move, press and release at once and
+ * relies on DevTools keeping their order, so a press held up by its focus hop
+ * would otherwise let its release reach the page first. `send` calls `sent`
+ * once its command is on the wire; the next command waits for that alone, not
+ * for the rest of `send`. Past the deadline `signal` aborts, and `send` must
+ * check it right before sending. A failure reaches only its own caller.
+ */
+const inInputOrder = <A>(
+  guest: Electron.WebContents,
+  send: (sent: () => void, signal: AbortSignal) => Promise<A>,
+): Promise<A> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let markSent = () => {};
+  const sent = new Promise<void>((resolve) => {
+    markSent = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+  });
+  const expiry = new AbortController();
+  const previous = inputTails.get(guest) ?? Promise.resolve();
+  inputTails.set(guest, sent);
+  const result = previous.then(() => {
+    timer = setTimeout(() => {
+      expiry.abort(
+        new GuestInputError(
+          "The input was not sent: it timed out waiting for the page, so the input after it went first.",
+        ),
+      );
+      markSent();
+    }, INPUT_HOLD_DEADLINE_MS);
+    return send(markSent, expiry.signal);
+  });
+  void result.then(markSent, markSent);
+  return result;
+};
+
+/** Forwards, then marks the command sent: the debugger puts it on the wire inside the call. */
+const forwardThen =
+  (forward: () => Promise<unknown>, sent: () => void, signal: AbortSignal) => () => {
+    try {
+      signal.throwIfAborted();
+      return forward();
+    } finally {
+      sent();
+    }
+  };
 
 /** Routes one server command for `guest`; `forward` sends it to the guest's debugger. */
 export const routeGuestCommand = (
@@ -114,7 +202,18 @@ export const routeGuestCommand = (
       new GuestInputError("Not supported for a desktop preview tab: Target.sendMessageToTarget"),
     );
   }
-  if (isGuestKeyMethod(method)) return sendKeys(guest, debuggee, method, params);
-  if (isPointerPress(method, params)) return keepAppFocus(guest, forward);
+  if (isGuestKeyMethod(method)) {
+    return inInputOrder(guest, (_sent, signal) =>
+      sendKeys(guest, debuggee, method, params, signal),
+    );
+  }
+  if (isPointerPress(method, params)) {
+    return inInputOrder(guest, (sent, signal) =>
+      keepAppFocus(guest, forwardThen(forward, sent, signal)),
+    );
+  }
+  if (method.startsWith("Input.")) {
+    return inInputOrder(guest, (sent, signal) => forwardThen(forward, sent, signal)());
+  }
   return forward();
 };
