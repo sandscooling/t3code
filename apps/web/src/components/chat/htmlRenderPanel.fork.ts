@@ -27,6 +27,16 @@ export interface HtmlRenderSighting {
   readonly attachmentId: string;
   /** When the `html_render` call completed and the page appeared, in epoch milliseconds. */
   readonly visibleAt: number;
+  readonly title: string;
+}
+
+/**
+ * Whether a render title names a question round's page: "Q", digits, then a
+ * space or the end ("Q1", "Q12 Where the page sits"). Such pages are published
+ * ahead of the question card and open only when their question is on screen.
+ */
+export function isQuestionPageTitle(title: string): boolean {
+  return /^Q\d+(?: |$)/.test(title);
 }
 
 /** The thread's completed html_render pages, timed by completion: a row's createdAt is when the call started. */
@@ -36,7 +46,9 @@ export function htmlRenderSightings(turnItems: ReadonlyArray<OrchestrationV2Proj
     const htmlRender = htmlRenderFromToolItem(item);
     if (htmlRender === undefined) return [];
     const visibleAt = DateTime.toEpochMillis(item.completedAt ?? item.updatedAt);
-    return [{ attachmentId: htmlRender.attachmentId, visibleAt, htmlRender }];
+    return [
+      { attachmentId: htmlRender.attachmentId, visibleAt, title: htmlRender.title, htmlRender },
+    ];
   });
 }
 
@@ -72,7 +84,10 @@ export interface HtmlRenderAutoOpenState {
  * render that appeared before the user started viewing it: history, an older
  * page, or what a returning thread's catch-up replays. A call still running
  * when the user arrived counts from its completion, so it opens. Each render
- * opens at most once, and the newest of a batch wins.
+ * opens at most once, and the newest of a batch wins. A question page
+ * (`isQuestionPageTitle`) is marked seen but never opened here, so a round's
+ * pages publish in the background; when one is the newest of a batch, the
+ * batch opens nothing.
  */
 export function nextHtmlRenderAutoOpen(
   previous: HtmlRenderAutoOpenState | null,
@@ -99,6 +114,7 @@ export function nextHtmlRenderAutoOpen(
     if (!(render.visibleAt >= previous.viewedSince)) continue;
     if (open === null || render.visibleAt >= open.visibleAt) open = render;
   }
+  if (open !== null && isQuestionPageTitle(open.title)) open = null;
   const grew = ids.some((id) => !previous.seen.has(id));
   return {
     state: grew ? { ...previous, seen: new Set([...previous.seen, ...ids]) } : previous,

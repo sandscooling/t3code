@@ -5,6 +5,7 @@ import {
   type HtmlRenderAutoOpenState,
   type HtmlRenderSighting,
   htmlRenderSightings,
+  isQuestionPageTitle,
   nextHtmlRenderAutoOpen,
   nextQuestionHtmlRenderOpen,
   questionHtmlRender,
@@ -13,8 +14,8 @@ import {
 const VIEWED_AT = Date.parse("2026-10-07T12:00:00.000Z");
 const THREAD = "env:thread-a";
 
-function render(attachmentId: string, visibleAt: string): HtmlRenderSighting {
-  return { attachmentId, visibleAt: Date.parse(visibleAt) };
+function render(attachmentId: string, visibleAt: string, title = "Page"): HtmlRenderSighting {
+  return { attachmentId, visibleAt: Date.parse(visibleAt), title };
 }
 
 const OLD = render("old", "2026-10-07T11:00:00.000Z");
@@ -103,6 +104,27 @@ describe("nextHtmlRenderAutoOpen", () => {
     ).toBeNull();
   });
 
+  it("publishes a burst of question pages in the background", () => {
+    let state = viewing([OLD]);
+    const shown: Array<HtmlRenderSighting> = [OLD];
+    for (const n of [1, 2, 3, 4]) {
+      shown.push(render(`q${n}`, `2026-10-07T12:00:0${n}.000Z`, `Q${n} Option ${n}`));
+      const step = later(state, shown);
+      expect(step.openAttachmentId).toBeNull();
+      state = step.state as HtmlRenderAutoOpenState;
+    }
+    expect(["q1", "q2", "q3", "q4"].every((id) => state.seen.has(id))).toBe(true);
+    // A normal page afterwards still opens.
+    const normal = render("normal", "2026-10-07T12:00:06.000Z", "Quarterly report");
+    expect(later(state, [...shown, normal]).openAttachmentId).toBe("normal");
+  });
+
+  it("opens nothing when a question page is the newest of a batch", () => {
+    const normal = render("normal", "2026-10-07T12:00:05.000Z");
+    const q1 = render("q1", "2026-10-07T12:00:06.000Z", "Q1");
+    expect(later(viewing([OLD]), [OLD, normal, q1]).openAttachmentId).toBeNull();
+  });
+
   it("forgets the thread when none is viewed", () => {
     const result = nextHtmlRenderAutoOpen(viewing([OLD]), {
       threadKey: null,
@@ -114,10 +136,25 @@ describe("nextHtmlRenderAutoOpen", () => {
   });
 });
 
+describe("isQuestionPageTitle", () => {
+  it("accepts Q, digits, then a space or the end", () => {
+    for (const title of ["Q1", "Q12", "Q12 Where the page sits", "Q3 "]) {
+      expect(isQuestionPageTitle(title)).toBe(true);
+    }
+  });
+
+  it("rejects anything else", () => {
+    for (const title of ["Q", "Qa", "Quarterly report", "q1", "Q1a", "Q1:", " Q1", ""]) {
+      expect(isQuestionPageTitle(title)).toBe(false);
+    }
+  });
+});
+
 function page(title: string, visibleAt: string, attachmentId = title) {
   return {
     attachmentId,
     visibleAt: Date.parse(visibleAt),
+    title,
     htmlRender: { attachmentId, title, height: 400 },
   };
 }
