@@ -138,6 +138,26 @@ let sending: Electron.WebContents | null = null;
 /** True while `contents` is taking an agent's key, which belongs to the page and not to the app. */
 export const isAgentKey = (contents: Electron.WebContents) => sending === contents;
 
+/**
+ * Runs one key send with `guest` marked as taking an agent's key. Electron's
+ * `sendInputEvent` and a DevTools key command on an iframe's session both
+ * forward the key, and so emit `before-input-event`, before they return, so
+ * the mark covers exactly that call and is gone before the user's next key.
+ * Only the call itself is covered, not a promise it returns.
+ */
+export const asAgentKey = <A>(guest: Electron.WebContents, send: () => A): A => {
+  // The guard skips the preview manager's menu-shortcut sync, and a human editing
+  // shortcut may have opened the menu path. An agent's key never takes it, and an
+  // unhandled one stops here instead of reaching the window's menu.
+  guest.setIgnoreMenuShortcuts(true);
+  sending = guest;
+  try {
+    return send();
+  } finally {
+    sending = null;
+  }
+};
+
 const NOT_DELIVERED =
   "The key did not reach the preview page, so it was not sent anywhere else either.";
 
@@ -248,9 +268,6 @@ export const sendGuestKeys = async (
       )
     : null;
   if (guest.isDestroyed() || guest.isCrashed()) throw new GuestKeyError(NOT_DELIVERED);
-  // A human editing shortcut may have opened the menu path. An agent's key never
-  // takes it, and an unhandled one stops here instead of reaching the window.
-  guest.setIgnoreMenuShortcuts(true);
   let seen = 0;
   const count = () => {
     seen += 1;
@@ -259,12 +276,7 @@ export const sendGuestKeys = async (
   try {
     for (const packet of packets) {
       const seenBefore = seen;
-      sending = guest;
-      try {
-        guest.sendInputEvent(packet as Electron.KeyboardInputEvent);
-      } finally {
-        sending = null;
-      }
+      asAgentKey(guest, () => guest.sendInputEvent(packet as Electron.KeyboardInputEvent));
       if (packet.type !== "char" && seen === seenBefore) throw new GuestKeyError(NOT_DELIVERED);
     }
   } finally {

@@ -16,7 +16,7 @@
  * steer the keys. A frame that is out of process but has no session fails the
  * command rather than guess.
  */
-import { GuestKeyError, insertedText } from "./guestKeys.fork.ts";
+import { asAgentKey, GuestKeyError, insertedText } from "./guestKeys.fork.ts";
 
 /** Each debugger's iframe sessions, by the iframe's target id (its frame id). */
 const frameSessions = new WeakMap<Electron.Debugger, Map<string, string>>();
@@ -193,8 +193,11 @@ export const targetFrame = (debuggee: Electron.Debugger, target: KeyTarget) => (
  * the same rule as the main path: kept in a multi-line editor, dropped from a
  * single-line field, where the main path's `"\r"` would submit its form. A
  * focus that moved off the walked element since the walk fails the command.
+ * The key still passes `guest`'s `before-input-event`, so it is marked as the
+ * agent's there, as the main path's is.
  */
 export const sendFrameKeys = async (
+  guest: Electron.WebContents,
   debuggee: Electron.Debugger,
   target: KeyTarget & { readonly session: string },
   method: string,
@@ -214,6 +217,6 @@ export const sendFrameKeys = async (
   if ((await evaluateIn(send, target.session, target.contextId, STILL_FOCUSED)) !== true) {
     throw new GuestKeyError("The key was not sent: the frame's focus moved after it was found.");
   }
-  await send(command.method, command.params, target.session);
+  await asAgentKey(guest, () => send(command.method, command.params, target.session));
   return {};
 };

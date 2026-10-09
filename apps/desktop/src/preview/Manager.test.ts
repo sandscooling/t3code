@@ -28,6 +28,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+import * as FrameKeys from "./frameKeys.fork.ts"; // Fork
 import * as GuestKeys from "./guestKeys.fork.ts"; // Fork
 import * as PreviewManager from "./Manager.ts";
 
@@ -792,6 +793,83 @@ describe("PreviewManager", () => {
         expect(send).toHaveBeenCalledExactlyOnceWith("desktop:menu-action", "sidebar.toggle");
       }),
     ),
+  );
+
+  // Fork: a key for a cross-site iframe goes over the iframe's CDP session and is the page's too.
+  effectIt.effect.each(["replies", "fails", "throws"] as const)(
+    "an agent's chord into the guest's iframe is not forwarded, and the next key is the user's, when the send %s",
+    (outcome) =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const preview = makeFaviconWebContents();
+          const send = vi.fn();
+          const preventDefault = vi.fn();
+          const chord = { key: "U", meta: false, control: true, shift: false, alt: true };
+          const beforeInput = () =>
+            preview.listeners.get("before-input-event")!(
+              { preventDefault } as never,
+              { ...chord, type: "keyDown" } as never,
+            );
+          Object.assign(preview.webContents, {
+            hostWebContents: { isDestroyed: () => false, send },
+          });
+          fromId.mockReturnValue(preview.webContents);
+          getFocusedWebContents.mockReturnValue(preview.webContents as never);
+          yield* manager.createTab("tab_frame_chord");
+          yield* manager.registerWebview("tab_frame_chord", 42);
+          yield* manager.setForwardedShortcuts([
+            { command: "sidebar.toggle", shortcut: parseKeybindingShortcut("ctrl+alt+u")! },
+          ]);
+          // The user's paste opens the menu path for its native fallback.
+          const contents = preview.webContents as Electron.WebContents;
+          preview.listeners.get("before-input-event")!(
+            { preventDefault } as never,
+            {
+              type: "keyDown",
+              key: "v",
+              meta: true,
+              control: false,
+              shift: false,
+              alt: false,
+            } as never,
+          );
+          expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+          // The iframe's field keeps its focus, and Chromium runs the guest's
+          // before-input-event inside the key command, before the call returns.
+          const debuggee = {
+            sendCommand: (method: string) => {
+              if (method !== "Input.dispatchKeyEvent") {
+                return Promise.resolve({ result: { value: true } });
+              }
+              beforeInput();
+              if (outcome === "throws") throw new Error("Debugger is not attached.");
+              return outcome === "fails"
+                ? Promise.reject(new Error("No session with given id"))
+                : Promise.resolve({});
+            },
+          } as unknown as Electron.Debugger;
+          const result = yield* Effect.promise(() =>
+            FrameKeys.sendFrameKeys(
+              preview.webContents,
+              debuggee,
+              { session: "S1", contextId: 1, multiline: false },
+              "Input.dispatchKeyEvent",
+              { type: "rawKeyDown", key: "u", modifiers: 3 },
+            ).then(
+              () => "replied",
+              () => "failed",
+            ),
+          );
+          expect(result).toBe(outcome === "replies" ? "replied" : "failed");
+          expect(preventDefault).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          // The agent's key closed it again, so an unhandled chord cannot reach the app's menu.
+          expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+          // The same chord from the user afterwards is forwarded.
+          beforeInput();
+          expect(send).toHaveBeenCalledExactlyOnceWith("desktop:menu-action", "sidebar.toggle");
+        }),
+      ),
   );
 
   effectIt.effect.each([

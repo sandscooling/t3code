@@ -183,7 +183,8 @@ describe("sendFrameKeys", () => {
     });
     page.attach("CARD", "S1");
     const target = await FrameKeys.findKeyTarget(page.tab);
-    await FrameKeys.sendFrameKeys(page.tab, { ...target, session: "S1" }, method, params);
+    const guest = { setIgnoreMenuShortcuts: () => undefined } as unknown as Electron.WebContents;
+    await FrameKeys.sendFrameKeys(guest, page.tab, { ...target, session: "S1" }, method, params);
     return page.sent.filter(({ method }) => method.startsWith("Input."));
   };
 

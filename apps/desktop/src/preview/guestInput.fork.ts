@@ -98,7 +98,7 @@ const sendKeys = async (
   const target = await findKeyTarget(debuggee);
   return target.session === undefined
     ? sendGuestKeys(guest, method, params, { ...target, frame: targetFrame(debuggee, target) })
-    : sendFrameKeys(debuggee, { ...target, session: target.session }, method, params);
+    : sendFrameKeys(guest, debuggee, { ...target, session: target.session }, method, params);
 };
 
 /** Routes one server command for `guest`; `forward` sends it to the guest's debugger. */
