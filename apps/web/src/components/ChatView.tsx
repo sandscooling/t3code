@@ -3968,11 +3968,14 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timelineEntries = isServerThread ? serverTimelineEntries : draftTimelineEntries;
   // Fork: a new html render in this thread opens in the right panel, unless it only opens as a sheet.
+  // During a question round, the page titled for the question on screen opens instead.
   useAutoOpenHtmlRenders({
     threadKey: activeThreadKey,
     enabled: !shouldUsePlanSidebarSheet,
     turnItems: serverVisibleTurnItems,
     open: openFileAttachment,
+    pendingUserInput: activePendingUserInput,
+    questionIndex: activePendingQuestionIndex,
   });
   const timelineMessages = useMemo(
     () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),

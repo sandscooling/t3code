@@ -5,10 +5,13 @@ import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import { DateTime } from "effect";
 import { useEffect, useMemo, useRef } from "react";
 
+import type { PendingUserInput } from "~/session-logic";
 import type { ChatFileAttachment } from "~/types";
 
 /** The panel attachment for a render, the same one the inline frame's "Open in panel" builds. */
-export function htmlRenderAttachment(htmlRender: HtmlRenderReference): ChatFileAttachment {
+export function htmlRenderAttachment(
+  htmlRender: Pick<HtmlRenderReference, "attachmentId" | "title">,
+): ChatFileAttachment {
   return {
     type: "file",
     id: htmlRender.attachmentId,
@@ -24,6 +27,36 @@ export interface HtmlRenderSighting {
   readonly attachmentId: string;
   /** When the `html_render` call completed and the page appeared, in epoch milliseconds. */
   readonly visibleAt: number;
+}
+
+/** The thread's completed html_render pages, timed by completion: a row's createdAt is when the call started. */
+export function htmlRenderSightings(turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>) {
+  return turnItems.flatMap(({ item }) => {
+    if (item.type !== "dynamic_tool" || item.status !== "completed") return [];
+    const htmlRender = htmlRenderFromToolItem(item);
+    if (htmlRender === undefined) return [];
+    const visibleAt = DateTime.toEpochMillis(item.completedAt ?? item.updatedAt);
+    return [{ attachmentId: htmlRender.attachmentId, visibleAt, htmlRender }];
+  });
+}
+
+/**
+ * The page that belongs to a question: the newest render whose title is the
+ * question's header, or starts with it followed by a space. "Q1" therefore
+ * never claims "Q10 ...".
+ */
+export function questionHtmlRender(
+  renders: ReadonlyArray<HtmlRenderSighting & { readonly htmlRender: HtmlRenderReference }>,
+  header: string,
+): HtmlRenderReference | null {
+  if (header.length === 0) return null;
+  let match: (typeof renders)[number] | null = null;
+  for (const render of renders) {
+    const { title } = render.htmlRender;
+    if (title !== header && !title.startsWith(`${header} `)) continue;
+    if (match === null || render.visibleAt >= match.visibleAt) match = render;
+  }
+  return match?.htmlRender ?? null;
 }
 
 export interface HtmlRenderAutoOpenState {
@@ -73,36 +106,72 @@ export function nextHtmlRenderAutoOpen(
   };
 }
 
+export interface QuestionHtmlRenderOpenState {
+  readonly threadKey: string;
+  /** The active question's request and matched page, or null without one. */
+  readonly target: string | null;
+}
+
+/**
+ * Decides whether the page for the question on screen opens. Like the
+ * newest-first rule, a thread's first sighting (switching in, returning to a
+ * round) opens nothing, and a target that changes while the panel is
+ * unavailable is recorded without opening, so a later resize opens nothing.
+ * Within the viewed thread, a new target opens: a request arriving live, Next
+ * or Previous, or a newer page for the same question.
+ */
+export function nextQuestionHtmlRenderOpen(
+  previous: QuestionHtmlRenderOpenState | null,
+  input: {
+    readonly threadKey: string | null;
+    readonly enabled: boolean;
+    readonly target: string | null;
+  },
+): { readonly state: QuestionHtmlRenderOpenState | null; readonly open: boolean } {
+  const { threadKey, target } = input;
+  if (threadKey === null) return { state: null, open: false };
+  if (previous === null || previous.threadKey !== threadKey) {
+    return { state: { threadKey, target }, open: false };
+  }
+  if (previous.target === target) return { state: previous, open: false };
+  return { state: { threadKey, target }, open: input.enabled && target !== null };
+}
+
 /**
  * Opens each new render in the viewed thread's right panel once. While the
  * panel is unavailable (`enabled` false) renders are still marked seen, so a
- * later resize does not open old pages.
+ * later resize does not open old pages. While a question round is pending and
+ * a page is titled for the question on screen, that page owns the panel: new
+ * renders are only marked seen, and Next or Previous re-targets it.
  */
 export function useAutoOpenHtmlRenders(input: {
   readonly threadKey: string | null;
   readonly enabled: boolean;
   readonly turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
   readonly open: (attachment: ChatFileAttachment) => void;
+  readonly pendingUserInput: PendingUserInput | null;
+  readonly questionIndex: number;
 }) {
-  const { threadKey, enabled, turnItems, open } = input;
-  // The timeline's own html-render rows, but timed by completion: a row's
-  // createdAt is when the call started.
-  const renders = useMemo(
-    () =>
-      turnItems.flatMap(({ item }) => {
-        if (item.type !== "dynamic_tool" || item.status !== "completed") return [];
-        const htmlRender = htmlRenderFromToolItem(item);
-        if (htmlRender === undefined) return [];
-        const visibleAt = DateTime.toEpochMillis(item.completedAt ?? item.updatedAt);
-        return [{ attachmentId: htmlRender.attachmentId, visibleAt, htmlRender }];
-      }),
-    [turnItems],
+  const { threadKey, enabled, turnItems, open, pendingUserInput, questionIndex } = input;
+  const renders = useMemo(() => htmlRenderSightings(turnItems), [turnItems]);
+  const requestId = pendingUserInput?.requestId ?? null;
+  const header = pendingUserInput?.questions[questionIndex]?.header ?? null;
+  const questionRender = useMemo(
+    () => (header === null ? null : questionHtmlRender(renders, header)),
+    [header, renders],
   );
+  const questionAttachmentId = questionRender?.attachmentId ?? null;
+  const questionTitle = questionRender?.title ?? null;
+  const questionTarget =
+    requestId === null || questionAttachmentId === null
+      ? null
+      : JSON.stringify([requestId, questionAttachmentId]);
+
   const stateRef = useRef<HtmlRenderAutoOpenState | null>(null);
   useEffect(() => {
     const next = nextHtmlRenderAutoOpen(stateRef.current, {
       threadKey,
-      enabled,
+      enabled: enabled && questionTarget === null,
       now: Date.now(),
       renders,
     });
@@ -110,5 +179,17 @@ export function useAutoOpenHtmlRenders(input: {
     if (next.openAttachmentId === null) return;
     const render = renders.find((entry) => entry.attachmentId === next.openAttachmentId);
     if (render) open(htmlRenderAttachment(render.htmlRender));
-  }, [enabled, open, renders, threadKey]);
+  }, [enabled, open, questionTarget, renders, threadKey]);
+
+  const questionStateRef = useRef<QuestionHtmlRenderOpenState | null>(null);
+  useEffect(() => {
+    const next = nextQuestionHtmlRenderOpen(questionStateRef.current, {
+      threadKey,
+      enabled,
+      target: questionTarget,
+    });
+    questionStateRef.current = next.state;
+    if (!next.open || questionAttachmentId === null || questionTitle === null) return;
+    open(htmlRenderAttachment({ attachmentId: questionAttachmentId, title: questionTitle }));
+  }, [enabled, open, questionAttachmentId, questionTarget, questionTitle, threadKey]);
 }
