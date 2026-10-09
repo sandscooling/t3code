@@ -165,7 +165,7 @@ import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
-} from "../SubagentProjection.ts";
+} from "@t3tools/provider-core/server/subagentProjection";
 // Fork: Codex image work-log rows.
 import { codexImageItemEvents } from "./codexImageItems.ts";
 
