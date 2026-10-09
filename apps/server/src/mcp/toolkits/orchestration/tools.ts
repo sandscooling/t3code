@@ -106,7 +106,7 @@ const SessionWakeTool = Tool.make("session_wake", {
 
 const SessionSettleTool = Tool.make("session_settle", {
   description:
-    "Settle a finished session, clearing it out of the inbox: by name in your own project, or by the threadId session_list reports in any project. The sessions it spawned settle with it (`settledWith`), however it is settled, from here or the sidebar. Any of them with a turn running or queued, or an approval pending, stays open (`leftOpen`). Settling again is harmless. Fails while that session itself has a turn running or queued, or an approval pending; stop it or answer it first. A question it asked that can be answered by message is dismissed. You cannot settle yourself, because your own turn is running.",
+    "Settle a finished session, clearing it out of the inbox: by name in your own project, or by the threadId session_list reports in any project. The sessions it spawned settle with it (`settledWith`), however it is settled, from here or the sidebar. Any of them with a turn running or queued, or an approval pending, stays open (`leftOpen`). Settling again is harmless. Fails while that session itself has a turn running or queued, or an approval pending; stop it or answer it first. A question it asked that can be answered by message is dismissed. You can settle yourself: since your own turn is running, that takes effect when the turn completes (`settlesWhenTurnEnds`), along with the sessions you spawned; a turn that fails or is interrupted, or a queued message, leaves you open.",
   parameters: SessionSettleInput,
   success: SessionSettleResult,
   failure: SessionToolFailure,

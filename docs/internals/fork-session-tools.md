@@ -59,8 +59,11 @@ Orchestrator's `dispatchWithReceipt`. Every explicit `thread.settle`, from the t
 or any client, settles the threads it spawned, one level deep, each as its own command under its
 own lock after the parent's lock is released, and uninterruptibly. Automatic settlement
 (`thread.auto-settle`) never cascades. The decider keeps sole ownership of settle eligibility; a
-refusal comes back as `settle-blocked`, and a child it refuses stays open. A caller cannot settle
-itself, because its own turn is running while the tool call is in flight.
+refusal comes back as `settle-blocked`, and a child it refuses stays open. A caller settling itself
+is mid-turn, so the tool goes through `ThreadManagementService.settleThread` with `byOwnAgent`,
+the same deferral `t3_thread_organize` uses: the plain `thread.settle`, cascade included, is
+dispatched once that run completes. A run that ends any other way leaves it open, and so does a
+message queued behind the run, which `thread.settle` refuses.
 
 A handoff successor takes the caller's spawner, so it is the caller's sibling and settling the old
 orchestrator does not take it along. Only after the successor exists does it adopt the caller's

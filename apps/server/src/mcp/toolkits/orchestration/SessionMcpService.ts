@@ -834,19 +834,18 @@ const make = Effect.gen(function* () {
   ) {
     const { caller, sessions } = yield* loadScope(scope);
     const target = yield* resolveSession(sessions, caller, input.name);
-    // The caller is running by definition while its tool call is in flight.
-    if (target.id === caller.id) {
-      return yield* toolError(
-        "settle-blocked",
-        "a session cannot settle itself while its own turn is running; ask the user, or have the session that spawned it settle it",
-      );
-    }
     // The server owns settle eligibility, and an explicit settle also settles
     // the sessions the target spawned, one command each right after the
     // target's, as every other way of settling does. That finishes before
-    // dispatch returns, so this only reports what it did.
-    yield* threads
-      .dispatch({ type: "thread.settle", commandId: yield* newCommandId, threadId: target.id })
+    // dispatch returns, so this only reports what it did. A session settling
+    // itself is mid-turn, so it settles, cascade included, once that turn
+    // completes, as t3_thread_organize's settle does.
+    const result = yield* threads
+      .settleThread({
+        commandId: yield* newCommandId,
+        threadId: target.id,
+        byOwnAgent: target.id === caller.id,
+      })
       .pipe(
         Effect.mapError((error) =>
           error._tag === "OrchestratorDispatchError" &&
@@ -858,6 +857,15 @@ const make = Effect.gen(function* () {
             : toolError("dispatch-failed", describe(error)),
         ),
       );
+    if ("settlesWhenTurnEnds" in result) {
+      return {
+        threadId: target.id,
+        name: target.title,
+        settledWith: [],
+        leftOpen: [],
+        settlesWhenTurnEnds: true as const,
+      };
+    }
     const settledWith: Array<string> = [];
     const leftOpen: Array<string> = [];
     for (const child of sessions) {

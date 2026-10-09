@@ -39,8 +39,9 @@ Every agent session gets eight tools:
 - **session_settle** settles a finished session, clearing it out of the inbox the same way the
   settle button does, and settling anything that session started, in any project. A session that
   is still running, waiting on an answer from you, or holding a queued turn is refused, so the
-  orchestrator cannot hide work you still need to see. A session cannot settle itself, because its
-  own turn is running while it asks.
+  orchestrator cannot hide work you still need to see. A session can settle itself, which takes
+  effect once its current turn finishes; if that turn fails or is stopped, or a message is waiting
+  for it, it stays open.
 - **session_rename** renames a session, including the caller itself. The new name follows the same
   rules as a spawned session's name, and no other open or settled session in that project may
   hold it. To reuse a settled session's name, rename that session first.

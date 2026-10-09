@@ -102,7 +102,7 @@ export const SessionSpawnInput = Schema.Struct({
   handoff: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Hand your work to the new session, to replace yourself when your context has grown too long. The new session becomes your sibling instead of your child, and every session you spawned moves to it, so settling you afterwards leaves them open. It stays in your worktree unless you pass `worktree`. Put everything it needs to continue in `message`. You cannot settle yourself; once your turn ends, the new session can settle you with session_settle, retrying if you are still running.",
+        "Hand your work to the new session, to replace yourself when your context has grown too long. The new session becomes your sibling instead of your child, and every session you spawned moves to it, so settling you afterwards leaves them open. It stays in your worktree unless you pass `worktree`. Put everything it needs to continue in `message`. To finish, settle yourself with session_settle, which takes effect when your turn ends.",
     }),
   ),
   worktree: Schema.optional(SessionWorktree),
@@ -281,6 +281,12 @@ export const SessionSettleResult = Schema.Struct({
    * them because they still need attention, or failed.
    */
   leftOpen: Schema.Array(Schema.String),
+  /**
+   * Set when a session settled itself: its own turn is running, so it settles
+   * once that turn completes, and the sessions it spawned settle with it then.
+   * `settledWith` and `leftOpen` are empty, since nothing has settled yet.
+   */
+  settlesWhenTurnEnds: Schema.optional(Schema.Literal(true)),
 });
 export type SessionSettleResult = typeof SessionSettleResult.Type;
 

@@ -31,9 +31,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../../../config.ts";
@@ -1233,9 +1235,6 @@ it.effect(
         message: "Go.",
       });
 
-      expect(yield* refused(orchestratorId, "session_settle", { name: "Orchestrator" })).toContain(
-        "cannot settle itself",
-      );
       const blocked = yield* refused(orchestratorId, "session_settle", {
         name: busyChild.threadId,
       });
@@ -1260,6 +1259,59 @@ it.effect(
         leftOpen: ["L4-review"],
       });
     }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("settles itself, with the roster it spawned, once its own turn completes", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const lead = yield* seed({ id: "thread:self-lead", title: "Lead", spawnedBy: orchestratorId });
+    yield* seed({ id: "thread:self-child", title: "L5-dev", spawnedBy: lead });
+    const runId = yield* runningTurn(lead);
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    // The child's settle commits after the lead's, so each is awaited.
+    const settledEvents = yield* Effect.forEach([lead, ThreadId.make("thread:self-child")], (id) =>
+      threads
+        .streamStoredEventsFrom({ threadId: id, afterSequence: 0, eventType: "thread.settled" })
+        .pipe(Stream.runHead, Effect.forkChild),
+    );
+
+    expect(yield* ok(lead, "session_settle", { name: "Lead" })).toEqual({
+      threadId: lead,
+      name: "Lead",
+      settledWith: [],
+      leftOpen: [],
+      settlesWhenTurnEnds: true,
+    });
+    expect((yield* shellOf(lead)).settledOverride).toBeNull();
+    expect((yield* shellOf("thread:self-child")).settledOverride).toBeNull();
+
+    const before = yield* projectionOf(lead);
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    yield* sink.write({
+      events: [
+        ...before.providerTurns.map((turn): OrchestrationV2DomainEvent => ({
+          id: EventId.make(`${turn.id}:completed`),
+          type: "provider-turn.updated",
+          threadId: lead,
+          occurredAt: now,
+          payload: { ...turn, status: "completed", completedAt: now },
+        })),
+        {
+          id: EventId.make(`${runId}:completed`),
+          type: "run.updated",
+          threadId: lead,
+          runId,
+          occurredAt: now,
+          payload: { ...before.runs[0]!, status: "completed", completedAt: now },
+        },
+      ],
+    });
+    yield* Fiber.joinAll(settledEvents);
+
+    expect((yield* shellOf(lead)).settledOverride).toBe("settled");
+    expect((yield* shellOf("thread:self-child")).settledOverride).toBe("settled");
+  }).pipe(Effect.provide(makeHarness([]))),
 );
 
 it.effect("renames by name, by threadId across projects, and itself, keeping names unique", () =>
