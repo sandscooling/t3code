@@ -1,6 +1,8 @@
+import * as Rpc from "effect/rpc/Rpc";
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, PositiveInt } from "./baseSchemas.ts";
+import { EnvironmentAuthorizationError } from "./auth.ts";
+import { IsoDateTime, NonNegativeInt, PositiveInt, ThreadId } from "./baseSchemas.ts";
 
 /**
  * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
@@ -370,6 +372,30 @@ export const SessionIdleHandoffResult = Schema.Struct({
   idleHandoff: Schema.NullOr(SessionIdleHandoffSetting),
 });
 export type SessionIdleHandoffResult = typeof SessionIdleHandoffResult.Type;
+
+/**
+ * When an armed idle handoff fires if the thread stays idle, for the sidebar
+ * hover card. Asked only while the card is open, so nothing streams per thread.
+ */
+export const SESSION_IDLE_HANDOFF_DUE_METHOD = "fork.sessionIdleHandoff.due";
+
+export const SessionIdleHandoffDueInput = Schema.Struct({ threadId: ThreadId });
+export type SessionIdleHandoffDueInput = typeof SessionIdleHandoffDueInput.Type;
+
+/** Null unless the handoff is armed: opted in, last turn at the token line, thread idle. */
+export const SessionIdleHandoffDueResult = Schema.NullOr(Schema.Struct({ dueAt: IsoDateTime }));
+export type SessionIdleHandoffDueResult = typeof SessionIdleHandoffDueResult.Type;
+
+export class SessionIdleHandoffDueError extends Schema.TaggedError<SessionIdleHandoffDueError>()(
+  "SessionIdleHandoffDueError",
+  { message: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {}
+
+export const WsSessionIdleHandoffDueRpc = Rpc.make(SESSION_IDLE_HANDOFF_DUE_METHOD, {
+  payload: SessionIdleHandoffDueInput,
+  success: SessionIdleHandoffDueResult,
+  error: Schema.Union([SessionIdleHandoffDueError, EnvironmentAuthorizationError]),
+});
 
 export const OrchestrationToolErrorReason = Schema.Literals([
   "capability-unavailable",

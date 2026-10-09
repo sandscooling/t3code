@@ -211,6 +211,7 @@ import {
   OrchestrationV2RpcSchemas,
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
+import { WsSessionIdleHandoffDueRpc } from "./orchestrationTools.ts"; // Fork: idle handoff due time
 import {
   ProjectCreateNewInput,
   ProjectCreateNewResult,
@@ -1994,4 +1995,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
+  WsSessionIdleHandoffDueRpc, // Fork: idle handoff due time
 ).middleware(RpcScopeAuthorization);

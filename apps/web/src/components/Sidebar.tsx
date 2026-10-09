@@ -238,6 +238,7 @@ import {
   SidebarBrowserStatusLine,
   useSidebarBrowserStatus,
 } from "./SidebarBrowserStatus";
+import { SidebarIdleHandoffLine } from "./SidebarIdleHandoff"; // Fork: idle handoff due time
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
@@ -554,6 +555,8 @@ function SidebarThreadTooltip({
         ) : null}
         {/* Fork: the browser tab line, beside the terminal one */}
         <SidebarBrowserStatusLine thread={thread} />
+        {/* Fork: when an armed idle handoff fires */}
+        <SidebarIdleHandoffLine thread={thread} />
         {thread.runtime?.lastError ? (
           <div
             className={cn(

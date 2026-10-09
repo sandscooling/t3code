@@ -566,3 +566,171 @@ it.effect("keeps sweeping without failing when the settings table cannot be read
     }),
   ).pipe(Effect.provide(base)),
 );
+
+// dueAt: the hover card's time, by the worker's own rules.
+
+it.effect("gives the due time of an armed handoff, and the worker fires at that time", () =>
+  lifetime((service, sweep) =>
+    Effect.gen(function* () {
+      const threadId = yield* seedThread("thread:due-armed");
+      yield* service.set(threadId, setting);
+      yield* turn(threadId, { ordinal: 1, endsAt: at(0), usedTokens: 250_000 });
+
+      yield* clockAt(10);
+      const dueMs = yield* service.dueAt(threadId);
+      expect(dueMs).toBe(start + 50 * MINUTE);
+
+      yield* TestClock.setTime(dueMs! - 1);
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(0);
+      // Past due still answers the due time: the worker sends it on its next look.
+      yield* TestClock.setTime(dueMs! + 1);
+      expect(yield* service.dueAt(threadId)).toBe(dueMs);
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(base)),
+);
+
+it.effect("gives no due time when off, below the line, busy, queued, or settled", () =>
+  lifetime((service) =>
+    Effect.gen(function* () {
+      const off = yield* seedThread("thread:due-off");
+      const below = yield* seedThread("thread:due-below");
+      const running = yield* seedThread("thread:due-running");
+      const queued = yield* seedThread("thread:due-queued");
+      const settled = yield* seedThread("thread:due-settled");
+      for (const threadId of [off, below, running, queued, settled]) {
+        yield* turn(threadId, {
+          ordinal: 1,
+          endsAt: at(0),
+          usedTokens: threadId === below ? 150_000 : 250_000,
+        });
+        if (threadId !== off) yield* service.set(threadId, setting);
+      }
+      yield* turn(running, { ordinal: 2, endsAt: at(5), status: "running" });
+      yield* turn(queued, { ordinal: 2, endsAt: at(5), status: "queued" });
+      yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: settled }));
+
+      yield* clockAt(10);
+      for (const threadId of [off, below, running, queued, settled]) {
+        expect(yield* service.dueAt(threadId)).toBeNull();
+      }
+    }),
+  ).pipe(Effect.provide(base)),
+);
+
+it.effect("moves the due time past a busy stretch the worker saw, as its firing does", () =>
+  lifetime((service, sweep) =>
+    Effect.gen(function* () {
+      const threadId = yield* seedThread("thread:due-building");
+      yield* service.set(threadId, setting);
+      yield* turn(threadId, { ordinal: 1, endsAt: at(0), usedTokens: 250_000 });
+      const sink = yield* EventSink.EventSinkV2;
+      yield* sink.write({
+        events: [
+          providerThread(threadId, at(1), [
+            { kind: "command", taskId: "build", description: "vp build" },
+          ]),
+        ],
+      });
+      yield* dispatch((commandId) => ({
+        type: "thread.background-work.hold",
+        commandId,
+        threadId,
+        held: true,
+      }));
+      yield* clockAt(60);
+      yield* sweep;
+      expect(yield* service.dueAt(threadId)).toBeNull();
+
+      yield* sink.write({ events: [providerThread(threadId, at(60.5))] });
+      yield* clockAt(61);
+      expect(yield* service.dueAt(threadId)).toBe(start + 110 * MINUTE);
+    }),
+  ).pipe(Effect.provide(base)),
+);
+
+it.effect("gives a fresh due time after a dropped reminder, and the worker fires at it", () =>
+  lifetime((service, sweep) =>
+    Effect.gen(function* () {
+      const threadId = yield* seedThread("thread:due-fired");
+      yield* service.set(threadId, setting);
+      yield* turn(threadId, { ordinal: 1, endsAt: at(0), usedTokens: 250_000 });
+      const threads = yield* ThreadManagement.ThreadManagementService;
+
+      yield* clockAt(51);
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(1);
+
+      // The reminder is cancelled before it runs. The cancelled run becomes the
+      // thread's latest, so a new idle window starts from its end.
+      const [message] = yield* reminders(threadId);
+      const { runs } = yield* threads.getThreadRecords(threadId, ["runs"]);
+      const run = runs.find((candidate) => candidate.id === message?.runId)!;
+      const sink = yield* EventSink.EventSinkV2;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make(`${run.id}:cancelled`),
+            type: "run.updated",
+            threadId,
+            occurredAt: at(52),
+            payload: { ...run, status: "cancelled", completedAt: at(52) },
+          },
+        ],
+      });
+      yield* clockAt(53);
+      expect((yield* threads.getThreadShell(threadId))?.latestRunId).toBe(run.id);
+      expect(yield* service.dueAt(threadId)).toBe(start + 102 * MINUTE);
+      yield* sweep;
+      yield* clockAt(101);
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(1);
+      yield* clockAt(103);
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(2);
+    }),
+  ).pipe(Effect.provide(base)),
+);
+
+it.effect("keeps a run the worker found below the line below it, despite a late usage report", () =>
+  lifetime((service, sweep) =>
+    Effect.gen(function* () {
+      const threadId = yield* seedThread("thread:due-late-usage");
+      yield* service.set(threadId, setting);
+      yield* turn(threadId, { ordinal: 1, endsAt: at(0), usedTokens: 150_000 });
+      yield* clockAt(51);
+      yield* sweep;
+
+      const sink = yield* EventSink.EventSinkV2;
+      const key = `${threadId}:1`;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make(`${key}:late-usage`),
+            type: "provider-turn.updated",
+            threadId,
+            occurredAt: at(52),
+            payload: {
+              id: ProviderTurnId.make(`provider-turn:${key}`),
+              providerThreadId: ProviderThreadId.make(`provider-thread:${threadId}`),
+              nodeId: NodeId.make(`node:${key}`),
+              runAttemptId: null,
+              nativeTurnRef: null,
+              ordinal: 1,
+              status: "completed",
+              startedAt: at(0),
+              completedAt: at(0),
+              tokenUsage: { usedTokens: 250_000, updatedAt: DateTime.formatIso(at(52)) },
+            },
+          },
+        ],
+      });
+      yield* clockAt(53);
+      expect(yield* service.dueAt(threadId)).toBeNull();
+      yield* sweep;
+      expect(yield* reminders(threadId)).toHaveLength(0);
+    }),
+  ).pipe(Effect.provide(base)),
+);

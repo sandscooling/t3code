@@ -34,6 +34,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import type * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export class IdleHandoffStoreError extends Schema.TaggedError<IdleHandoffStoreError>()(
@@ -64,6 +65,14 @@ export class SessionIdleHandoffService extends Context.Service<
       threadId: ThreadId,
       setting: SessionIdleHandoffSetting | null,
     ) => Effect.Effect<void, IdleHandoffStoreError>;
+    /**
+     * Epoch ms the reminder falls due if the thread stays idle, by the same
+     * rules the worker fires on; null unless it is armed. Past due means the
+     * worker sends it on its next look.
+     */
+    readonly dueAt: (
+      threadId: ThreadId,
+    ) => Effect.Effect<number | null, IdleHandoffStoreError | Orchestrator.OrchestratorV2Error>;
   }
 >()("t3/orchestration-v2/SessionIdleHandoff.fork/SessionIdleHandoffService") {}
 
@@ -115,6 +124,61 @@ const lastContextTokens = (
     if (latest === null || at >= latest.at) latest = { usedTokens: turn.tokenUsage.usedTokens, at };
   }
   return latest?.usedTokens ?? null;
+};
+
+/**
+ * Where a thread's idle window stands, from its shell alone: `busy` restarts
+ * the window, `idle` says when the reminder falls due, `off` means this state
+ * never sends one. `lastBusyAtMs` is the worker's in-memory busy mark.
+ */
+export type IdleHandoffWindow =
+  | { readonly state: "off" }
+  | { readonly state: "busy" }
+  | { readonly state: "idle"; readonly idleSinceMs: number; readonly dueMs: number };
+
+export const idleHandoffWindow = (
+  shell: OrchestrationV2ThreadShell,
+  setting: SessionIdleHandoffSetting,
+  lastBusyAtMs: number | undefined,
+): IdleHandoffWindow => {
+  if (shell.deletedAt !== null) return { state: "off" };
+  // A handed-off session was replaced; its successor holds the reminder.
+  if (shell.successorThreadId != null) return { state: "off" };
+  // A settled or archived thread is finished work, held like a busy one so
+  // that reopening it starts a fresh window instead of firing at once.
+  if (isBusy(shell) || shell.settledOverride === "settled" || shell.archivedAt !== null) {
+    return { state: "busy" };
+  }
+  // A failed last run waits on the user; a reminder would only fail the same way.
+  if (shell.status === "failed") return { state: "off" };
+  if (shell.latestRunId === null || shell.latestRunCompletedAt == null) return { state: "off" };
+
+  // unsettledAt carries a reopen across a restart. An unarchive leaves no
+  // such mark, so only the in-memory busy stretch covers it.
+  const idleSinceMs = Math.max(
+    DateTime.toEpochMillis(shell.latestRunCompletedAt),
+    shell.unsettledAt == null ? 0 : DateTime.toEpochMillis(shell.unsettledAt),
+    lastBusyAtMs ?? 0,
+  );
+  return { state: "idle", idleSinceMs, dueMs: idleSinceMs + setting.afterMinutes * 60_000 };
+};
+
+/**
+ * What the run records add to an idle window: a `queued` run is work the
+ * shell hides (a queue the server held after a Stop or a restart), `below`
+ * means the last turn ended under the token line.
+ */
+export const idleHandoffLine = (
+  records: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "providerTurns">,
+  setting: SessionIdleHandoffSetting,
+):
+  | { readonly state: "queued" }
+  | { readonly state: "below" }
+  | { readonly state: "armed"; readonly usedTokens: number } => {
+  if (records.runs.some((run) => run.status === "queued")) return { state: "queued" };
+  const usedTokens = lastContextTokens(records);
+  if (usedTokens === null || usedTokens < setting.minTokens) return { state: "below" };
+  return { state: "armed", usedTokens };
 };
 
 const roundedThousands = (tokens: number) => `${Math.round(tokens / 1000)}k`;
@@ -200,7 +264,8 @@ const make = Effect.gen(function* () {
   // In memory only, so a restart starts from persisted state. `lastBusyAt`
   // catches work that ends without a new run, such as a held background
   // command; `nextCheckAt` spaces out reads of a thread that cannot fire yet;
-  // `belowLine` remembers a run already found under the token line.
+  // `belowLine` remembers a run already found under the token line, which
+  // dueAt honours too.
   const lastBusyAt = new Map<string, number>();
   const nextCheckAt = new Map<string, number>();
   const belowLine = new Map<string, string>();
@@ -210,6 +275,9 @@ const make = Effect.gen(function* () {
     nextCheckAt.delete(threadId);
     belowLine.delete(threadId);
   };
+
+  const lineKeyOf = (runId: string, setting: SessionIdleHandoffSetting) =>
+    `${runId}:${setting.minTokens}`;
 
   const checkThread = Effect.fn("SessionIdleHandoff.checkThread")(function* (
     threadId: ThreadId,
@@ -224,44 +292,33 @@ const make = Effect.gen(function* () {
       forget(threadId);
       return yield* set(threadId, null);
     }
-    // A handed-off session was replaced; its successor holds the reminder.
-    if (shell.successorThreadId != null) return;
-    // A settled or archived thread is finished work, held like a busy one so
-    // that reopening it starts a fresh window instead of firing at once.
-    if (isBusy(shell) || shell.settledOverride === "settled" || shell.archivedAt !== null) {
+    const window = idleHandoffWindow(shell, setting, lastBusyAt.get(threadId));
+    if (window.state === "busy") {
       lastBusyAt.set(threadId, nowMs);
       return;
     }
-    // A failed last run waits on the user; a reminder would only fail the same way.
-    if (shell.status === "failed") return;
-    if (shell.latestRunId === null || shell.latestRunCompletedAt == null) return;
-
-    // unsettledAt carries a reopen across a restart. An unarchive leaves no
-    // such mark, so only the in-memory busy stretch covers it.
-    const idleSinceMs = Math.max(
-      DateTime.toEpochMillis(shell.latestRunCompletedAt),
-      shell.unsettledAt == null ? 0 : DateTime.toEpochMillis(shell.unsettledAt),
-      lastBusyAt.get(threadId) ?? 0,
-    );
-    const dueMs = idleSinceMs + setting.afterMinutes * 60_000;
+    if (window.state === "off" || shell.latestRunId === null) return;
+    const { idleSinceMs, dueMs } = window;
     if (dueMs > nowMs) {
       nextCheckAt.set(threadId, Math.min(dueMs, nowMs + CHECK_SPACING_MS));
       return;
     }
-    const lineKey = `${shell.latestRunId}:${setting.minTokens}`;
+    const lineKey = lineKeyOf(shell.latestRunId, setting);
     if (belowLine.get(threadId) === lineKey) return;
 
-    const records = yield* threads.getThreadRecords(threadId, ["runs", "providerTurns"]);
-    // The shell hides a queue the server held after a Stop or a restart.
-    if (records.runs.some((run) => run.status === "queued")) {
+    const line = idleHandoffLine(
+      yield* threads.getThreadRecords(threadId, ["runs", "providerTurns"]),
+      setting,
+    );
+    if (line.state === "queued") {
       lastBusyAt.set(threadId, nowMs);
       return;
     }
-    const usedTokens = lastContextTokens(records);
-    if (usedTokens === null || usedTokens < setting.minTokens) {
+    if (line.state === "below") {
       belowLine.set(threadId, lineKey);
       return;
     }
+    const { usedTokens } = line;
 
     const fireKey = `idle-handoff:${threadId}:${shell.latestRunId}`;
     yield* threads.sendToThread({
@@ -313,9 +370,26 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const dueAt = Effect.fn("SessionIdleHandoff.dueAt")(function* (threadId: ThreadId) {
+    const setting = yield* get(threadId);
+    if (setting === null) return null;
+    const shell = yield* threads.getThreadShell(threadId);
+    if (shell === null || shell.latestRunId === null) return null;
+    const window = idleHandoffWindow(shell, setting, lastBusyAt.get(threadId));
+    if (window.state !== "idle") return null;
+    // A run the worker found below the line stays below it, so the card
+    // cannot promise a reminder the worker will not send.
+    if (belowLine.get(threadId) === lineKeyOf(shell.latestRunId, setting)) return null;
+    const line = idleHandoffLine(
+      yield* threads.getThreadRecords(threadId, ["runs", "providerTurns"]),
+      setting,
+    );
+    return line.state === "armed" ? window.dueMs : null;
+  });
+
   yield* scheduler.register("session-idle-handoff", sweep());
 
-  return SessionIdleHandoffService.of({ list, get, set });
+  return SessionIdleHandoffService.of({ list, get, set, dueAt });
 });
 
 export const layer = Layer.effect(SessionIdleHandoffService, make);

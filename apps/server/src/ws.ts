@@ -123,6 +123,9 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+// Fork: idle handoff due time, for the sidebar hover card.
+import * as SessionIdleHandoff from "./orchestration-v2/SessionIdleHandoff.fork.ts";
+import { SESSION_IDLE_HANDOFF_DUE_METHOD, SessionIdleHandoffDueError } from "@t3tools/contracts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1326,6 +1329,7 @@ const layerWsRpc = (
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
+      const idleHandoffs = yield* SessionIdleHandoff.SessionIdleHandoffService; // Fork
       // A webhook URL starts agent runs, so only sessions that may operate
       // see it; read-only sessions still see the task itself.
       const withVisibleWebhookUrls = (result: ScheduledTaskListResult): ScheduledTaskListResult =>
@@ -2039,6 +2043,20 @@ const layerWsRpc = (
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
               Effect.andThen(subscribeOrchestrationV2Thread(input)),
+            ),
+          ),
+        // Fork: when an armed idle handoff falls due, for the sidebar hover card.
+        [SESSION_IDLE_HANDOFF_DUE_METHOD]: (input) =>
+          idleHandoffs.dueAt(input.threadId).pipe(
+            Effect.map((dueMs) =>
+              dueMs === null ? null : { dueAt: DateTime.formatIso(DateTime.makeUnsafe(dueMs)) },
+            ),
+            Effect.mapError(
+              (cause) =>
+                new SessionIdleHandoffDueError({
+                  message: "Could not read the idle handoff",
+                  cause,
+                }),
             ),
           ),
         [WS_METHODS.scheduledTasksList]: (_input) =>
