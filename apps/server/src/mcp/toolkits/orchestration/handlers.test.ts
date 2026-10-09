@@ -36,6 +36,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../../../config.ts";
@@ -52,6 +53,7 @@ import * as ProviderSessionManager from "../../../orchestration-v2/ProviderSessi
 import * as ProviderTurnStart from "../../../orchestration-v2/ProviderTurnStartService.ts";
 import * as RunExecutionService from "../../../orchestration-v2/RunExecutionService.ts";
 import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
+import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -60,6 +62,7 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
+import * as Scheduler from "../../../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../../../project/WorktreeSetupTracker.ts";
 import * as ProviderAuthService from "../../../provider/ProviderAuthService.ts";
 import * as ProviderRegistryMock from "../../../provider/testUtils/providerRegistryMock.ts";
@@ -241,6 +244,16 @@ function makeHarness(
       });
     }),
   ).pipe(Layer.provide(realLaunch));
+  // The idle handoff's sweep has its own tests; here only its settings matter.
+  const idleHandoffs = SessionIdleHandoff.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        threadManagement,
+        database,
+        Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+      ),
+    ),
+  );
   // The database is the orchestrator's own (layers memoize), so the session
   // service's held-queue query reads the runs the orchestrator writes.
   const services = Layer.mergeAll(
@@ -248,6 +261,7 @@ function makeHarness(
     launch,
     external,
     database,
+    idleHandoffs,
     NodeServices.layer,
     NodeCrypto.layer,
   );
@@ -1691,5 +1705,98 @@ it.effect(
       yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: lead }));
       expect((yield* shellOf(lead)).settledOverride).toBe("settled");
       expect((yield* shellOf("thread:idle")).settledOverride).toBeNull();
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+const selfRow = (caller: ThreadId) =>
+  ok(caller, "session_list", {}).pipe(
+    Effect.map((listed) =>
+      (listed.sessions as ReadonlyArray<Record<string, any>>).find((row) => row.self),
+    ),
+  );
+
+it.effect(
+  "turns the caller's idle handoff on with defaults, changes it, shows it, and turns it off",
+  () =>
+    Effect.gen(function* () {
+      yield* seedOrchestrator;
+      expect((yield* selfRow(orchestratorId))?.idleHandoff).toBeNull();
+
+      expect(yield* ok(orchestratorId, "session_idle_handoff", {})).toEqual({
+        threadId: orchestratorId,
+        name: "Orchestrator",
+        idleHandoff: { afterMinutes: 50, minTokens: 200_000 },
+      });
+      yield* ok(orchestratorId, "session_idle_handoff", { afterMinutes: 30 });
+      expect((yield* selfRow(orchestratorId))?.idleHandoff).toEqual({
+        afterMinutes: 30,
+        minTokens: 200_000,
+      });
+      // Changing one field keeps the other as set, not as the default.
+      expect(
+        (yield* ok(orchestratorId, "session_idle_handoff", { minTokens: 100_000 })).idleHandoff,
+      ).toEqual({ afterMinutes: 30, minTokens: 100_000 });
+
+      expect(
+        (yield* ok(orchestratorId, "session_idle_handoff", { enabled: false, afterMinutes: 10 }))
+          .idleHandoff,
+      ).toBeNull();
+      expect((yield* selfRow(orchestratorId))?.idleHandoff).toBeNull();
+      // The schema refuses a zero window before the tool runs.
+      const invalid = yield* Effect.flip(
+        callTool(orchestratorId, "session_idle_handoff", { afterMinutes: 0 }),
+      );
+      expect(String(invalid)).toContain("afterMinutes");
+
+      // A broken settings table costs the setting, never the roster.
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`DROP TABLE fork_session_idle_handoff`;
+      expect((yield* selfRow(orchestratorId))?.idleHandoff).toBeNull();
+    }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect(
+  "gives a spawned session its own idle handoff, and moves the caller's to a handoff successor",
+  () =>
+    Effect.gen(function* () {
+      yield* seedOrchestrator;
+      const worker = yield* ok(orchestratorId, "session_spawn", {
+        name: "L11-dev",
+        group: "L11",
+        message: "Go.",
+        idleHandoff: { minTokens: 120_000 },
+      });
+      expect(worker.idleHandoff).toEqual({ afterMinutes: 50, minTokens: 120_000 });
+      const plain = yield* ok(orchestratorId, "session_spawn", {
+        name: "L11-review",
+        group: "L11",
+        message: "Go.",
+      });
+      expect(plain.idleHandoff).toBeNull();
+
+      yield* ok(orchestratorId, "session_idle_handoff", { afterMinutes: 40 });
+      const successor = yield* ok(orchestratorId, "session_spawn", {
+        name: "Orchestrator-2",
+        group: "orchestrator",
+        message: "Take over.",
+        handoff: true,
+      });
+      expect(successor.idleHandoff).toEqual({ afterMinutes: 40, minTokens: 200_000 });
+      // The replaced orchestrator is done; reminding it would start a second handoff.
+      expect((yield* selfRow(orchestratorId))?.idleHandoff).toBeNull();
+      expect((yield* selfRow(ThreadId.make(successor.threadId)))?.idleHandoff).toEqual({
+        afterMinutes: 40,
+        minTokens: 200_000,
+      });
+
+      // A handoff that names one field changes only that one.
+      const third = yield* ok(ThreadId.make(successor.threadId), "session_spawn", {
+        name: "Orchestrator-3",
+        group: "orchestrator",
+        message: "Take over.",
+        handoff: true,
+        idleHandoff: { minTokens: 150_000 },
+      });
+      expect(third.idleHandoff).toEqual({ afterMinutes: 40, minTokens: 150_000 });
     }).pipe(Effect.provide(makeHarness([]))),
 );

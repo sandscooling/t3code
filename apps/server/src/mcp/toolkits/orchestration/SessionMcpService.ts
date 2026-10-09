@@ -19,6 +19,9 @@ import {
   type Project,
   type ProviderOptionDescriptor,
   type ServerProvider,
+  type SessionIdleHandoffSetting,
+  type SessionIdleHandoffInput,
+  type SessionIdleHandoffResult,
   type SessionListInput,
   type SessionListResult,
   type SessionModelOption,
@@ -55,6 +58,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attachedWorktrees.ts";
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
+import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -98,6 +102,10 @@ export class SessionMcpService extends Context.Service<
       scope: McpInvocationScope,
       input: SessionReleaseInput,
     ) => Result<SessionReleaseResult>;
+    readonly idleHandoff: (
+      scope: McpInvocationScope,
+      input: SessionIdleHandoffInput,
+    ) => Result<SessionIdleHandoffResult>;
   }
 >()("t3/mcp/toolkits/orchestration/SessionMcpService") {}
 
@@ -292,6 +300,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const sql = yield* SqlClient.SqlClient;
+  const idleHandoffs = yield* SessionIdleHandoff.SessionIdleHandoffService;
 
   /**
    * Threads with a held queued run. Upstream holds a thread's queue after a
@@ -620,6 +629,30 @@ const make = Effect.gen(function* () {
       ),
     );
 
+    // A handoff successor takes over the caller's idle handoff, with any
+    // field the spawn names changed, and the replaced caller stops getting
+    // reminders. Done before adoption, which can fail the spawn, and never
+    // failing a spawn whose session already exists.
+    const idleHandoff = yield* (handoff ? idleHandoffs.get(caller.id) : Effect.succeed(null)).pipe(
+      Effect.map((inherited) =>
+        input.idleHandoff === undefined
+          ? inherited
+          : SessionIdleHandoff.withIdleHandoffDefaults(input.idleHandoff, inherited),
+      ),
+      Effect.tap((setting) =>
+        setting === null ? Effect.void : idleHandoffs.set(threadId, setting),
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not give a spawned session its idle handoff", {
+          threadId,
+          cause,
+        }).pipe(Effect.as(null)),
+      ),
+    );
+    if (handoff) {
+      yield* idleHandoffs.set(caller.id, null).pipe(Effect.ignoreCause({ log: true }));
+    }
+
     // Only after the successor exists: a roster moved onto a thread that
     // never started would settle with nothing. A failure partway keeps the
     // running successor and says who moved.
@@ -676,6 +709,7 @@ const make = Effect.gen(function* () {
       adopted: adopted.map((child) => child.title),
       branch,
       worktreePath,
+      idleHandoff,
     };
   });
 
@@ -745,6 +779,15 @@ const make = Effect.gen(function* () {
           : (yield* resolveProject(projects, input.project)).id;
     const projectNames = new Map(projects.map((project) => [project.id, project.title]));
     const held = yield* heldQueueThreadIds;
+    // The roster matters more than one fork setting, so a broken settings
+    // table lists every session without one.
+    const idleHandoffSettings = yield* idleHandoffs.list.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not read idle handoff settings for session_list", {
+          cause,
+        }).pipe(Effect.as(new Map<string, SessionIdleHandoffSetting>())),
+      ),
+    );
     return {
       sessions: sessions
         .filter((thread) => projectId === null || thread.projectId === projectId)
@@ -763,6 +806,7 @@ const make = Effect.gen(function* () {
           self: thread.id === caller.id,
           branch: thread.branch,
           worktreePath: thread.worktreePath,
+          idleHandoff: idleHandoffSettings.get(thread.id) ?? null,
         })),
     };
   });
@@ -945,6 +989,29 @@ const make = Effect.gen(function* () {
     return { threadId: target.id, name: target.title };
   });
 
+  /**
+   * Only ever the caller's own: the reminder is about the caller's context,
+   * which no other session can see.
+   */
+  const idleHandoff = Effect.fn("SessionMcpService.idleHandoff")(function* (
+    scope: McpInvocationScope,
+    input: SessionIdleHandoffInput,
+  ) {
+    const caller = yield* loadCaller(scope);
+    const storeError = (error: SessionIdleHandoff.IdleHandoffStoreError) =>
+      toolError("dispatch-failed", describe(error));
+    // A field left out keeps its current value, so changing one never resets the other.
+    const setting: SessionIdleHandoffSetting | null =
+      input.enabled === false
+        ? null
+        : SessionIdleHandoff.withIdleHandoffDefaults(
+            input,
+            yield* idleHandoffs.get(caller.id).pipe(Effect.mapError(storeError)),
+          );
+    yield* idleHandoffs.set(caller.id, setting).pipe(Effect.mapError(storeError));
+    return { threadId: caller.id, name: caller.title, idleHandoff: setting };
+  });
+
   return SessionMcpService.of({
     spawn,
     models,
@@ -954,6 +1021,7 @@ const make = Effect.gen(function* () {
     settle,
     rename,
     release,
+    idleHandoff,
   });
 });
 

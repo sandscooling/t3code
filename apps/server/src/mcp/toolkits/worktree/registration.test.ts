@@ -15,6 +15,7 @@ import * as SqlClient from "effect/sql/SqlClient"; // Fork: held-queue reads
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts"; // Fork: idle handoff
 import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -43,9 +44,11 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
-  // Fork: the session_* tools' service launches threads and reads held queues.
+  // Fork: the session_* tools' service launches threads, reads held queues,
+  // and keeps idle handoff settings.
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.succeed(SqlClient.SqlClient, {} as never),
+  Layer.mock(SessionIdleHandoff.SessionIdleHandoffService)({}),
 );
 
 const ToolsListPayload = Schema.fromJsonString(

@@ -1,6 +1,8 @@
 import {
   OrchestrationToolError,
   OrchestratorMcpFailure,
+  SessionIdleHandoffInput,
+  SessionIdleHandoffResult,
   SessionListInput,
   SessionListResult,
   SessionModelsInput,
@@ -147,6 +149,20 @@ const SessionReleaseTool = Tool.make("session_release", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
+const SessionIdleHandoffTool = Tool.make("session_idle_handoff", {
+  description:
+    "Ask T3 to remind you to hand off when you sit idle with a large context, so the next turn does not re-read it all after the prompt cache (about an hour) has expired. Once set, whenever your last turn ended at `minTokens` of context or more and you have then been idle for `afterMinutes` (no turn running or queued, no question or approval open, no subagent or waited-for background command running), T3 posts one IDLE HANDOFF message into this session; your next turn hands off per your handoff procedure. Sessions you spawned do not count as busy. It fires once per idle stretch and comes again after the next one; a settled session never gets it. Applies only to yourself, survives a T3 restart, and passes to a successor you spawn with `handoff`. Pass `enabled: false` to turn it off; session_list shows it on each row.",
+  parameters: SessionIdleHandoffInput,
+  success: SessionIdleHandoffResult,
+  failure: SessionToolFailure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Set idle handoff")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const OrchestrationToolkit = Toolkit.make(
   SessionSpawnTool,
   SessionModelsTool,
@@ -156,4 +172,5 @@ export const OrchestrationToolkit = Toolkit.make(
   SessionSettleTool,
   SessionRenameTool,
   SessionReleaseTool,
+  SessionIdleHandoffTool,
 );

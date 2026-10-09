@@ -9,7 +9,7 @@ There is nothing to turn on: every agent session has these tools.
 
 ## The tools
 
-Every agent session gets eight tools:
+Every agent session gets nine tools:
 
 - **session_spawn** starts a new session, titled with the name you give it, filed under a group,
   and kicked off with an opening message. It starts in the caller's project unless the agent names
@@ -47,6 +47,8 @@ Every agent session gets eight tools:
   hold it. To reuse a settled session's name, rename that session first.
 - **session_release** detaches a session the caller started, as if it had been spawned
   `standalone`. Nothing else about it changes. Only the session that started it can release it.
+- **session_idle_handoff** asks T3 to remind the calling session to hand off when it sits idle
+  with a large context; see [Handing off before the cache goes cold](#handing-off-before-the-cache-goes-cold).
 
 Names and groups use letters, digits, dots, underscores, and hyphens only, so a ticket id such
 as `T-1234` works well as a group and `T-1234-dev` as a name.
@@ -173,6 +175,29 @@ There is no separate way to adopt sessions. They move only inside the handoff ca
 
    The name works for **session_wake** at once. Step 2 still hands out your threadId, since a
    threadId never changes and reaches you from any project.
+
+### Handing off before the cache goes cold
+
+A provider's prompt cache lasts about an hour. When a large orchestrator sits idle longer than
+that, its next turn (often a scheduled task hours later) re-reads the whole context at full price.
+An orchestrator that calls **session_idle_handoff** on itself avoids that: once its last turn
+ended at 200k tokens of context or more and it has been idle for 50 minutes (pass `minTokens`
+and `afterMinutes` to change either), T3 posts one `IDLE HANDOFF` message into it, and its next
+turn hands off by the steps above while the cache is still warm.
+
+- Only the session's own work keeps it from being idle: a turn running or queued, a question or
+  approval waiting for you, a subagent, or a background command it is waiting for. Sessions it
+  spawned are separate and do not count.
+- It fires once per idle stretch. If the session had a reason not to hand off, the reminder comes
+  again after its next idle stretch. A settled session never gets it, and a reopened one starts a
+  fresh window.
+- A session whose last turn failed is not reminded. A provider that does not report context size
+  (Antigravity, for one) never triggers it.
+- The setting survives a T3 restart. A window that passed while T3 was down is reminded once, on
+  startup.
+- A successor spawned with `handoff` takes over the setting, and the old orchestrator loses it.
+  **session_spawn** with `idleHandoff` gives any new session its own.
+- `enabled: false` turns it off. **session_list** shows the setting on each row.
 
 ### If something goes wrong
 

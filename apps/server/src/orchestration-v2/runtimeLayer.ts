@@ -1,4 +1,5 @@
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
+import * as SessionIdleHandoff from "./SessionIdleHandoff.fork.ts"; // Fork: idle handoff
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as OrchestrationCommandReceipts from "../persistence/OrchestrationCommandReceipts.ts";
@@ -352,6 +353,8 @@ export const layerProduction = Layer.mergeAll(
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),
   ),
+  // Fork: the session_* tools' idle handoff, on the shared scheduler.
+  SessionIdleHandoff.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),

@@ -15,7 +15,7 @@ never touch it.
 ## The tools
 
 The session tools (`session_spawn`, `session_models`, `session_projects`, `session_list`,
-`session_wake`, `session_settle`, `session_rename`, `session_release`) are served on the same `t3-code` MCP endpoint
+`session_wake`, `session_settle`, `session_rename`, `session_release`, `session_idle_handoff`) are served on the same `t3-code` MCP endpoint
 as upstream's tools, and require the `orchestration` capability, which every provider session's
 credential carries. They are thin handlers over
 [SessionMcpService](../../apps/server/src/mcp/toolkits/orchestration/SessionMcpService.ts), which
@@ -78,3 +78,21 @@ Because a successor inherits its predecessor's spawner, a top-level orchestrator
 successors have none, so they are never crew sessions. The crew rules (the Idle label and silenced
 completion alerts) live in [crewSession.ts](../../packages/shared/src/crewSession.ts), shared by
 web, desktop, mobile, and the server's awareness feed.
+
+## Idle handoff
+
+[SessionIdleHandoff.fork.ts](../../apps/server/src/orchestration-v2/SessionIdleHandoff.fork.ts)
+is a source on the shared `Scheduler`, registered from one `// Fork:` line in `runtimeLayer.ts`.
+Its setting lives in a table the service creates with `CREATE TABLE IF NOT EXISTS`, not in a
+migration: a fork migration must stay above upstream's highest id and be renumbered on every sync
+that adds one, and a thread field would mean an event and projector change in upstream files.
+The cost is that the setting is not in the event log, so a database rebuilt from events loses it.
+
+Idle is derived from the shell's `latestRunCompletedAt` and `unsettledAt`, so a restart needs no
+timer restoration. The last time the sweep saw the thread busy (a held build that ended without a
+new run, a settled or archived stretch) is kept in memory only and is not restored after a
+restart; an unarchive leaves no persisted mark, so one made while T3 was down can fire on
+startup. The reminder's command id is `idle-handoff:<threadId>:<latestRunId>`, so a second send
+for the same run should replay the command receipt instead of posting again; no test exercises
+that path. The reminder's own run is new activity, which is what re-arms it. A held queue does
+not show in the shell, so the check reads the runs before firing.

@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+import { NonNegativeInt, PositiveInt } from "./baseSchemas.ts";
+
 /**
  * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
  * settle, and release other sessions in any project on its server. Sessions are real threads, so they
@@ -62,6 +64,29 @@ const SessionWorktree = Schema.Union([
     "Existing git worktree the session runs in: `{ path, branch }` for one you created, or `{ sameAs }` to share another session's. T3 never creates, recreates, or deletes these worktrees. Omit to run on the project's main checkout, or, with `handoff`, in your own worktree.",
 });
 
+/** Defaults for an idle handoff: the prompt cache lives about an hour. */
+export const IDLE_HANDOFF_DEFAULT_AFTER_MINUTES = 50;
+export const IDLE_HANDOFF_DEFAULT_MIN_TOKENS = 200_000;
+
+const IdleHandoffAfterMinutes = PositiveInt.check(Schema.isLessThanOrEqualTo(24 * 60)).annotate({
+  description: `Minutes the session must sit idle before the reminder is posted, 1 to 1440. Defaults to ${IDLE_HANDOFF_DEFAULT_AFTER_MINUTES}.`,
+});
+const IdleHandoffMinTokens = NonNegativeInt.annotate({
+  description: `Context size, in tokens, the session's last turn must have reached for the reminder to be posted. Defaults to ${IDLE_HANDOFF_DEFAULT_MIN_TOKENS}.`,
+});
+
+/** An idle handoff in force on a session, with its defaults filled in. */
+export const SessionIdleHandoffSetting = Schema.Struct({
+  afterMinutes: PositiveInt,
+  minTokens: NonNegativeInt,
+});
+export type SessionIdleHandoffSetting = typeof SessionIdleHandoffSetting.Type;
+
+const SessionIdleHandoffOptions = Schema.Struct({
+  afterMinutes: Schema.optional(IdleHandoffAfterMinutes),
+  minTokens: Schema.optional(IdleHandoffMinTokens),
+});
+
 export const SessionSpawnInput = Schema.Struct({
   name: SessionName.annotate({
     description:
@@ -112,6 +137,12 @@ export const SessionSpawnInput = Schema.Struct({
         "Start the session with no spawner, like a thread the user made, instead of as your child. Settling you never settles it, and a handoff of yours never moves it. Use this for the orchestrator of a new project you are setting up, often with `project`. Cannot be combined with `handoff`.",
     }),
   ),
+  idleHandoff: Schema.optional(
+    SessionIdleHandoffOptions.annotate({
+      description:
+        "Give the new session an idle handoff from birth, as if it had called session_idle_handoff on itself; `{}` takes the defaults. With `handoff` and no `idleHandoff`, the new session takes over yours, if you have one.",
+    }),
+  ),
 });
 export type SessionSpawnInput = typeof SessionSpawnInput.Type;
 
@@ -129,6 +160,8 @@ export const SessionSpawnResult = Schema.Struct({
   /** The worktree the session runs in; both null on the project's main checkout. */
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  /** The new session's idle handoff, null when it has none. */
+  idleHandoff: Schema.NullOr(SessionIdleHandoffSetting),
 });
 export type SessionSpawnResult = typeof SessionSpawnResult.Type;
 
@@ -241,6 +274,8 @@ export const SessionSummary = Schema.Struct({
   /** The worktree the session runs in; both null on the project's main checkout. */
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  /** The idle handoff set on the session (session_idle_handoff), null when none is. */
+  idleHandoff: Schema.NullOr(SessionIdleHandoffSetting),
 });
 export type SessionSummary = typeof SessionSummary.Type;
 
@@ -316,6 +351,25 @@ export const SessionReleaseResult = Schema.Struct({
   name: Schema.String,
 });
 export type SessionReleaseResult = typeof SessionReleaseResult.Type;
+
+export const SessionIdleHandoffInput = Schema.Struct({
+  ...SessionIdleHandoffOptions.fields,
+  enabled: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Pass false to turn your idle handoff off; the other fields are then ignored. Omit, or pass true, to turn it on or change it.",
+    }),
+  ),
+});
+export type SessionIdleHandoffInput = typeof SessionIdleHandoffInput.Type;
+
+export const SessionIdleHandoffResult = Schema.Struct({
+  threadId: Schema.String,
+  name: Schema.String,
+  /** The idle handoff now in force, null once it is off. */
+  idleHandoff: Schema.NullOr(SessionIdleHandoffSetting),
+});
+export type SessionIdleHandoffResult = typeof SessionIdleHandoffResult.Type;
 
 export const OrchestrationToolErrorReason = Schema.Literals([
   "capability-unavailable",

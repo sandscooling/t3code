@@ -66,4 +66,11 @@ export const OrchestrationToolkitHandlersLive = McpToolAccess.toLayer(Orchestrat
       return yield* service.release(scope, input);
     }),
   ),
+  session_idle_handoff: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* SessionMcpService.SessionMcpService;
+      return yield* service.idleHandoff(scope, input);
+    }),
+  ),
 });
