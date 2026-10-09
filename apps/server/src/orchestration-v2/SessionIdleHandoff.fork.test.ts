@@ -17,7 +17,7 @@ import {
   type OrchestrationV2PendingBackgroundTask,
   type OrchestrationV2ServerCommand,
 } from "@t3tools/contracts";
-import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -52,7 +52,7 @@ const adapter = {
   getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
   openSession: () => Effect.die("provider processes never start in these tests"),
-} as ProviderAdapterV2Shape;
+} as ProviderAdapterV2["Service"];
 
 const database = SqlitePersistence.layerMemory;
 const base = Layer.mergeAll(

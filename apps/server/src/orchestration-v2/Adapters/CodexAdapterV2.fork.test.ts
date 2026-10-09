@@ -27,6 +27,7 @@ import * as Stream from "effect/Stream";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   ProviderAdapterOpenSessionError,
   ProviderAdapterV2RuntimePolicy,
@@ -292,7 +293,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             ),
           ),
       };
-      const adapter = CodexAdapterV2.makeCodexAdapterV2({
+      const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
         crypto: yield* Crypto.Crypto,
         settings: DEFAULT_CODEX_SETTINGS,
@@ -420,7 +421,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(items[0]?.viewedImagePath, IMAGE_SAVED_PATH);
         assert.equal(items[0]?.status, "completed");
         assert.deepEqual(items[0]?.input, { prompt: "A cooling fan, line art" });
-      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
     ),
   );
 
@@ -429,7 +434,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.gen(function* () {
         const items = yield* runImageGenerationTurn(null);
         assert.lengthOf(items, 0);
-      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
     ),
   );
 
@@ -497,7 +506,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(items[0]?.title, "Viewed image");
         assert.equal(items[0]?.viewedImagePath, IMAGE_VIEW_PATH);
         assert.equal(items[0]?.status, "completed");
-      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
     ),
   );
 });

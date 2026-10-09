@@ -49,6 +49,7 @@ import {
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
 import { runOrchestratorV2Scenario } from "../testkit/OrchestratorScenario.ts";
@@ -234,7 +235,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     });
     const terminalReceipts =
       yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "turn.terminal" }>>();
-    const adapter = ClaudeAdapterV2.makeClaudeAdapterV2({
+    const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
       crypto: yield* Crypto.Crypto,
       settings: DEFAULT_CLAUDE_SETTINGS,
@@ -544,7 +545,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           { id: "task-1", text: "Inspected", status: "completed" },
           { id: "task-2", text: "Implement", status: "pending" },
         ]);
-      }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
   );
 
   it.effect("removes deleted tasks without resurrecting them on later updates or turns", () =>
@@ -570,7 +576,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       for (const plan of harness.plans().slice(2)) {
         assert.isFalse(plan.steps.some((step) => step.id === "task-1"));
       }
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   it.effect.each(["success false", "error result", "unknown id"] as const)(
@@ -592,7 +603,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.deepEqual(harness.plans()[0]?.steps, [
           { id: "task-1", text: "Inspect", status: "pending" },
         ]);
-      }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
   );
 
   it.effect("replaces task state with TaskList, including an empty list", () =>
@@ -629,7 +645,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         { id: "task-4", text: "Done", status: "completed" },
       ]);
       assert.deepEqual(plans[3]?.steps, []);
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   it.effect("keeps subagent TaskCreate, TaskUpdate and TaskList out of the main plan", () =>
@@ -647,7 +668,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       assert.deepEqual(harness.plans().at(-1)?.steps, [
         { id: "task-1", text: "Main task", status: "running" },
       ]);
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   it.effect("does not associate structured task output with multiple tool results", () =>
@@ -657,7 +683,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       yield* harness.call(createTask("1", "Ambiguous"), { extraToolResult: true });
       yield* harness.finishTurn();
       assert.deepEqual(harness.plans(), []);
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   // Fork: a client shows how long background work has run from startedAt.
@@ -729,7 +760,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             ["task-tests", DateTime.formatIso(laterAt)],
           ],
         );
-      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
     ),
   );
 });
@@ -831,7 +866,9 @@ describe("ClaudeAdapterV2 executable path", () => {
       }),
     ).pipe(
       Effect.provideService(HostProcessEnvironment, testCase.hostEnvironment),
-      Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer)),
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
     ),
   );
 });

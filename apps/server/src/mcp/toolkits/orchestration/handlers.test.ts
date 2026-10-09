@@ -47,7 +47,7 @@ import * as ContextHandoffService from "../../../orchestration-v2/ContextHandoff
 import * as EventSink from "../../../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
-import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderSessionManager from "../../../orchestration-v2/ProviderSessionManager.ts";
 import * as ProviderTurnStart from "../../../orchestration-v2/ProviderTurnStartService.ts";
@@ -108,7 +108,7 @@ const adapter = (instanceId: ProviderInstanceId) =>
     getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
     planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
     openSession: () => Effect.die("provider processes never start in these tests"),
-  }) as ProviderAdapterV2Shape;
+  }) as ProviderAdapterV2["Service"];
 
 const effortOption = {
   id: "effort",
