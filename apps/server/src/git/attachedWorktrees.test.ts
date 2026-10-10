@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { type OrchestrationV2ProviderThread, ProviderInstanceId } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -43,7 +43,7 @@ it.effect("compares paths without regard to case or slash direction on Windows",
     const root = NodePath.join(tempDir(), "Missing-Root");
     const child = NodePath.join(root, "Lane").toUpperCase().replaceAll("\\", "/");
     expect(yield* isInsideDirectory(root, child)).toBe(true);
-  }).pipe(Effect.provideService(HostProcessPlatform, "win32"), Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provideService(HostProcess.Platform, "win32"), Effect.provide(NodeServices.layer)),
 );
 
 it.effect("refuses to remove a worktree outside T3's own dir", () =>

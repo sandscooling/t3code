@@ -39,7 +39,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../../config.ts";
 import {
@@ -865,7 +865,7 @@ describe("ClaudeAdapterV2 executable path", () => {
         assert.deepEqual(taskToolEnvironment, [testCase.expected]);
       }),
     ).pipe(
-      Effect.provideService(HostProcessEnvironment, testCase.hostEnvironment),
+      Effect.provideService(HostProcess.Environment, testCase.hostEnvironment),
       Effect.provide(
         Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),

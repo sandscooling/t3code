@@ -14,7 +14,7 @@ import {
   type OrchestrationV2TurnItem,
   type VcsRemoveWorktreeInput,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -69,7 +69,7 @@ export const comparablePath = Effect.fnUntraced(function* (target: string) {
   const trimmed = path.normalize(real).replace(/[\\/]+$/, "");
   const key =
     trimmed.length === 0 || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}${path.sep}` : trimmed;
-  return (yield* HostProcessPlatform) === "win32" ? key.toLowerCase() : key;
+  return (yield* HostProcess.Platform) === "win32" ? key.toLowerCase() : key;
 });
 
 /** True when `target` sits strictly inside `root`; false when outside or equal. */
