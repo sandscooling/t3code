@@ -6245,6 +6245,13 @@ export default function ChatView(props: ChatViewProps) {
     finishRightPanelSurfaceClose,
     rightPanelState.surfaces,
   ]);
+  const moveRightPanelSurface = useCallback(
+    (surfaceId: string, toIndex: number) => {
+      if (activeThreadRef)
+        useRightPanelStore.getState().moveSurface(activeThreadRef, surfaceId, toIndex);
+    },
+    [activeThreadRef],
+  );
   const copyRightPanelFilePath = useCallback((relativePath: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
       toastManager.add(
@@ -12059,6 +12066,7 @@ export default function ChatView(props: ChatViewProps) {
           onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
           onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
           onCloseAllSurfaces={closeAllRightPanelSurfaces}
+          onMoveSurface={moveRightPanelSurface}
           onCopyFilePath={copyRightPanelFilePath}
           onAddBrowser={() => createBrowserSurface()}
           onAddBrowserInProfile={createBrowserSurface}
@@ -12117,6 +12125,7 @@ export default function ChatView(props: ChatViewProps) {
             onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
             onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
             onCloseAllSurfaces={closeAllRightPanelSurfaces}
+            onMoveSurface={moveRightPanelSurface}
             onCopyFilePath={copyRightPanelFilePath}
             onAddBrowser={() => createBrowserSurface()}
             onAddBrowserInProfile={createBrowserSurface}
