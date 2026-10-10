@@ -240,6 +240,7 @@ function makeHarness(
                 : Effect.succeed(result),
             ),
           ),
+        checkWorktreeBase: real.checkWorktreeBase,
         retryPreparation: real.retryPreparation,
       });
     }),

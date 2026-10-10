@@ -891,15 +891,16 @@ const make = Effect.gen(function* () {
         byOwnAgent: target.id === caller.id,
       })
       .pipe(
-        Effect.mapError((error) =>
-          error._tag === "OrchestratorDispatchError" &&
-          /cannot be settled/.test(String(error.cause))
-            ? toolError(
-                "settle-blocked",
-                `session ${target.title} has a turn running or queued, or an approval pending`,
-              )
-            : toolError("dispatch-failed", describe(error)),
-        ),
+        Effect.mapError((error) => {
+          // The orchestrator's refusal reads "Thread <id> <what to clear> before settling."
+          const blocker =
+            error._tag === "OrchestratorDispatchError"
+              ? /^Thread \S+ (.+ before settling\.)$/.exec(String(error.cause))
+              : null;
+          return blocker
+            ? toolError("settle-blocked", `session ${target.title} ${blocker[1]}`)
+            : toolError("dispatch-failed", describe(error));
+        }),
       );
     if ("settlesWhenTurnEnds" in result) {
       return {
