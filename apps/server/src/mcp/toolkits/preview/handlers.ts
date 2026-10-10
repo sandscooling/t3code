@@ -99,28 +99,6 @@ const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
   };
 });
 
-// Fork: the broker drops a host that misses its deadline, which fails every
-// thread's in-flight preview call. So for operations whose host waits on the
-// input's timeoutMs, the broker waits a moment longer, and a wait that runs out
-// comes back as the host's own error with the host still connected. Their
-// documented 15 s default is sent explicitly, since an absent timeoutMs would
-// give both sides the same 15 s. An action that chains several waits (click
-// scrolls, measures, then clicks) can still outlast this; covering all of them
-// at the 45 s cap would break the 60 s tool-call limit.
-const PREVIEW_DEFAULT_TIMEOUT_MS = 15_000;
-export const PREVIEW_BROKER_GRACE_MS = 2_000;
-export const PREVIEW_HOST_TIMED_OPERATIONS: ReadonlySet<PreviewAutomationOperation> = new Set([
-  "navigate",
-  "resize",
-  "click",
-  "type",
-  "hover",
-  "select",
-  "drag",
-  "upload",
-  "waitFor",
-]);
-
 const invokeTargeted = <A extends object>(
   operation: PreviewAutomationOperation,
   input: {
@@ -131,15 +109,13 @@ const invokeTargeted = <A extends object>(
 ) => {
   const { tabId, ...requestedInput } = input;
   // Fork: the host waits on the input's timeoutMs, so cap it there as well as the broker's.
-  const hostTimed = PREVIEW_HOST_TIMED_OPERATIONS.has(operation);
-  const requested = requestedTimeoutMs ?? (hostTimed ? PREVIEW_DEFAULT_TIMEOUT_MS : undefined);
   const timeoutMs =
-    requested === undefined ? undefined : Math.min(requested, PREVIEW_AUTOMATION_MAX_TIMEOUT_MS);
+    requestedTimeoutMs === undefined
+      ? undefined
+      : Math.min(requestedTimeoutMs, PREVIEW_AUTOMATION_MAX_TIMEOUT_MS);
   const operationInput =
     timeoutMs === undefined ? requestedInput : { ...requestedInput, timeoutMs };
-  const brokerTimeoutMs =
-    timeoutMs === undefined ? undefined : timeoutMs + (hostTimed ? PREVIEW_BROKER_GRACE_MS : 0);
-  return invoke<A>(operation, operationInput, brokerTimeoutMs, tabId).pipe(
+  return invoke<A>(operation, operationInput, timeoutMs, tabId).pipe(
     Effect.map(({ result, toolIcon }) => ({
       ...result,
       ...(toolIcon ? { toolIcon } : {}),
