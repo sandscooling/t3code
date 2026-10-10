@@ -56,7 +56,6 @@ Always available to every agent session, with no setting to turn on:
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
 - The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
-- Claude's newer task tools (create, update, list) fill the tasks drawer, as `TodoWrite` did. Carried from open upstream PR [#14964](https://github.com/pingdotgg/t3code/pull/14964); drop it when that lands.
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.

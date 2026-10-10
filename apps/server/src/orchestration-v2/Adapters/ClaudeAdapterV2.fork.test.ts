@@ -1,5 +1,4 @@
 // The fork's tests for ClaudeAdapterV2.test.ts.
-import * as NodeOS from "node:os";
 
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -20,7 +19,6 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
-  type ProviderInstanceEnvironment,
   type ProviderReplayTranscript,
   ProviderSessionId,
   RunAttemptId,
@@ -39,9 +37,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 
-import * as ServerConfig from "../../config.ts";
 import {
   ProviderAdapterV2RuntimePolicy,
   type ProviderAdapterV2Event,
@@ -764,110 +760,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
         ),
-      ),
-    ),
-  );
-});
-
-// Upstream's captureSdkExecutablePaths from ClaudeAdapterV2.test.ts, plus an
-// environment parameter and the CLAUDE_CODE_ENABLE_TODO_TOOLS value the SDK was given.
-const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
-  binaryPath: string,
-  environment: ProviderInstanceEnvironment = [],
-) {
-  const executablePaths: Array<string | undefined> = [];
-  const taskToolEnvironment: Array<string | undefined> = [];
-  const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
-    {
-      instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
-      displayName: undefined,
-      environment,
-      enabled: true,
-      config: { ...DEFAULT_CLAUDE_SETTINGS, binaryPath },
-    },
-    {},
-  ).pipe(
-    Effect.provide(
-      ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-claude-binary-path-",
-      }),
-    ),
-    Effect.provideService(ClaudeAdapterV2.ClaudeAgentSdkQueryRunner, {
-      allocateSessionId: Effect.succeed("native-thread-claude-binary-path"),
-      open: (input) =>
-        Effect.sync(() => {
-          executablePaths.push(input.options.pathToClaudeCodeExecutable);
-          taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
-          return {
-            messages: Stream.never,
-            offer: () => Effect.void,
-            setModel: () => Effect.void,
-            setPermissionMode: () => Effect.void,
-            interrupt: Effect.void,
-            close: Effect.void,
-          };
-        }),
-      forkSession: () => Effect.die("unused"),
-      subagentLaunchToolUseId: () => Effect.succeed(null),
-      assertComplete: Effect.void,
-    }),
-  );
-  const threadId = ThreadId.make("thread-claude-binary-path");
-  const runtime = yield* adapter.openSession({
-    threadId,
-    providerSessionId: ProviderSessionId.make("provider-session-claude-binary-path"),
-    modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-    runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
-  });
-  const providerThread = yield* runtime.ensureThread({
-    threadId,
-    modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-    runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
-  });
-  yield* runtime.startTurn(
-    makeClaudeTestTurnInput({
-      threadId,
-      providerThread,
-      now: yield* DateTime.now,
-      attemptId: RunAttemptId.make("attempt-claude-binary-path"),
-      text: "hello",
-      attachments: [],
-    }),
-  );
-  return { executablePaths, taskToolEnvironment };
-});
-
-describe("ClaudeAdapterV2 executable path", () => {
-  it.effect.each([
-    { source: "default", environment: [], hostEnvironment: {}, expected: "1" },
-    {
-      source: "instance opt-out",
-      environment: [{ name: "CLAUDE_CODE_ENABLE_TODO_TOOLS", value: "0", sensitive: false }],
-      hostEnvironment: {},
-      expected: "0",
-    },
-    {
-      source: "host opt-out",
-      environment: [],
-      hostEnvironment: { CLAUDE_CODE_ENABLE_TODO_TOOLS: "0" },
-      expected: "0",
-    },
-  ])("expands the executable path and respects $source for task tools", (testCase) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const { executablePaths, taskToolEnvironment } = yield* captureSdkExecutablePaths(
-          "~/bin/claude",
-          testCase.environment,
-        );
-
-        assert.deepEqual(executablePaths, [path.join(NodeOS.homedir(), "bin", "claude")]);
-        assert.deepEqual(taskToolEnvironment, [testCase.expected]);
-      }),
-    ).pipe(
-      Effect.provideService(HostProcess.Environment, testCase.hostEnvironment),
-      Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),
     ),
   );
