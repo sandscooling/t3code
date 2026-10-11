@@ -265,6 +265,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             offer: () => Effect.void,
             setModel: () => Effect.void,
             setPermissionMode: () => Effect.void,
+            stopTask: () => Effect.void,
             interrupt: Effect.void,
             close: Effect.void,
           })),
