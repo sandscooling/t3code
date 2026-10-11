@@ -168,7 +168,13 @@ function makeHarness(
     { databaseLayer: database, runEffectWorker: false },
   );
   // Merged so a test can write provider events through the real event sink.
-  const threadManagement = ThreadManagement.layer.pipe(Layer.provideMerge(orchestrator));
+  const serverSettings = ServerSettings.layerTest();
+  const receipts = CommandReceiptStore.layer.pipe(Layer.provide(database));
+  const threadManagement = ThreadManagement.layer.pipe(
+    Layer.provideMerge(orchestrator),
+    Layer.provide(serverSettings),
+    Layer.provide(receipts),
+  );
   const external = Layer.mergeAll(
     WorktreeSetupTracker.layer,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
@@ -202,7 +208,7 @@ function makeHarness(
         }),
     }),
     Layer.mock(TextGeneration.TextGeneration)({}),
-    ServerSettings.layerTest(),
+    serverSettings,
     ProviderRegistryMock.layer(providers),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
@@ -210,14 +216,7 @@ function makeHarness(
     }),
   );
   const realLaunch = ThreadLaunch.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        external,
-        threadManagement,
-        CommandReceiptStore.layer.pipe(Layer.provide(database)),
-        IdAllocator.layer,
-      ),
-    ),
+    Layer.provide(Layer.mergeAll(external, threadManagement, receipts, IdAllocator.layer)),
   );
   const launch = Layer.effect(
     ThreadLaunch.ThreadLaunchService,

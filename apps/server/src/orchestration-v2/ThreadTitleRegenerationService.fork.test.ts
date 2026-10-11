@@ -17,6 +17,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
@@ -46,7 +47,17 @@ function makeHarness(options: { readonly generateThreadTitles?: boolean } = {}) 
     registry,
     { databaseLayer: database, runEffectWorker: false },
   );
-  const threadManagement = ThreadManagement.layer.pipe(Layer.provide(orchestrator));
+  const serverSettings = ServerSettings.layerTest(
+    // Fork: the automatic-titles toggle.
+    options.generateThreadTitles === undefined
+      ? {}
+      : { generateThreadTitles: options.generateThreadTitles },
+  );
+  const threadManagement = ThreadManagement.layer.pipe(
+    Layer.provide(orchestrator),
+    Layer.provide(serverSettings),
+    Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(database))),
+  );
   const outbox = EffectOutbox.layer.pipe(Layer.provide(database));
   const generateThreadTitle = vi.fn<
     TextGeneration.TextGeneration["Service"]["generateThreadTitle"]
@@ -78,12 +89,7 @@ function makeHarness(options: { readonly generateThreadTitles?: boolean } = {}) 
         threadManagement,
         projectedProjects,
         Layer.mock(TextGeneration.TextGeneration)({ generateThreadTitle }),
-        ServerSettings.layerTest(
-          // Fork: the automatic-titles toggle.
-          options.generateThreadTitles === undefined
-            ? {}
-            : { generateThreadTitles: options.generateThreadTitles },
-        ),
+        serverSettings,
       ),
     ),
   );
