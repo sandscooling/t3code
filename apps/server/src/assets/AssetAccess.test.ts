@@ -1356,7 +1356,8 @@ describe("AssetAccess", () => {
       const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
       const separatorIndex = suffix.indexOf("/");
 
-      expect(result.sourcePath).toBe(path.join("Resources", "AppIcon.icns"));
+      // Fork: POSIX rather than path.join, as in the favicon tests above.
+      expect(result.sourcePath).toBe("Resources/AppIcon.icns");
       const asset = yield* resolveAsset(
         suffix.slice(0, separatorIndex),
         suffix.slice(separatorIndex + 1),
