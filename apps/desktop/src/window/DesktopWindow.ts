@@ -33,6 +33,7 @@ import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
+import { copyContextMenuImage } from "./ContextMenuImage.ts";
 // Fork: keep the window size on scaled displays.
 import { clampBoundsIntoMostOverlappedDisplay } from "./mainWindowBounds.ts";
 
@@ -611,7 +612,11 @@ export const make = Effect.gen(function* () {
           menuTemplate.push({
             label: "Copy Image",
             click: () => {
-              if (!contents.isDestroyed()) contents.copyImageAt(params.x, params.y);
+              void runPromise(
+                Effect.tryPromise(() => copyContextMenuImage(contents, params)).pipe(
+                  Effect.catch(() => logWindowWarning("failed to copy context-menu image")),
+                ),
+              );
             },
           });
           menuTemplate.push({ type: "separator" });
