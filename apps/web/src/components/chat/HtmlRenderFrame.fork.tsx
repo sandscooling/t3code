@@ -24,6 +24,7 @@ export function HtmlRenderPanelCard(props: {
   readonly threadRef: ScopedThreadRef | null;
   readonly htmlRender: HtmlRenderReference;
   readonly onOpen: (attachment: ChatFileAttachment) => void;
+  readonly onFullscreenChange: (fullscreen: boolean) => void;
 }) {
   const sheetLayout = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const surfaceId = `attachment:${props.htmlRender.attachmentId}`;
@@ -38,7 +39,7 @@ export function HtmlRenderPanelCard(props: {
         environmentId={props.environmentId}
         htmlRender={props.htmlRender}
         threadRef={props.threadRef ?? undefined}
-        onOpen={props.onOpen}
+        onFullscreenChange={props.onFullscreenChange}
       />
     );
   }

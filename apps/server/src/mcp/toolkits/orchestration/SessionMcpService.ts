@@ -328,7 +328,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
     );
 
-  const newCommandId = crypto.randomUUIDv4.pipe(
+  const newCommandId = crypto.randomUUIDv4().pipe(
     Effect.orDie,
     Effect.map((uuid) => CommandId.make(`mcp:session:${uuid}`)),
   );

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { PendingUserInput } from "~/session-logic";
 import type { ChatFileAttachment } from "~/types";
 
-/** The panel attachment for a render, the same one the inline frame's "Open in panel" builds. */
+/** The panel attachment for a render, the shape the file preview panel reads. */
 export function htmlRenderAttachment(
   htmlRender: Pick<HtmlRenderReference, "attachmentId" | "title">,
 ): ChatFileAttachment {
