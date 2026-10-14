@@ -25,8 +25,12 @@ export interface CompiledClaudeModelSelection {
   readonly apiModelId: string;
   readonly effort: string | undefined;
   readonly promptEffort: string | undefined;
-  // Fork: string widens for outputStyle.
-  readonly settings: Readonly<Record<string, boolean | string>>;
+  // Fork: string widens for outputStyle; the upstream flags keep their boolean type.
+  readonly settings: Readonly<Record<string, boolean | string>> & {
+    readonly alwaysThinkingEnabled?: boolean;
+    readonly fastMode?: boolean;
+    readonly ultracode?: boolean;
+  };
   readonly queryIdentity: string;
 }
 
