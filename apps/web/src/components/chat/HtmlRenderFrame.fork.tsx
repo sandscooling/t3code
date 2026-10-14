@@ -37,6 +37,7 @@ export function HtmlRenderPanelCard(props: {
       <HtmlRenderFrame
         environmentId={props.environmentId}
         htmlRender={props.htmlRender}
+        threadRef={props.threadRef ?? undefined}
         onOpen={props.onOpen}
       />
     );

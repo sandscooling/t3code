@@ -241,6 +241,7 @@ function makeHarness(
           ),
         checkWorktreeBase: real.checkWorktreeBase,
         retryPreparation: real.retryPreparation,
+        prepareRun: real.prepareRun,
       });
     }),
   ).pipe(Layer.provide(realLaunch));
