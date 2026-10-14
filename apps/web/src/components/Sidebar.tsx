@@ -130,21 +130,21 @@ import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
-import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
+import { selectProjectGroupingSettings } from "../logicalProject";
 import {
-  buildSidebarProjectSnapshots,
   projectGroupsSpanEnvironments,
   resolveSidebarProjectScopeKey,
   getSidebarProjectSettingsKey,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { useUiStateStore } from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
 import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
@@ -226,7 +226,6 @@ import {
   sidebarThreadKeyAtY,
   sortInboxThreadsByReturn,
   sortPinnedThreadsForSidebar,
-  sortSidebarV2ProjectGroups,
   sortThreadsForSidebar,
   sortWorkingThreadsBySend,
   useThreadJumpHintVisibility,
@@ -240,7 +239,7 @@ import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import { createSidebarCollisionDetection, restrictBelowSidebarLabel } from "./Sidebar.drag";
 // Fork: grouped sidebar, orchestrator tints and globe.
 import { createGroupAwareSidebarSortingStrategy } from "./Sidebar.groups";
-import { useSidebarProjectGroups } from "./useSidebarProjectGroups";
+import { useSidebarThreadGroups } from "./useSidebarProjectGroups";
 import { useOrchestratorColors } from "./useOrchestratorColors";
 import {
   SidebarBrowserStatusIcon,
@@ -2457,7 +2456,6 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 
 export default function Sidebar() {
   const projects = useProjects();
-  const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2466,10 +2464,6 @@ export default function Sidebar() {
   const orchestratorColorMenu = orchestratorColors.threadMenu; // Fork: stable, for the thread menu
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
-  const sidebarProjectSortOrder = useClientSettings((s) =>
-    // Fork: project groups keep the saved order, so activity never moves them.
-    s.sidebarGroupThreadsByProject ? "manual" : s.sidebarProjectSortOrder,
-  );
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const workingShelfSetting = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -2587,41 +2581,7 @@ export default function Sidebar() {
     [environments],
   );
   const environmentMachineById = useEnvironmentMachines();
-  const orderedProjects = useMemo(
-    () =>
-      orderItemsByPreferredIds({
-        items: projects,
-        preferredIds: projectOrder,
-        getId: getProjectOrderKey,
-        getPreferenceIds: (project) => [
-          getProjectOrderKey(project),
-          legacyProjectCwdPreferenceKey(project.workspaceRoot),
-        ],
-      }),
-    [projectOrder, projects],
-  );
-  const unsortedProjectGroups = useMemo(
-    () =>
-      buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
-        groupScratchProjects: true,
-        settings: projectGroupingSettings,
-        primaryEnvironmentId,
-        resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
-      }),
-    [
-      environmentLabelById,
-      orderedProjects,
-      primaryEnvironmentId,
-      projectGroupingSettings,
-      projects,
-      sidebarProjectSortOrder,
-    ],
-  );
-  const projectGroups = useMemo(
-    () => sortSidebarV2ProjectGroups(unsortedProjectGroups, threads, sidebarProjectSortOrder),
-    [sidebarProjectSortOrder, threads, unsortedProjectGroups],
-  );
+  const projectGroups = useSidebarProjectGroups();
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
   // Threads on non-primary environments (T3 Connect, hosted) resolve their
@@ -3148,7 +3108,7 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   // Fork: rows per project group. Null fields and pass-through helpers while flat.
-  const groupedSidebar = useSidebarProjectGroups({
+  const groupedSidebar = useSidebarThreadGroups({
     enabled: grouped,
     projectGroups,
     threads,

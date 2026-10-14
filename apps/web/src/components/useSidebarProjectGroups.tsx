@@ -50,7 +50,7 @@ export interface SidebarThreadGroup {
   readonly workingCount: number;
 }
 
-export function useSidebarProjectGroups(input: {
+export function useSidebarThreadGroups(input: {
   /** Grouping is on and no project scope narrows the list. */
   readonly enabled: boolean;
   /** In saved order: groups never move with activity. */
