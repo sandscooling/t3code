@@ -1,4 +1,8 @@
-import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  type PendingSubagentRequest,
+  presentThreadShell,
+} from "@t3tools/client-runtime/state/models";
+import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/threads";
 import { isSilencedCrewAlert } from "@t3tools/shared/crewSession"; // Fork: quiet crew completions
 import { backgroundWorkTaskHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
 import { useAtomValue } from "@effect/atom-react";
@@ -97,6 +101,7 @@ export function ThreadNotificationCoordinator() {
 
 interface NotificationState {
   readonly raw: OrchestrationV2ThreadShell;
+  readonly subagentRequest: PendingSubagentRequest | null;
   readonly attention: string | null;
   readonly completion: number | null;
   // Fork: an unchanged thread is skipped, so it must still count as awaiting.
@@ -135,16 +140,19 @@ function EnvironmentNotifications({
     }
     const next = new Map<ThreadId, NotificationState>();
     const awaiting = new Set<ThreadId>(); // Fork: threads still waiting on an answer
+    // Subagents are skipped below, so their requests notify through the thread above them.
+    const subagentRequests = pendingSubagentRequestsByThread(threads);
     for (const rawThread of threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
+      const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       // The same object cannot produce a new notification.
-      if (prior?.raw === rawThread) {
+      if (prior?.raw === rawThread && prior.subagentRequest === subagentRequest) {
         next.set(rawThread.id, prior);
         if (prior.awaitsAnswer) awaiting.add(rawThread.id); // Fork
         continue;
       }
-      const thread = presentThreadShell(environmentId, rawThread);
+      const thread = presentThreadShell(environmentId, rawThread, subagentRequest);
       let status = resolveSidebarThreadStatus(thread);
       if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
       const attention =
@@ -173,7 +181,13 @@ function EnvironmentNotifications({
       // system popup.
       const awaitsAnswer =
         thread.archivedAt === null && (status === "input" || status === "approval");
-      next.set(thread.id, { raw: rawThread, attention, completion, awaitsAnswer });
+      next.set(thread.id, {
+        raw: rawThread,
+        subagentRequest,
+        attention,
+        completion,
+        awaitsAnswer,
+      });
       if (thread.archivedAt !== null) continue;
       if (awaitsAnswer) awaiting.add(thread.id);
       const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
