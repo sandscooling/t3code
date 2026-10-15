@@ -7,10 +7,11 @@ const mode = process.argv[3];
 const withHandoff = mode.startsWith("handoff");
 const require = NodeModule.createRequire(root + "/apps/server/package.json");
 const load = (name) => import(NodeURL.pathToFileURL(require.resolve("effect/" + name)));
-const [Effect, Layer, FileSystem] = await Promise.all([
+const [Effect, Layer, FileSystem, Path] = await Promise.all([
   load("Effect"),
   load("Layer"),
   load("FileSystem"),
+  load("Path"),
 ]);
 const app = (file) => import(NodeURL.pathToFileURL(root + "/apps/server/src/" + file + ".ts"));
 const providerCore = (file) =>
@@ -30,9 +31,10 @@ const [Start, Projection, Run, Sessions, Policy, Id, Sink, Handoff, Git, Project
     app("provider/ProviderAuthService"),
   ]);
 // Fork: turn start checks a missing worktree against the worktrees dir.
-const [Path, Config] = await Promise.all([load("Path"), app("config")]);
+const Config = await app("config");
 let current;
 let fullReads = 0;
+let threadReads = 0;
 const liveRuns = [];
 const refs = [];
 const checkpoints = [];
@@ -63,6 +65,13 @@ const dependencies = Layer.mergeAll(
         throw new Error("full transcript read");
       }),
     hasUnpairedRunInterruptRequest: () => Effect.succeed(false),
+    getThreadRecords: (threadId, fields) =>
+      Effect.sync(() => {
+        NodeAssert.equal(threadId, current.thread.id);
+        NodeAssert.deepEqual(fields, []);
+        threadReads++;
+        return { thread: current.thread };
+      }),
     getTurnStartContext: () =>
       Effect.sync(() => {
         fullReads++;
@@ -186,8 +195,10 @@ await Effect.runPromise(
       NodeAssert.equal(yield* controls.shouldFinalizeRun(), false);
       NodeAssert.deepEqual(yield* controls.loadInheritedBackgroundTurnItems(), []);
       NodeAssert.equal(fullReads, i + 1);
+      NodeAssert.equal(threadReads, i + 1);
       NodeAssert.equal(yield* controls.hasUnpairedRunInterruptRequest(), false);
       NodeAssert.equal(fullReads, i + 1);
+      NodeAssert.equal(threadReads, i + 1);
       current = null;
       if (i === Math.floor(count / 2) - 1 || i === count - 1) {
         yield* Effect.promise(async () => {

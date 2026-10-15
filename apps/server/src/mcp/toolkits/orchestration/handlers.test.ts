@@ -1403,6 +1403,8 @@ const turnStartWithMissingWorktree = (
             getById: () => Effect.succeed(Option.some(projects[0] as never)),
           }),
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            // Start reads the thread first to take its worktree's startup lease.
+            getThreadRecords: () => Effect.succeed({ thread } as never),
             getTurnStartContext: () =>
               Effect.succeed({
                 thread,
