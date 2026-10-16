@@ -34,7 +34,6 @@ describe("backgroundWorkHoldsCompletion", () => {
     ["a monitor", true, [task("watch", "monitor")]],
     ["a command and a monitor", true, [task("dev", "command"), task("watch", "monitor")]],
     ["a command and a subagent", true, [task("dev", "command"), task("review", "subagent")]],
-    // Also what an unknown or missing kind decodes to.
     ["work the provider cannot name", true, [task("opaque", "background_task")]],
     ["a command someone waits for", true, [{ taskId: "bench", kind: "command", held: true }]],
   ] as const)("with %s pending, holds completion: %s", (_case, holds, tasks) => {

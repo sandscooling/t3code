@@ -116,8 +116,6 @@ function EnvironmentNotifications({
   onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
-  // The shell reducer keeps the thread list and unchanged thread objects
-  // stable, so this only rescans when a thread actually changed.
   const threads =
     shell.status === "live" && Option.isSome(shell.snapshot) ? shell.snapshot.value.threads : null;
   const mode = useClientSettings((settings) => settings.notificationMode);
@@ -140,13 +138,11 @@ function EnvironmentNotifications({
     }
     const next = new Map<ThreadId, NotificationState>();
     const awaiting = new Set<ThreadId>(); // Fork: threads still waiting on an answer
-    // Subagents are skipped below, so their requests notify through the thread above them.
     const subagentRequests = pendingSubagentRequestsByThread(threads);
     for (const rawThread of threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
-      // The same object cannot produce a new notification.
       if (prior?.raw === rawThread && prior.subagentRequest === subagentRequest) {
         next.set(rawThread.id, prior);
         if (prior.awaitsAnswer) awaiting.add(rawThread.id); // Fork
@@ -160,10 +156,8 @@ function EnvironmentNotifications({
           ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
-      // Commands left running (a dev server) read as ready; subagents, monitors,
-      // and commands someone waits for wait. Fork: a held command re-arms the
-      // alert, so a completion that already alerted alerts again when it ends.
-      // Other waiting (a pull request watch) keeps the prior completion.
+      // Fork: a held command re-arms the alert, so a completion that already
+      // alerted alerts again when it ends.
       const completion =
         status === "waiting" &&
         thread.pendingBackgroundTasks.some(
