@@ -1,9 +1,9 @@
-// Fork-owned tests for ThreadNotificationCoordinator.test.tsx.
+// Fork-owned tests for ThreadNotificationCoordinator.browser.test.tsx.
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
@@ -138,13 +138,10 @@ vi.mock("./ui/toast", () => ({
 
 import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
 
-let renderer: ReactTestRenderer | undefined;
+let root: Root;
 
 async function render() {
-  await act(() => {
-    if (renderer) renderer.update(<ThreadNotificationCoordinator />);
-    else renderer = create(<ThreadNotificationCoordinator />);
-  });
+  await act(() => root.render(<ThreadNotificationCoordinator />));
 }
 
 beforeEach(() => {
@@ -169,21 +166,17 @@ beforeEach(() => {
     background: [],
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("window", new EventTarget());
-  vi.stubGlobal("document", {
-    get visibilityState() {
-      return state.visible;
-    },
-    hasFocus: () => state.focused,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  });
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(
+    () => state.visible as DocumentVisibilityState,
+  );
+  vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused);
   vi.stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" }));
+  root = createRoot(document.createElement("div"));
 });
 
 afterEach(async () => {
-  await act(() => renderer?.unmount());
-  renderer = undefined;
+  await act(() => root.unmount());
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
