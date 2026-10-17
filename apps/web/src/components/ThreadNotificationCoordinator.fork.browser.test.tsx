@@ -103,11 +103,12 @@ function threadShell() {
   return lastThreadShell;
 }
 
-vi.mock("@effect/atom-react", () => ({
-  useAtomValue: () => ({
+vi.mock(import("@effect/atom-react"), async (original) => ({
+  ...(await original()),
+  useAtomValue: (() => ({
     status: state.live ? "live" : "disconnected",
     snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
-  }),
+  })) as never,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => state.navigate,
