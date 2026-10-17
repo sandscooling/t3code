@@ -9,13 +9,13 @@ import {
 import type { StartThreadTurnInput } from "@t3tools/client-runtime/operations";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useRef } from "react";
 
 import {
   NEW_THREAD_PROJECTS_GROUP,
   parseSessionSpawnQuery,
 } from "../components/sessionFleet.logic";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { primaryServerSettingsAtom } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -147,19 +147,6 @@ export function useSessionFleet(input: {
   readonly fallbackModelSelection: ModelSelection | null;
 }) {
   const { fallbackModelSelection } = input;
-  const acceptsSessionCount =
-    input.groups?.some((group) => group.value === NEW_THREAD_PROJECTS_GROUP) === true;
-  const count = acceptsSessionCount ? parseSessionSpawnQuery(input.query).count : null;
-  // The count is split off before filtering, since otherwise the digits join
-  // the project filter and the list goes empty with nothing to select.
-  const filterQuery = acceptsSessionCount
-    ? parseSessionSpawnQuery(input.deferredQuery).filterText
-    : input.deferredQuery;
-  // Read at execution time, so the project item closures do not go stale as
-  // the count is typed.
-  const countRef = useRef<number | null>(null);
-  countRef.current = count;
-
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
@@ -168,107 +155,105 @@ export function useSessionFleet(input: {
   });
   const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
 
+  const acceptsSessionCount =
+    input.groups?.some((group) => group.value === NEW_THREAD_PROJECTS_GROUP) === true;
+  const count = acceptsSessionCount ? parseSessionSpawnQuery(input.query).count : null;
+  // The count is split off before filtering, since otherwise the digits join
+  // the project filter and the list goes empty with nothing to select.
+  const filterQuery = acceptsSessionCount
+    ? parseSessionSpawnQuery(input.deferredQuery).filterText
+    : input.deferredQuery;
+
   /**
    * Starts a fleet of standby sessions in one project, each one already running
    * so it registers as a peer that an orchestrator session can address. Env mode
    * follows the project's own default, so a fleet lands wherever a single new
    * thread in that project would have.
    */
-  const startSessionFleet = useCallback(
-    async (project: Project, fleetCount: number): Promise<void> => {
-      const modelSelection = project.defaultModelSelection ?? fallbackModelSelection;
-      if (modelSelection === null) {
+  const startSessionFleet = async (project: Project, fleetCount: number): Promise<void> => {
+    const modelSelection = project.defaultModelSelection ?? fallbackModelSelection;
+    if (modelSelection === null) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "No model to start with",
+          description: `Set a default model for ${project.title}, then spawn sessions.`,
+        }),
+      );
+      return;
+    }
+
+    // The shared resolver owns the priority order, and the t3.json read is
+    // skipped when a higher-priority source already decides.
+    const projectSettings = resolveProjectSettings(primaryServerSettings, project.id, project);
+    const projectFile =
+      projectSettings.settings.defaultThreadEnvMode === null
+        ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
+        : null;
+    const envMode = resolveProjectSettings(primaryServerSettings, project.id, project, projectFile)
+      .settings.defaultThreadEnvMode;
+
+    // Worktree mode needs a base branch to cut from. The project's checked-out
+    // branch is the same starting point the composer offers by default.
+    let baseBranch: string | null = null;
+    if (envMode === "worktree") {
+      const refsResult = await loadProjectBranches({
+        environmentId: project.environmentId,
+        input: { cwd: project.workspaceRoot, refKind: "local" },
+      });
+      if (refsResult._tag === "Success") {
+        const refs = refsResult.value.refs;
+        baseBranch =
+          refs.find((ref) => ref.current)?.name ?? refs.find((ref) => ref.isDefault)?.name ?? null;
+      }
+      if (baseBranch === null) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "No model to start with",
-            description: `Set a default model for ${project.title}, then spawn sessions.`,
+            title: "No base branch",
+            description: `${project.title} starts threads in a worktree, but its current branch could not be read.`,
           }),
         );
         return;
       }
+    }
 
-      // The shared resolver owns the priority order, and the t3.json read is
-      // skipped when a higher-priority source already decides.
-      const projectSettings = resolveProjectSettings(primaryServerSettings, project.id, project);
-      const projectFile =
-        projectSettings.settings.defaultThreadEnvMode === null
-          ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
-          : null;
-      const envMode = resolveProjectSettings(
-        primaryServerSettings,
-        project.id,
-        project,
-        projectFile,
-      ).settings.defaultThreadEnvMode;
-
-      // Worktree mode needs a base branch to cut from. The project's checked-out
-      // branch is the same starting point the composer offers by default.
-      let baseBranch: string | null = null;
-      if (envMode === "worktree") {
-        const refsResult = await loadProjectBranches({
-          environmentId: project.environmentId,
-          input: { cwd: project.workspaceRoot, refKind: "local" },
-        });
-        if (refsResult._tag === "Success") {
-          const refs = refsResult.value.refs;
-          baseBranch =
-            refs.find((ref) => ref.current)?.name ??
-            refs.find((ref) => ref.isDefault)?.name ??
-            null;
-        }
-        if (baseBranch === null) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "No base branch",
-              description: `${project.title} starts threads in a worktree, but its current branch could not be read.`,
-            }),
-          );
-          return;
-        }
-      }
-
-      const result = await spawnSessions({
-        count: fleetCount,
-        environmentId: project.environmentId,
-        projectId: project.id,
-        projectCwd: project.workspaceRoot,
-        modelSelection,
+    const result = await spawnSessions({
+      count: fleetCount,
+      environmentId: project.environmentId,
+      projectId: project.id,
+      projectCwd: project.workspaceRoot,
+      modelSelection,
+      envMode,
+      baseBranch,
+      startFromOrigin: resolveNewDraftStartFromOrigin({
         envMode,
-        baseBranch,
-        startFromOrigin: resolveNewDraftStartFromOrigin({
-          envMode,
-          newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
-        }),
-        startTurn: startThreadTurn,
-      });
+        newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
+      }),
+      startTurn: startThreadTurn,
+    });
 
-      toastManager.add(
-        stackedThreadToast({
-          type: result.failed > 0 ? "error" : "success",
-          title:
-            result.failed > 0
-              ? `Started ${result.started} of ${fleetCount} sessions`
-              : `Started ${result.started} ${result.started === 1 ? "session" : "sessions"}`,
-          description: project.title,
-        }),
-      );
-    },
-    [fallbackModelSelection, loadProjectBranches, primaryServerSettings, startThreadTurn],
-  );
+    toastManager.add(
+      stackedThreadToast({
+        type: result.failed > 0 ? "error" : "success",
+        title:
+          result.failed > 0
+            ? `Started ${result.started} of ${fleetCount} sessions`
+            : `Started ${result.started} ${result.started === 1 ? "session" : "sessions"}`,
+        description: project.title,
+      }),
+    );
+  };
 
-  const runProject = useCallback(
-    async (project: Project): Promise<boolean> => {
-      const fleetCount = countRef.current;
-      if (fleetCount === null) {
-        return false;
-      }
-      await startSessionFleet(project, fleetCount);
-      return true;
-    },
-    [startSessionFleet],
-  );
+  // Stable and reading the latest committed count, so the project item
+  // closures do not go stale as the count is typed.
+  const runProject = useStableCallback(async (project: Project): Promise<boolean> => {
+    if (count === null) {
+      return false;
+    }
+    await startSessionFleet(project, count);
+    return true;
+  });
 
   return { acceptsSessionCount, count, filterQuery, runProject };
 }

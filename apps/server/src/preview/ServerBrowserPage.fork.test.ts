@@ -4,24 +4,41 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import { CAPTURE_DEADLINE_MS, UNAVAILABLE_SCREENSHOT_PNG } from "./ServerBrowserPage.fork.ts";
 
-/** A page whose DOM answers but whose capture is whatever `capture` returns. */
-const makePage = (capture: () => Promise<{ data: string }>) => {
+/**
+ * A one-frame page whose DOM answers but whose capture is whatever `capture`
+ * returns. `dotted` is what the page draws as dots, read by upstream's
+ * redaction through an isolated world on the page's own CDP session.
+ */
+const makePage = (
+  capture: () => Promise<{ data: string }>,
+  content: {
+    readonly visibleText?: string;
+    readonly tree?: string;
+    readonly dotted?: ReadonlyArray<string>;
+  } = {},
+) => {
+  const mainFrame = { parentFrame: () => null };
   const page = {
     on: vi.fn(),
     viewportSize: () => ({ width: 1280, height: 800 }),
+    frames: () => [mainFrame],
+    mainFrame: () => mainFrame,
     evaluate: vi.fn(async () => ({
       url: "https://example.com/",
       title: "Example",
       loading: false,
-      visibleText: "Hello",
+      visibleText: content.visibleText ?? "Hello",
       interactiveElements: [],
     })),
-    ariaSnapshot: vi.fn(async () => '- button "Go" [ref=e1]'),
+    ariaSnapshot: vi.fn(async () => content.tree ?? '- button "Go" [ref=e1]'),
   };
   const cdp = {
     send: vi.fn(async (method: string) => {
       if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (method === "Page.captureScreenshot") return capture();
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+      if (method === "Runtime.evaluate") return { result: { value: [...(content.dotted ?? [])] } };
       throw new Error(`Unexpected ${method}`);
     }),
   };
@@ -53,6 +70,23 @@ describe("bounded captures", () => {
       width: 1,
       height: 1,
     });
+  });
+
+  it("a text-only answer still masks what the page draws as dots", async () => {
+    vi.useFakeTimers();
+    const snapshot = ServerBrowserPage.snapshot(
+      makePage(() => new Promise(() => {}), {
+        visibleText: "Password hunter22 saved",
+        tree: '- textbox "Password" [ref=e1]: hunter22',
+        dotted: ["hunter22"],
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(CAPTURE_DEADLINE_MS);
+    const result = await snapshot;
+    expect(result.screenshot.data).toBe(UNAVAILABLE_SCREENSHOT_PNG);
+    expect(result.visibleText).toMatch(/^\[Screenshot unavailable: .*\]\n\nPassword •+ saved$/);
+    expect(result.accessibilityTree).toMatch(/textbox "Password" \[ref=t3-[\w-]+-e1\]: •+$/);
+    expect(JSON.stringify(result)).not.toContain("hunter22");
   });
 
   it("a capture that answers in time is returned unchanged", async () => {

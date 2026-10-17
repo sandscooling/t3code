@@ -1390,6 +1390,7 @@ const turnStartWithMissingWorktree = (
             realPath: (target: string) => Effect.succeed(target),
           } as never),
           Layer.succeed(ServerConfig.ServerConfig, { worktreesDir } as never),
+          ServerSettings.layerTest(),
           NodePathLayer.layer,
           Layer.mock(GitWorkflow.GitWorkflowService)({
             pruneWorktrees: () => Effect.void,

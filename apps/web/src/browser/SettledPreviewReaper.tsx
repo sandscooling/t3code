@@ -6,7 +6,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { closeThreadPreviewSessions } from "~/components/preview/closeThreadPreviewSessions";
@@ -52,51 +52,37 @@ export function SettledPreviewReaper() {
     ),
   );
 
-  const previewThreadKeys = useMemo(
-    () =>
-      Object.entries(previewByThreadKey)
-        .filter(([, state]) => Object.keys(state.sessions).length > 0)
-        .map(([threadKey]) => threadKey),
-    [previewByThreadKey],
-  );
+  const previewThreadKeys = Object.entries(previewByThreadKey)
+    .filter(([, state]) => Object.keys(state.sessions).length > 0)
+    .map(([threadKey]) => threadKey);
 
   // A tab presented on screen is one the user is looking at, whatever its
   // thread's lifecycle says. Settled state can flip under an open thread when
   // its inactivity window elapses, and a browser disappearing mid-use is worse
   // than the traffic it saves.
-  const onScreenThreadKeys = useMemo(() => {
-    const visible = new Set(visibleRuntimeTabIds);
-    const keys = new Set<string>();
-    for (const [threadKey, state] of Object.entries(previewByThreadKey)) {
-      const threadRef = parseScopedThreadKey(threadKey);
-      if (!threadRef) continue;
-      for (const tabId of Object.keys(state.sessions)) {
-        if (visible.has(previewRuntimeTabId(threadRef, state.serverEpoch, tabId))) {
-          keys.add(threadKey);
-          break;
-        }
+  const visibleTabIds = new Set(visibleRuntimeTabIds);
+  const onScreenThreadKeys = new Set<string>();
+  for (const [threadKey, state] of Object.entries(previewByThreadKey)) {
+    const threadRef = parseScopedThreadKey(threadKey);
+    if (!threadRef) continue;
+    for (const tabId of Object.keys(state.sessions)) {
+      if (visibleTabIds.has(previewRuntimeTabId(threadRef, state.serverEpoch, tabId))) {
+        onScreenThreadKeys.add(threadKey);
+        break;
       }
     }
-    return keys;
-  }, [previewByThreadKey, visibleRuntimeTabIds]);
+  }
 
-  const shellByThreadKey = useMemo(() => {
-    const map = new Map<string, EnvironmentThreadShell>();
-    for (const shell of shells) {
-      map.set(scopedThreadKey(scopeThreadRef(shell.environmentId, shell.id)), shell);
-    }
-    return map;
-  }, [shells]);
+  const shellByThreadKey = new Map<string, EnvironmentThreadShell>();
+  for (const shell of shells) {
+    shellByThreadKey.set(scopedThreadKey(scopeThreadRef(shell.environmentId, shell.id)), shell);
+  }
 
-  const reapable = useMemo(
-    () =>
-      selectReapableThreadKeys({
-        previewThreadKeys,
-        shellByThreadKey,
-        onScreenThreadKeys,
-      }),
-    [onScreenThreadKeys, previewThreadKeys, shellByThreadKey],
-  );
+  const reapable = selectReapableThreadKeys({
+    previewThreadKeys,
+    shellByThreadKey,
+    onScreenThreadKeys,
+  });
 
   // Belt and braces against re-firing. The optimistic removal inside
   // closeThreadPreviewSessions already takes the thread out of the snapshot

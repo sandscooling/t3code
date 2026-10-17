@@ -6,7 +6,6 @@ import {
   type ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import { formatResetsIn } from "@t3tools/shared/usageLimits";
-import { useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { formatProviderDriverKindLabel } from "~/providerModels";
@@ -139,10 +138,7 @@ export function RateLimitMeter(props: {
   selection: ModelSelection | null | undefined;
 }) {
   const { limits, providers, selection } = props;
-  const providerDisplayName = useMemo(
-    () => resolveProviderDisplayName(providers, selection),
-    [providers, selection],
-  );
+  const providerDisplayName = resolveProviderDisplayName(providers, selection);
   const peak = peakWindow(limits.windows);
   if (!peak) {
     return null;

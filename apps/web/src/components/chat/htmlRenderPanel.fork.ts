@@ -3,7 +3,7 @@ import type { OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
 import { htmlRenderFileName, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import { DateTime } from "effect";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import type { PendingUserInput } from "~/session-logic";
 import type { ChatFileAttachment } from "~/types";
@@ -169,13 +169,10 @@ export function useAutoOpenHtmlRenders(input: {
   readonly questionIndex: number;
 }) {
   const { threadKey, enabled, turnItems, open, pendingUserInput, questionIndex } = input;
-  const renders = useMemo(() => htmlRenderSightings(turnItems), [turnItems]);
+  const renders = htmlRenderSightings(turnItems);
   const requestId = pendingUserInput?.requestId ?? null;
   const header = pendingUserInput?.questions[questionIndex]?.header ?? null;
-  const questionRender = useMemo(
-    () => (header === null ? null : questionHtmlRender(renders, header)),
-    [header, renders],
-  );
+  const questionRender = header === null ? null : questionHtmlRender(renders, header);
   const questionAttachmentId = questionRender?.attachmentId ?? null;
   const questionTitle = questionRender?.title ?? null;
   const questionTarget =
