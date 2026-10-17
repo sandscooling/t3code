@@ -161,7 +161,7 @@ export function RateLimitMeter(props: {
             className={cn(
               "inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-transparent px-2 text-2xs text-muted-foreground outline-none transition-colors",
               "hover:bg-accent data-[pressed]:bg-accent",
-              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+              "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
             aria-label={`Plan usage: ${peak.label} ${peakPercent} used`}
           >

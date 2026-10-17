@@ -814,6 +814,8 @@ const PendingBackgroundTaskFields = {
   // Fork: when the work started, so a client can show how long it has run.
   // Absent from adapters and rosters that predate it.
   startedAt: Schema.optional(IsoDateTime),
+  /** The subagent task that started this work and waits on it. */
+  parentTaskId: Schema.optional(TrimmedNonEmptyString),
 };
 
 export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
@@ -821,6 +823,8 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
     Schema.Struct({
       ...PendingBackgroundTaskFields,
       kind: Schema.Literal("subagent"),
+      /** The owning provider thread's instance, populated in derived pending work. */
+      providerInstanceId: Schema.optional(ProviderInstanceId),
       childThreadId: Schema.optional(ThreadId),
     }),
     Schema.Struct({
@@ -833,10 +837,11 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
   (kind) => Schema.Struct({ ...PendingBackgroundTaskFields, kind }),
-  ({ taskId, description, startedAt }) => ({
+  ({ taskId, description, startedAt, parentTaskId }) => ({
     taskId,
     ...(description === undefined ? {} : { description }),
     ...(startedAt === undefined ? {} : { startedAt }), // Fork: elapsed time
+    ...(parentTaskId === undefined ? {} : { parentTaskId }),
     kind: "background_task",
   }),
 );
