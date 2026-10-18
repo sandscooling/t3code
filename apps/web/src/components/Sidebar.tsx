@@ -3376,7 +3376,8 @@ export default function Sidebar() {
     listMotionRef.current?.update(false);
   };
 
-  const isContextDrag = dragState?.contextDrag === true;
+  // Working rows can supply chat context, but never preview sidebar movement.
+  const isContextDrag = dragState?.contextDrag === true || dragState?.activeSection === "working";
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
   // Fork: the dragged thread's project group; undefined while flat.
   const dragGroup = dragState ? groupedSidebar.groupOf(dragState.activeKey) : undefined;
@@ -4890,7 +4891,6 @@ export default function Sidebar() {
                             contextDrag={isContextDrag}
                             sortableDisabled={
                               renamingThreadKey === threadKey ||
-                              section === "working" ||
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null ||
                               groupedSidebar.isDragLocked(threadKey, section) // Fork
