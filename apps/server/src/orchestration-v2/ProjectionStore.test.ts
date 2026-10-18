@@ -326,7 +326,13 @@ it.effect.each([
         }
       });
       const owned = [
-        { taskId: nativeTaskId, description: item.title, kind: "subagent", providerInstanceId },
+        {
+          taskId: nativeTaskId,
+          description: item.title,
+          kind: "subagent",
+          providerInstanceId,
+          startedAt: DateTime.formatIso(item.startedAt!), // Fork: Waiting counts from the task's start
+        },
       ];
       yield* assertOwners(threadId, owned);
       yield* assertOwners(otherThreadId, owned);
