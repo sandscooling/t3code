@@ -2111,13 +2111,20 @@ function claudePendingBackgroundTask(input: {
 }
 
 // Fork: a task keeps the time it first joined the roster, since Claude resends
-// the whole roster on every change.
+// the whole roster on every change. `known` outlives the roster clear a failed
+// turn makes, so a shell re-listed later is not stamped as the next run's
+// command, which a background wait would then hold.
 function withRosterStartedAt(
   task: OrchestrationV2PendingBackgroundTask,
   roster: ReadonlyMap<string, OrchestrationV2PendingBackgroundTask>,
+  known: ReadonlyMap<string, OrchestrationV2PendingBackgroundTask>,
   now: DateTime.Utc,
 ): OrchestrationV2PendingBackgroundTask {
-  const startedAt = roster.get(task.taskId)?.startedAt ?? task.startedAt ?? DateTime.formatIso(now);
+  const startedAt =
+    roster.get(task.taskId)?.startedAt ??
+    known.get(task.taskId)?.startedAt ??
+    task.startedAt ??
+    DateTime.formatIso(now);
   return { ...task, startedAt };
 }
 
@@ -4073,24 +4080,22 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         ) =>
           Effect.gen(function* () {
             const now = yield* DateTime.now; // Fork: elapsed time
-            yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
+            const known = yield* Ref.get(lastKnownOpaqueTasks); // Fork: first-seen start
+            const stamped = yield* Ref.modify(pendingBackgroundTasksByNativeThread, (current) => {
               const updated = new Map(current);
               if (tasks.length === 0) {
                 updated.delete(nativeThreadId);
-              } else {
-                const previous = rosterForNativeThread(current, nativeThreadId);
-                updated.set(
-                  nativeThreadId,
-                  new Map(
-                    tasks.map(
-                      (task) => [task.taskId, withRosterStartedAt(task, previous, now)] as const,
-                    ),
-                  ),
-                );
+                return [tasks, updated] as const;
               }
-              return updated;
+              const previous = rosterForNativeThread(current, nativeThreadId);
+              const next = tasks.map((task) => withRosterStartedAt(task, previous, known, now));
+              updated.set(
+                nativeThreadId,
+                new Map(next.map((task) => [task.taskId, task] as const)),
+              );
+              return [next, updated] as const;
             });
-            yield* rememberOpaqueTasks(tasks);
+            yield* rememberOpaqueTasks(stamped);
             if (tasks.length > 0) {
               yield* markWakeEligibleOpaqueBackgroundTasks(
                 nativeThreadId,
@@ -4105,12 +4110,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         ) =>
           Effect.gen(function* () {
             const now = yield* DateTime.now; // Fork: elapsed time
-            yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
+            const known = yield* Ref.get(lastKnownOpaqueTasks); // Fork: first-seen start
+            const stamped = yield* Ref.modify(pendingBackgroundTasksByNativeThread, (current) => {
               const roster = new Map(rosterForNativeThread(current, nativeThreadId));
-              roster.set(task.taskId, withRosterStartedAt(task, roster, now));
-              return new Map(current).set(nativeThreadId, roster);
+              const next = withRosterStartedAt(task, roster, known, now);
+              roster.set(task.taskId, next);
+              return [next, new Map(current).set(nativeThreadId, roster)] as const;
             });
-            yield* rememberOpaqueTasks([task]);
+            yield* rememberOpaqueTasks([stamped]);
             yield* markWakeEligibleOpaqueBackgroundTasks(nativeThreadId, [task.taskId]);
           });
 

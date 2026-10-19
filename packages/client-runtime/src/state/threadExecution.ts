@@ -18,6 +18,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
+  backgroundCommandInHoldScope, // Fork: background command holds
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -284,7 +285,8 @@ export interface PendingBackgroundWorkPresentation {
   readonly waiting: boolean;
   /**
    * What the Wait control offers: "release" while any command is held, so it
-   * matches a "Waiting on" title, else "wait". Null when no command runs.
+   * matches a "Waiting on" title, else "wait" when the latest run started a
+   * command (the server holds only those). Null otherwise.
    */
   readonly commandHold: "wait" | "release" | null;
 }
@@ -294,14 +296,21 @@ function joinWithAnd(parts: ReadonlyArray<string>): string {
   return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
 }
 
+/**
+ * Fork: `holdScopeStartedAt` is when the latest run started
+ * (`backgroundCommandHoldScopeStartedAt`); without it Wait is not offered.
+ */
 export function presentPendingBackgroundWork(
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
+  holdScopeStartedAt: DateTime.Utc | null = null,
 ): PendingBackgroundWorkPresentation | null {
   if (tasks.length === 0) return null;
   const waiting = backgroundWorkHoldsCompletion(tasks);
-  const commands = tasks.filter((task) => task.kind === "command");
-  const commandHold =
-    commands.length === 0 ? null : commands.some((task) => task.held === true) ? "release" : "wait";
+  const commandHold = tasks.some((task) => task.kind === "command" && task.held === true)
+    ? "release"
+    : tasks.some((task) => backgroundCommandInHoldScope(task, holdScopeStartedAt))
+      ? "wait"
+      : null;
   const items = tasks
     .map((task): PendingBackgroundWorkItem => {
       const description = task.description?.trim();

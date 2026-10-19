@@ -273,6 +273,61 @@ export function collectBackgroundWork(
   return Array.from(byTaskId.values());
 }
 
+// Fork: a wait holds only the commands the latest run started, so a dev server
+// an earlier turn left running never keeps a later turn Working. Roster
+// commands (Claude) carry no run id, so start time places them: every command
+// task carries its start, and runs and adapters share the server clock. A wake
+// run (a notification, a delegated result, a restart continuation) starts a
+// new scope on purpose: scoping by workStartedAt instead would let a pull
+// request watch's wake hold a dev server.
+export function backgroundCommandHoldScopeStartedAt(
+  runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "startedAt">>,
+): DateTime.Utc | null {
+  let latest: Pick<OrchestrationV2Run, "ordinal" | "startedAt"> | null = null;
+  for (const run of runs) {
+    if (run.startedAt !== null && (latest === null || run.ordinal > latest.ordinal)) latest = run;
+  }
+  return latest?.startedAt ?? null;
+}
+
+// Fork: a command with no start time cannot be placed, so it is never in scope.
+export function backgroundCommandInHoldScope(
+  task: Pick<PendingBackgroundWorkTask, "kind" | "startedAt">,
+  scopeStartedAt: DateTime.Utc | null,
+): boolean {
+  if (task.kind !== "command" || task.startedAt === undefined || scopeStartedAt === null) {
+    return false;
+  }
+  return Date.parse(task.startedAt) >= DateTime.toEpochMillis(scopeStartedAt);
+}
+
+/**
+ * Fork: the commands a wait holds. Commands already held stay held while they
+ * run; the latest run's commands join them. `added` names the ones not held
+ * before: a wait that adds none is rejected, and a caller racing its own
+ * command's registration waits for one.
+ */
+export function backgroundCommandsToHold(input: {
+  readonly tasks: ReadonlyArray<PendingBackgroundWorkTask>;
+  readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "startedAt">>;
+  readonly heldTaskIds: ReadonlyArray<string> | undefined;
+}): { readonly held: ReadonlyArray<string>; readonly added: ReadonlyArray<string> } {
+  const scopeStartedAt = backgroundCommandHoldScopeStartedAt(input.runs);
+  const alreadyHeld = new Set(input.heldTaskIds ?? []);
+  const held: Array<string> = [];
+  const added: Array<string> = [];
+  for (const task of input.tasks) {
+    if (task.kind !== "command") continue;
+    if (alreadyHeld.has(task.taskId)) {
+      held.push(task.taskId);
+    } else if (backgroundCommandInHoldScope(task, scopeStartedAt)) {
+      held.push(task.taskId);
+      added.push(task.taskId);
+    }
+  }
+  return { held, added };
+}
+
 /**
  * Derive one normalized pending-background-work list for post-settlement UI:
  * `collectBackgroundWork`, gated on latest root run settlement. Excludes the

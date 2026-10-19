@@ -1,5 +1,6 @@
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
+import * as DateTime from "effect/DateTime"; // Fork: background command holds
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
@@ -445,8 +446,11 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     }
   })();
   const threadSyncLabel = useDelayedStatus(selectedThreadKey, realThreadSyncLabel);
+  const latestRunStartedAt = props.selectedThread.latestRun?.startedAt ?? null; // Fork
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
+    // Fork: Wait holds only the commands the latest run started.
+    latestRunStartedAt === null ? null : DateTime.makeUnsafe(latestRunStartedAt),
   );
   // A command is not held by default, because a dev server can run for hours
   // after the agent is done. Holding one keeps the thread in Working.

@@ -64,6 +64,7 @@ import {
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
+  backgroundCommandsToHold, // Fork: background command holds
   collectBackgroundWork,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
@@ -8627,8 +8628,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     });
 
-  // Holding reads background work without the settled-run gate: an agent holds
-  // the command it just started before its own turn settles.
+  // Fork: holding reads background work without the settled-run gate: an agent
+  // holds the command it just started before its own turn settles. The wait
+  // for a command still registering lives in the MCP tool, outside this queue.
   const dispatchBackgroundWorkHold = (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.background-work.hold" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -8650,18 +8652,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${command.threadId} is deleted.`,
         });
       }
-      const commandTaskIds = collectBackgroundWork({
-        providerThreads: projection.providerThreads,
-        turnItems: projection.turnItems,
-        activeProviderThreadId: thread.activeProviderThreadId,
+      const { held: commandTaskIds, added } = backgroundCommandsToHold({
+        tasks: collectBackgroundWork({
+          providerThreads: projection.providerThreads,
+          turnItems: projection.turnItems,
+          activeProviderThreadId: thread.activeProviderThreadId,
+          runs: projection.runs,
+        }),
         runs: projection.runs,
-      }).flatMap((task) => (task.kind === "command" ? [task.taskId] : []));
-      // Its own tag, so the MCP tool can tell this apart from an outage.
-      if (command.held && commandTaskIds.length === 0) {
+        heldTaskIds: thread.heldBackgroundTaskIds,
+      });
+      // Its own tag, so the MCP tool can tell this apart from an outage. A
+      // wait that adds nothing fails even while older holds run, so an agent
+      // whose command never registered is not told it is waiting on it.
+      if (command.held && added.length === 0) {
         return yield* new OrchestratorCommandRejectedError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has no background commands running.`,
+          cause: `Thread ${command.threadId} has no unheld background command its latest run started.`,
         });
       }
       const { heldBackgroundTaskIds: _released, ...released } = thread;

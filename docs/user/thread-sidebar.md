@@ -131,7 +131,8 @@ work: when the turn ends, the thread shows as finished. If the agent will contin
 command exits, such as after a long build or benchmark, press **Wait** on the command's bar above
 the composer. On mobile, tap the status above the composer. The thread then counts as working, and
 its completion alert waits, until the command ends. **Don't wait** undoes this. Agents can also
-wait for a command they start.
+wait for a command they start. Wait covers only the commands the latest turn started, so a dev
+server left running by an earlier turn never keeps the thread working.
 
 ## Settle finished work
 

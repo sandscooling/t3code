@@ -18,6 +18,10 @@ import {
   readThread,
   unavailable,
 } from "../../threadAccess.ts";
+import {
+  awaitBackgroundCommandToHold,
+  NOTHING_TO_HOLD_MESSAGE,
+} from "../../../orchestration-v2/BackgroundCommandHold.fork.ts"; // Fork
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
@@ -291,22 +295,27 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   wait_for_background_commands: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { threads, projection } = yield* readThread();
+      const held = input.wait ?? true; // Fork: the wait below
+      // Fork: a call batched with its command's start can arrive first. Best
+      // effort: the hold below decides either way.
+      if (held) {
+        yield* awaitBackgroundCommandToHold(threads, projection.thread.id).pipe(Effect.ignore);
+      }
       const result = yield* threads
         .dispatch({
           type: "thread.background-work.hold",
           commandId: yield* newCommandId(),
           threadId: projection.thread.id,
-          held: input.wait ?? true,
+          held, // Fork
         })
         .pipe(
-          // The orchestrator rejects a hold before commit only when no
-          // background command runs. Anything else stays retryable.
+          // The orchestrator rejects a hold before commit only when it would
+          // add no command. Anything else stays retryable.
           Effect.mapError((error) =>
             error._tag === "OrchestratorCommandRejectedError"
               ? new OrchestratorMcpFailure({
                   code: "invalid_request",
-                  message:
-                    "Could not wait: this thread has no background command running. Start the command in the background first.",
+                  message: NOTHING_TO_HOLD_MESSAGE,
                 })
               : unavailable(),
           ),

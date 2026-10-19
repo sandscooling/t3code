@@ -130,7 +130,10 @@ import {
 } from "@t3tools/shared/model";
 import { projectScriptCwd, resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
-import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  backgroundCommandHoldScopeStartedAt, // Fork: background command holds
+  derivePendingBackgroundWork,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
   latestUnheldRun,
   usageLimitRunPresentedAsLatest,
@@ -5208,7 +5211,11 @@ export default function ChatView(props: ChatViewProps) {
   })() as ComposerBannerStackItem | null;
 
   const backgroundWorkBannerItem = (() => {
-    const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
+    const presentation = presentPendingBackgroundWork(
+      activeBackgroundTasks,
+      // Fork: Wait holds only the commands the latest run started.
+      backgroundCommandHoldScopeStartedAt(serverProjection?.runs ?? []),
+    );
     if (presentation === null || !activeThread) {
       return null;
     }

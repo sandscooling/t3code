@@ -2659,8 +2659,10 @@ export const OrchestrationV2Command = Schema.Union([
     enabled: Schema.Boolean,
   }),
   /**
-   * `held: true` waits for every background command the thread runs now: the
-   * thread stays working until they end. A command started later is not held.
+   * `held: true` waits for the background commands the latest run started, and
+   * keeps waiting for any already held: the thread stays working until they
+   * end. A command from an earlier run, or started later, is not held, and a
+   * hold that would add no command is rejected.
    * `held: false` stops waiting for all of them.
    */
   Schema.Struct({

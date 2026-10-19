@@ -334,7 +334,13 @@ it.effect("waits out a held background command, then counts the window from when
       yield* sink.write({
         events: [
           providerThread(threadId, at(1), [
-            { kind: "command", taskId: "build", description: "vp build" },
+            // Started in turn 1, so a wait from that turn takes it.
+            {
+              kind: "command",
+              taskId: "build",
+              description: "vp build",
+              startedAt: DateTime.formatIso(at(0)),
+            },
           ]),
         ],
       });
@@ -634,7 +640,13 @@ it.effect("moves the due time past a busy stretch the worker saw, as its firing 
       yield* sink.write({
         events: [
           providerThread(threadId, at(1), [
-            { kind: "command", taskId: "build", description: "vp build" },
+            // Started in turn 1, so a wait from that turn takes it.
+            {
+              kind: "command",
+              taskId: "build",
+              description: "vp build",
+              startedAt: DateTime.formatIso(at(0)),
+            },
           ]),
         ],
       });

@@ -766,4 +766,105 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       ),
     ),
   );
+
+  // Fork: a background wait holds only commands started since the latest run
+  // began, so a shell that outlives a failed turn must keep its first start.
+  it.effect("keeps a shell's first start time after a failed turn clears the roster", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const firstSeenAt = yield* DateTime.now;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: firstSeenAt,
+            attemptId: RunAttemptId.make("attempt-claude-roster-survives-1"),
+            text: "Start the dev server in the background.",
+            attachments: [],
+          }),
+        );
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: "task-dev",
+            tool_use_id: "toolu-dev",
+            description: "dev server",
+            is_backgrounded: true,
+            task_type: "local_bash",
+            uuid: "00000000-0000-4000-8000-000000000801",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "result",
+            subtype: "error_during_execution",
+            duration_ms: 10,
+            duration_api_ms: 10,
+            is_error: true,
+            num_turns: 1,
+            result: "boom",
+            stop_reason: "end_turn",
+            total_cost_usd: 0,
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+            modelUsage: {},
+            permission_denials: [],
+            errors: ["boom"],
+            terminal_reason: "model_error",
+            uuid: "00000000-0000-4000-8000-000000000802",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "failed terminal");
+        assert.equal(harness.terminalEvents()[0]?.status, "failed");
+        assert.deepEqual(
+          providerThreadRosterEvents(harness.events).at(-1)?.providerThread.pendingBackgroundTasks,
+          [],
+        );
+
+        // The next turn starts later, and Claude lists the surviving shell again.
+        yield* TestClock.adjust("5 minutes");
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-claude-roster-survives-2"),
+            text: "Run the build.",
+            attachments: [],
+          }),
+        );
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "system",
+            subtype: "background_tasks_changed",
+            tasks: [{ task_id: "task-dev", task_type: "local_bash", description: "dev server" }],
+            uuid: "00000000-0000-4000-8000-000000000803",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000804", result: "Built." }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 2, "second terminal");
+        const relisted = providerThreadRosterEvents(harness.events)
+          .at(-1)
+          ?.providerThread.pendingBackgroundTasks?.find((task) => task.taskId === "task-dev");
+        assert.equal(relisted?.startedAt, DateTime.formatIso(firstSeenAt));
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
 });
