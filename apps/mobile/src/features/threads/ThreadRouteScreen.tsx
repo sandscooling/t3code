@@ -295,6 +295,7 @@ function ThreadRouteContent(
     threadEnvironment.setBackgroundWorkHeld,
     "wait for background commands",
   );
+  const resumeThreadQueue = useAtomCommand(threadEnvironment.resumeThreadQueue, "resume queue");
   const loadEarlierHistory = useAtomCommand(threadEnvironment.loadEarlierHistory, {
     label: "load earlier thread history",
     reportFailure: false,
@@ -572,6 +573,14 @@ function ThreadRouteContent(
     void setBackgroundWorkHeld({
       environmentId: selectedThread.environmentId,
       input: { threadId: selectedThread.id, held },
+    });
+  };
+
+  const handleResumeQueue = async () => {
+    if (!selectedThread) return;
+    await resumeThreadQueue({
+      environmentId: selectedThread.environmentId,
+      input: { threadId: selectedThread.id },
     });
   };
 
@@ -968,6 +977,7 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onSetBackgroundWorkHeld={handleSetBackgroundWorkHeld}
+          onResumeQueue={composer.queueHeld ? handleResumeQueue : null}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           canSwitchThreadProvider={composer.canSwitchThreadProvider}
