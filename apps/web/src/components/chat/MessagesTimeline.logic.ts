@@ -286,13 +286,10 @@ const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 /**
  * Fork: rows the work-group fold never swallows. An image (generated, or one
  * the agent viewed, such as a Read of a png), which also shows inline without
- * expanding the row: it is content to look at rather than a step to count. A
- * submitted answer, the record of a decision the agent asked you to make: it is
- * written once, mid-turn, and every later tool call would push it out of the
- * group's visible tail.
+ * expanding the row: it is content to look at rather than a step to count.
  */
 export function workEntryPinnedInGroup(entry: WorkLogEntry): boolean {
-  return entry.questionAnswer !== undefined || workEntryViewedImagePath(entry) !== null;
+  return workEntryViewedImagePath(entry) !== null;
 }
 
 export interface WorkGroupScrollAnchor {
@@ -1446,7 +1443,7 @@ export function deriveMessagesTimelineRows(input: {
         entry.entry.questionAnswer !== undefined ||
         !runIdIsActiveResponse(entry.entry.runId) ||
         entry.entry.sourceActivityKind === "context-compaction" ||
-        workEntryPinnedInGroup(entry.entry) || // Fork: images and answers stay their own row
+        workEntryPinnedInGroup(entry.entry) || // Fork: images stay their own row
         collapsedEntryIds.has(entry.id) ||
         collapsedSupersededEntryIds.has(entry.id) ||
         foldsByAnchorEntryId.has(entry.id) ||
@@ -1617,7 +1614,7 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.entry.itemType === "system_notice" ||
         timelineEntry.entry.itemType === "notification" ||
         timelineEntry.entry.questionAnswer !== undefined ||
-        workEntryPinnedInGroup(timelineEntry.entry) // Fork: images and answers stay their own row
+        workEntryPinnedInGroup(timelineEntry.entry) // Fork: images stay their own row
       ) {
         nextRows.push({
           kind: "work",
@@ -1641,7 +1638,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.entry.itemType === "system_notice" ||
           nextEntry.entry.itemType === "notification" ||
           nextEntry.entry.questionAnswer !== undefined ||
-          workEntryPinnedInGroup(nextEntry.entry) || // Fork: images and answers stay their own row
+          workEntryPinnedInGroup(nextEntry.entry) || // Fork: images stay their own row
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
           collapsedSupersededEntryIds.has(nextEntry.id) ||

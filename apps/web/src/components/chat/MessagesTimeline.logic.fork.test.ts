@@ -1,5 +1,5 @@
 // Fork-owned tests for MessagesTimeline.logic.test.ts.
-import { MessageId, RunId, RuntimeRequestId } from "@t3tools/contracts";
+import { MessageId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
@@ -10,7 +10,7 @@ import {
   toggledCollapsedLatestRunId,
 } from "./MessagesTimeline.logic.fork";
 
-// Fork: images and answered questions are content to look at, so the fold never
+// Fork: images are content to look at, so the fold never
 // swallows them. Every test in this block is fork-owned.
 describe("pinned work rows (fork)", () => {
   const createdAt = "2026-09-01T12:00:00Z";
@@ -81,27 +81,6 @@ describe("pinned work rows (fork)", () => {
       "folded:2",
       ["read"],
       ["c"],
-    ]);
-  });
-
-  // Fork: a submitted answer stays out of the fold (fork commit c9aa31f1a7).
-  it("keeps a submitted answer out of the fold when later work follows it", () => {
-    const answer: WorkLogEntry = {
-      id: "answer",
-      createdAt,
-      label: "Answered questions",
-      tone: "info",
-      itemType: "user_input_request",
-      questionAnswer: {
-        requestId: RuntimeRequestId.make("question-request"),
-        answers: { scope: "Fold the two fixes in" },
-        attachmentsByQuestionId: {},
-      },
-    };
-    expect(groupedIds([command("a"), answer, command("b"), command("c")])).toEqual([
-      ["a"],
-      ["answer"],
-      "folded:2",
     ]);
   });
 

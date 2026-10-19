@@ -229,7 +229,7 @@ import {
   workEntryDisplayLabel,
   workEntryReadOutput,
   workEntryIsVisibleInGroup,
-  workEntryPinnedInGroup, // Fork: images show inline, answers stay out of the fold
+  workEntryPinnedInGroup, // Fork: images show inline and stay out of the fold
   worktreeSetupAgentStarted,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
