@@ -3,7 +3,7 @@
 import { derivePhysicalProjectKey } from "@t3tools/client-runtime/state/project-grouping";
 import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
 
-import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
   buildOrchestratorColorMenuItem,
@@ -36,7 +36,6 @@ export function useOrchestratorColors(
   threads: ReadonlyArray<Parameters<typeof orchestratorThreadIds>[0][number]>,
 ) {
   const colors = useClientSettings((s) => s.sidebarOrchestratorColors);
-  const updateClientSettings = useUpdateClientSettings();
   // The menus run from context-menu handlers and apply a pick after an await,
   // so they read the latest committed colors without changing identity.
   const applyColor = useStableCallback(

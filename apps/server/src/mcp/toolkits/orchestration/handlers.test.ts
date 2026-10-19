@@ -724,7 +724,8 @@ it.effect(
         }
         expect(setupRuns).toEqual([]);
 
-        // The same project launched the way the composer launches it runs setup.
+        // The same worktree launched the way the composer launches it runs setup.
+        // A main-checkout launch would prove nothing: upstream never runs setup there.
         const launches = yield* ThreadLaunch.ThreadLaunchService;
         yield* launches.launch({
           commandId: CommandId.make("test:user-launch"),
@@ -734,13 +735,13 @@ it.effect(
           modelSelection: callerModel,
           runtimeMode: "full-access",
           interactionMode: "default",
-          workspaceStrategy: { type: "root" },
+          workspaceStrategy: { type: "existing_worktree", worktreePath: lane, branch: "lane/S" },
           initialMessage: { text: "Go.", attachments: [] },
           createdBy: "user",
           creationSource: "web",
         });
         yield* waitUntil(Effect.sync(() => setupRuns.length > 0));
-        expect(setupRuns).toEqual([projectRoot]);
+        expect(setupRuns).toEqual([lane]);
       }).pipe(Effect.provide(makeHarness([{ branch: "lane/S", path: lane }], setupRuns)));
     }).pipe(Effect.scoped),
 );
