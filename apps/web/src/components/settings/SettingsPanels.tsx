@@ -2794,7 +2794,7 @@ export function GeneralSettingsPanel() {
         {/* Fork: carries upstream #17234. */}
         <SettingsRow
           {...searchableSetting("claude-resume-compaction")}
-          description="When a Claude thread over 100k tokens has been idle for 70 minutes, the send button compacts first. Off sends with full history."
+          description="When a Claude thread over 200k tokens has been idle for 70 minutes, the send button compacts first. Off sends with full history."
           resetAction={
             settings.claudeResumeCompactionEnabled !==
             DEFAULT_UNIFIED_SETTINGS.claudeResumeCompactionEnabled ? (
