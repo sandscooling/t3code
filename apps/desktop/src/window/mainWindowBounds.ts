@@ -2,6 +2,10 @@ import type * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 
 type DisplayBounds = DesktopAppSettings.DesktopWindowBounds;
 
+// Upstream keeps its MIN_MAIN_WINDOW_SIZE private; this mirrors the minWidth and
+// minHeight DesktopWindow creates the main window with.
+export const MAIN_WINDOW_MIN_SIZE = { width: 840, height: 620 } as const;
+
 /**
  * Fork: Windows grows an edge-snapped window by a few px at fractional scaling,
  * and the grown bounds get saved, so DesktopWindow clamps them back with this
