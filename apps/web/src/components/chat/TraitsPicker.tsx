@@ -16,6 +16,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
+import { REASONING_EFFORT_OPTION_IDS } from "@t3tools/client-runtime/state/thread-execution";
 import { memo } from "react";
 import { BrainIcon } from "lucide-react";
 import {
@@ -95,10 +96,7 @@ const OUTPUT_STYLE_DESCRIPTOR_ID = "outputStyle";
 const DEFAULT_OUTPUT_STYLE_VALUE = "default";
 
 const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
-  "reasoningEffort",
-  "reasoning",
-  "effort",
-  "variant",
+  ...REASONING_EFFORT_OPTION_IDS,
   "thinking",
 ]);
 

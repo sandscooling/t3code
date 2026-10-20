@@ -14,7 +14,7 @@ export const SESSION_SPAWN_LIMIT = 20;
  * picker is reachable from the palette submenu and from the New thread intent,
  * and a third entry point that forgot the flag would silently lose the feature.
  */
-export const NEW_THREAD_PROJECTS_GROUP = "new-thread-projects";
+export const NEW_THREAD_PROJECTS_GROUP = "new-thread-in";
 
 /**
  * The row Tab completes to and Enter runs. Falls back to the first item because

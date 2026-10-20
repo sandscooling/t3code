@@ -50,6 +50,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
     | "spawnedByThreadId" // Fork: crew sessions
+    | "settledOverride"
     | "status"
     | "title"
     | "updatedAt"
@@ -67,6 +68,14 @@ export function projectThreadAwarenessV2(
   }
   // Fork: a crew session finishing a turn is idle, not done: no push, no Done card.
   if (phase === "completed" && isSilencedCrewAlert(thread, "completion")) return null;
+  // Resolve the phase first so live or waiting work stays visible after settlement.
+  if (
+    thread.settledOverride === "settled" &&
+    (phase === "completed" || phase === "failed") &&
+    !backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
+  ) {
+    return null;
+  }
   const detail =
     phase === "completed"
       ? "Review the completed task."

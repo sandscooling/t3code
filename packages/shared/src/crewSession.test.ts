@@ -102,6 +102,7 @@ describe("crew session mobile push", () => {
         status,
         pendingRuntimeRequest,
         spawnedByThreadId,
+        settledOverride: null,
         updatedAt: DateTime.makeUnsafe("2026-10-03T12:00:00.000Z"),
       },
     });

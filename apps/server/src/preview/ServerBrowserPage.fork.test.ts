@@ -90,9 +90,15 @@ describe("bounded captures", () => {
   });
 
   it("a capture that answers in time is returned unchanged", async () => {
-    const result = await ServerBrowserPage.snapshot(makePage(async () => ({ data: "ZnJhbWU=" })));
+    // Upstream #19913 sizes the screenshot from its PNG header.
+    const header = Buffer.alloc(24);
+    header.write("IHDR", 12);
+    header.writeUInt32BE(1280, 16);
+    header.writeUInt32BE(800, 20);
+    const png = header.toString("base64");
+    const result = await ServerBrowserPage.snapshot(makePage(async () => ({ data: png })));
     expect(result.visibleText).toBe("Hello");
-    expect(result.screenshot.data).toBe("ZnJhbWU=");
+    expect(result.screenshot.data).toBe(png);
     expect(result.screenshot.width).toBe(1280);
   });
 
