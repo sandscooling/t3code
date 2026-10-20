@@ -2,9 +2,9 @@
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -110,9 +110,10 @@ vi.mock(import("@effect/atom-react"), async (original) => ({
     snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
   })) as never,
 }));
-vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => state.navigate,
-  useParams: () => state.active,
+vi.mock(import("@tanstack/react-router"), async (original) => ({
+  ...(await original()),
+  useNavigate: (() => state.navigate) as never,
+  useParams: (() => state.active) as never,
 }));
 vi.mock("../hooks/useSettings", () => ({
   useClientSettings: (
@@ -139,13 +140,9 @@ vi.mock("./ui/toast", () => ({
 
 import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
 
-let root: Root;
-
-async function render() {
-  await act(() => root.render(<ThreadNotificationCoordinator />));
-}
-
-beforeEach(() => {
+// The mocked modules read `state`, so every test starts by resetting all of it. The first
+// render is left to the test because some tests change state before the coordinator mounts.
+function setup() {
   vi.clearAllMocks();
   Object.assign(state, {
     mode: "off",
@@ -166,29 +163,36 @@ beforeEach(() => {
     unchanged: false,
     background: [],
   });
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.spyOn(document, "visibilityState", "get").mockImplementation(
-    () => state.visible as DocumentVisibilityState,
+  lastThreadShell = undefined;
+  const stack = new AsyncDisposableStack();
+  stack.use(
+    vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => state.visible as DocumentVisibilityState),
   );
-  vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused);
-  vi.stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" }));
-  root = createRoot(document.createElement("div"));
-});
-
-afterEach(async () => {
-  await act(() => root.unmount());
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+  stack.use(vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused));
+  stack.use(
+    stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" })),
+  );
+  let screen: Screen | undefined;
+  return {
+    render: async () => {
+      if (screen) await screen.rerender(<ThreadNotificationCoordinator />);
+      else screen = stack.use(await render(<ThreadNotificationCoordinator />));
+    },
+    [Symbol.asyncDispose]: () => stack.disposeAsync(),
+  };
+}
 
 describe("thread notifications", () => {
   // Fork: keeps the toast up until answered (clears on answer).
   it.each(["input", "approval"] as const)(
     "keeps the %s toast up until the thread is answered",
     async (event) => {
-      await render();
+      await using app = setup();
+      await app.render();
       state[event] = true;
-      await render();
+      await app.render();
 
       const toast = state.add.mock.calls[0]?.[0];
       // No auto-dismiss, and a per-thread id so a follow-up question on the same
@@ -200,7 +204,7 @@ describe("thread notifications", () => {
       });
 
       state[event] = false;
-      await render();
+      await app.render();
       expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
     },
   );
@@ -209,14 +213,15 @@ describe("thread notifications", () => {
   it.each(["sessionError", "limited"] as const)(
     "closes the standing toast when the question turns into %s",
     async (event) => {
-      await render();
+      await using app = setup();
+      await app.render();
       state.input = true;
-      await render();
+      await app.render();
       expect(state.close).not.toHaveBeenCalled();
 
       state.input = false;
       state[event] = true;
-      await render();
+      await app.render();
       expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
       expect(state.add).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -230,52 +235,56 @@ describe("thread notifications", () => {
   it.each(["is answered", "disappears"] as const)(
     "closes the standing toast when its thread %s while disconnected",
     async (change) => {
-      await render();
+      await using app = setup();
+      await app.render();
       state.input = true;
-      await render();
+      await app.render();
       state.live = false;
-      await render();
+      await app.render();
       if (change === "is answered") state.input = false;
       else state.gone = true;
       state.live = true;
-      await render();
+      await app.render();
       expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
     },
   );
 
   it("keeps the standing toast across a reconnect while the question still waits", async () => {
-    await render();
+    await using app = setup();
+    await app.render();
     state.input = true;
-    await render();
+    await app.render();
     state.live = false;
-    await render();
+    await app.render();
     state.live = true;
-    await render();
+    await app.render();
     expect(state.close).not.toHaveBeenCalled();
   });
 
   // Fork: upstream skips a thread whose shell object did not change; it still waits.
   it("keeps the standing toast when the shell refreshes without changing its thread", async () => {
-    await render();
+    await using app = setup();
+    await app.render();
     state.input = true;
-    await render();
+    await app.render();
     state.unchanged = true;
-    await render();
-    await render();
+    await app.render();
+    await app.render();
     expect(state.close).not.toHaveBeenCalled();
     state.unchanged = false;
     state.input = false;
-    await render();
+    await app.render();
     expect(state.close).toHaveBeenCalledWith("thread-attention:env-1:thread-1");
   });
 
   // Fork: a question raised in the background still waits as a toast.
   it("leaves a question's toast waiting when it arrives while the app is unfocused", async () => {
+    await using app = setup();
     state.mode = "notifications";
     state.focused = false;
-    await render();
+    await app.render();
     state.input = true;
-    await render();
+    await app.render();
     expect(state.add).toHaveBeenCalledWith(
       expect.objectContaining({ id: "thread-attention:env-1:thread-1", timeout: 0 }),
     );
@@ -283,18 +292,20 @@ describe("thread notifications", () => {
   });
 
   it("does not raise a question's toast for the thread already open", async () => {
+    await using app = setup();
     state.active.threadId = "thread-1";
     state.focused = false;
-    await render();
+    await app.render();
     state.input = true;
-    await render();
+    await app.render();
     expect(state.add).not.toHaveBeenCalled();
   });
 
   it("restores a question's toast, silently, for a thread already waiting on load", async () => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
     state.approval = true;
-    await render();
+    await app.render();
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.add).toHaveBeenCalledWith(
       expect.objectContaining({ id: "thread-attention:env-1:thread-1", title: "Approval needed" }),
@@ -306,38 +317,41 @@ describe("thread notifications", () => {
   // Fork: only a held command re-arms the completion alert; a pull request
   // watch makes the thread wait too, but its run already alerted.
   it("does not alert the same completion again after a pull request watch ends", async () => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
-    await render();
+    await app.render();
     state.completedAt = "2026-09-13T10:00:00.000Z";
-    await render();
+    await app.render();
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }];
-    await render();
+    await app.render();
     state.background = [];
-    await render();
+    await app.render();
     expect(state.sound).toHaveBeenCalledTimes(1);
   });
 
   it("still alerts again when a held command ends alongside a pull request watch", async () => {
+    await using app = setup();
     state.mode = "notifications-and-sound";
-    await render();
+    await app.render();
     state.completedAt = "2026-09-13T10:00:00.000Z";
-    await render();
+    await app.render();
     state.background = [
       { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
       { taskId: "bench", kind: "command", held: true },
     ];
-    await render();
+    await app.render();
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [];
-    await render();
+    await app.render();
     expect(state.sound).toHaveBeenCalledTimes(2);
   });
 
   it("lets a failure toast fall away on its own", async () => {
-    await render();
+    await using app = setup();
+    await app.render();
     state.sessionError = true;
-    await render();
+    await app.render();
     const toast = state.add.mock.calls[0]?.[0];
     expect(toast).not.toHaveProperty("timeout");
     expect(toast).not.toHaveProperty("id");
