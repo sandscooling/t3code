@@ -8,6 +8,7 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
+// Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -30,7 +31,10 @@ import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
-import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
+import {
+  guardHttpResponseWriteErrors,
+  rejectRequestsUntilServing,
+} from "./httpResponseErrorGuard.ts";
 // Fork: MCP responses close their connection.
 import { closeMcpConnections } from "./mcpConnectionClose.fork.ts";
 import { fixPath } from "./os-jank.ts";
@@ -289,18 +293,23 @@ const layerRelayClient = Layer.unwrap(
 const layerHttpServer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    // Fork: MCP responses close their connection (closeMcpConnections).
+    // Fork: MCP responses close their connection (closeMcpConnections). It is
+    // registered first because rejectRequestsUntilServing hands off on the
+    // next `request` listener added after it.
     const createServer = () => closeMcpConnections(NodeHttp.createServer());
-    return NodeHttpServer.layer(() => guardHttpResponseWriteErrors(createServer()), {
-      host: config.host ?? "127.0.0.1",
-      port: config.port,
-      gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
-      // Context takeover stays enabled (ws default) so the compression
-      // window is shared across frames — that also makes small frames cheap
-      // to compress, so no size threshold is set (ws only honors
-      // `threshold` when context takeover is disabled).
-      websocket: { perMessageDeflate: true },
-    });
+    return NodeHttpServer.layer(
+      () => rejectRequestsUntilServing(guardHttpResponseWriteErrors(createServer())),
+      {
+        host: config.host ?? "127.0.0.1",
+        port: config.port,
+        gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
+        // Context takeover stays enabled (ws default) so the compression
+        // window is shared across frames — that also makes small frames cheap
+        // to compress, so no size threshold is set (ws only honors
+        // `threshold` when context takeover is disabled).
+        websocket: { perMessageDeflate: true },
+      },
+    );
   }),
 );
 

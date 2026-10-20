@@ -60,7 +60,8 @@ function parseRemoteFetchUrls(stdout: string): Map<string, string> {
     if (trimmed.length === 0) continue;
     // Lazy URL match so remotes pointing at a local path containing spaces are
     // not silently dropped. See the same fix in GitVcsDriver.
-    const match = /^(\S+)\s+(.+?)\s+\((fetch|push)\)$/.exec(trimmed);
+    // Partial clones append the promisor filter, e.g. `(fetch) [blob:none]`.
+    const match = /^(\S+)\s+(.+?)\s+\((fetch|push)\)(?:\s+\[[^\]]+\])?$/.exec(trimmed);
     if (!match) continue;
     const [, remoteName = "", remoteUrl = "", direction = ""] = match;
     if (
