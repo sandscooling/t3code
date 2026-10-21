@@ -105,7 +105,7 @@ beforeEach(stubDomGlobals);
 beforeAll(async () => {
   stubDomGlobals();
   ({ MessagesTimeline } = await import("./MessagesTimeline"));
-}, 30_000);
+});
 
 const ACTIVE_THREAD_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";

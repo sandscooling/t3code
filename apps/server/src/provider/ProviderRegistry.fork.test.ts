@@ -4,6 +4,7 @@ import * as CodexInstallation from "./CodexInstallation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -177,6 +178,34 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                   stderr: "",
                   code: 0,
                 };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      // Moved from ProviderRegistry.test.ts when upstream deleted its test (#22557).
+      it.effect("reads a missing or timed-out probe as a failed usage read", () =>
+        Effect.gen(function* () {
+          // The last published windows survive a failed read rather than blanking.
+          const missing = yield* checkClaudeProviderStatus(defaultClaudeSettings, () =>
+            Effect.sync(() => undefined),
+          );
+          assert.strictEqual(missing.status, "warning");
+          assert.strictEqual(missing.usageLimits?.unavailable?.reason, "probeFailed");
+
+          const timedOut = yield* checkClaudeProviderStatus(defaultClaudeSettings, () =>
+            Effect.fail(new Cause.TimeoutError()),
+          );
+          assert.strictEqual(timedOut.status, "warning");
+          assert.strictEqual(timedOut.usageLimits?.unavailable?.reason, "probeFailed");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return { stdout: '{"loggedIn":false}\n', stderr: "", code: 1 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),

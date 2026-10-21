@@ -5,10 +5,10 @@ import {
   useAgentDrawingStore,
   withAgentDrawingPlacement,
 } from "./agentDrawing.fork";
-import {
-  HIDDEN_BROWSER_WEBVIEW_OFFSET,
-  resolveHostedBrowserWebviewWrapperStyle,
-} from "./hostedBrowserWebviewStyle";
+import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
+
+// Mirrors hostedBrowserWebviewStyle.ts, which keeps the offset private.
+const HIDDEN_BROWSER_WEBVIEW_OFFSET = -100_000;
 
 const hiddenSize = { width: 1280, height: 800 };
 const parked = resolveHostedBrowserWebviewWrapperStyle({

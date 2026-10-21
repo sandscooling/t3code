@@ -1,4 +1,4 @@
-// Fork-owned tests for ThreadNotificationCoordinator.browser.test.tsx.
+// Fork-owned tests for ThreadNotificationCoordinator.
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   visible: "visible",
   live: true,
   completedAt: null as string | null,
+  stopRequested: false,
   archivedAt: null as string | null,
   input: false,
   approval: false,
@@ -66,6 +67,7 @@ function mockThreadShell() {
     createdBy: "user",
     creationSource: "web",
     latestRunId: "run-1",
+    latestRunStopRequested: state.stopRequested,
     activeRunId: null,
     status: state.completedAt
       ? "completed"
@@ -152,6 +154,7 @@ function setup() {
     visible: "visible",
     live: true,
     completedAt: null,
+    stopRequested: false,
     archivedAt: null,
     input: false,
     approval: false,
@@ -345,6 +348,30 @@ describe("thread notifications", () => {
     state.background = [];
     await app.render();
     expect(state.sound).toHaveBeenCalledTimes(2);
+  });
+
+  // Fork: a finished thread raises no toast, only its sound and background system popup.
+  it("gives a completion its sound but no toast", async () => {
+    await using app = setup();
+    state.mode = "notifications-and-sound";
+    await app.render();
+    state.completedAt = "2026-09-13T10:00:00.000Z";
+    await app.render();
+    expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
+    expect(state.add).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  it("stays silent for a completion the reader stopped", async () => {
+    await using app = setup();
+    state.mode = "notifications-and-sound";
+    state.focused = false;
+    await app.render();
+    state.stopRequested = true;
+    state.completedAt = "2026-09-13T10:00:00.000Z";
+    await app.render();
+    expect(state.sound).not.toHaveBeenCalled();
+    expect(state.notification).not.toHaveBeenCalled();
   });
 
   it("lets a failure toast fall away on its own", async () => {

@@ -46,6 +46,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "activityRunStatus"
     | "id"
     | "lineage"
+    | "latestRunStopRequested"
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
@@ -68,6 +69,7 @@ export function projectThreadAwarenessV2(
   }
   // Fork: a crew session finishing a turn is idle, not done: no push, no Done card.
   if (phase === "completed" && isSilencedCrewAlert(thread, "completion")) return null;
+  if (phase === "completed" && thread.latestRunStopRequested === true) return null;
   // Resolve the phase first so live or waiting work stays visible after settlement.
   if (
     thread.settledOverride === "settled" &&

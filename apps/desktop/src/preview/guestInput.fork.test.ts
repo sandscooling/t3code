@@ -192,22 +192,30 @@ describe("routeGuestCommand", () => {
 });
 
 describe("routeGuestCommand input order", () => {
-  /** Lets every queued promise reaction run. */
-  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
   /**
    * A guest whose app window answers each focus script only when `answer` is
    * called, and whose debugger records the mouse events it is sent.
    */
   const makeGuest = (debuggee = {} as Electron.Debugger) => {
     const waiting: Array<{ readonly kind: string; readonly resolve: () => void }> = [];
+    const watchers: Array<{ readonly kind: string; readonly resolve: () => void }> = [];
     const appContents = {
       isDestroyed: () => false,
       executeJavaScript: (expression: string) =>
         new Promise<void>((resolve) => {
-          waiting.push({ kind: expression.includes(".set(") ? "remember" : "restore", resolve });
+          const kind = expression.includes(".set(") ? "remember" : "restore";
+          waiting.push({ kind, resolve });
+          for (const watcher of watchers.filter((entry) => entry.kind === kind)) {
+            watchers.splice(watchers.indexOf(watcher), 1);
+            watcher.resolve();
+          }
         }),
     };
+    /** Resolves once the app window has been asked to run a focus script of this kind. */
+    const requested = (kind: string) =>
+      waiting.some((call) => call.kind === kind)
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => watchers.push({ kind, resolve }));
     const guest = { id: GUEST_ID, hostWebContents: appContents } as unknown as Electron.WebContents;
     const seen: Array<string> = [];
     const send = (type: string, forward = () => Promise.resolve<unknown>({})) =>
@@ -219,17 +227,17 @@ describe("routeGuestCommand input order", () => {
       const index = waiting.findIndex((call) => call.kind === kind);
       waiting.splice(index, 1)[0]!.resolve();
     };
-    return { guest, debuggee, seen, send, answer };
+    return { guest, debuggee, seen, send, answer, requested };
   };
 
   it("sends a release after its press, without waiting for the press's focus restore", async () => {
-    const { seen, send, answer } = makeGuest();
+    const { seen, send, answer, requested } = makeGuest();
     // Playwright's click: all three at once, relying on DevTools to keep their order.
     const moved = send("mouseMoved");
     const pressed = send("mousePressed");
     const released = send("mouseReleased");
     await moved;
-    await settle();
+    await requested("remember");
     expect(seen).toEqual(["mouseMoved"]);
     answer("remember");
     await released;
@@ -238,19 +246,19 @@ describe("routeGuestCommand input order", () => {
     void pressed.then(() => {
       pressDone = true;
     });
-    await settle();
+    await requested("restore");
     expect(pressDone).toBe(false);
     answer("restore");
     await pressed;
   });
 
   it("sends the next command after a press that fails, which reaches its own caller", async () => {
-    const { seen, send, answer } = makeGuest();
+    const { seen, send, answer, requested } = makeGuest();
     const pressed = send("mousePressed", () => Promise.reject(new Error("gone")));
     const released = send("mouseReleased");
-    await settle();
+    await requested("remember");
     answer("remember");
-    await settle();
+    await requested("restore");
     answer("restore");
     await expect(pressed).rejects.toThrow("gone");
     await released;

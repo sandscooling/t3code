@@ -683,24 +683,22 @@ it.effect("refuses a name an open or settled session holds, an empty message, an
 );
 
 /**
- * Launch preparation runs on a background fiber with no receipt to wait on, so
- * this yields to it until the condition holds, as ThreadLaunchService's tests do.
+ * Settles once launch preparation releases the run, or fails it, as
+ * ThreadLaunchService's tests wait. The setup script runs before the release.
  */
-const waitUntil = <E, R>(predicate: Effect.Effect<boolean, E, R>) =>
-  Effect.gen(function* () {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      if (yield* predicate) return;
-      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-    }
-    expect.fail("condition was not reached");
-  });
-
 const prepared = (threadId: string) =>
-  waitUntil(
-    projectionOf(threadId).pipe(
-      Effect.map((projection) => !projection.runs.some((run) => run.status === "preparing")),
-    ),
-  );
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* threads.streamStoredEventsFrom({ threadId: ThreadId.make(threadId) }).pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "run.updated" &&
+          (stored.commandId?.endsWith(":release") === true ||
+            stored.event.payload.status === "failed"),
+      ),
+      Stream.runHead,
+    );
+  });
 
 it.effect(
   "never runs the project's setup script for a spawn, while upstream's launch still does",
@@ -740,7 +738,7 @@ it.effect(
           createdBy: "user",
           creationSource: "web",
         });
-        yield* waitUntil(Effect.sync(() => setupRuns.length > 0));
+        yield* prepared("thread:user-launch");
         expect(setupRuns).toEqual([lane]);
       }).pipe(Effect.provide(makeHarness([{ branch: "lane/S", path: lane }], setupRuns)));
     }).pipe(Effect.scoped),
