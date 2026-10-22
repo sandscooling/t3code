@@ -49,6 +49,7 @@ import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
+import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -333,6 +334,7 @@ import {
   codexArtifactTemplatePromptToAppend,
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -370,10 +372,6 @@ const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_AUTO_UPDATE_ENVIRONMENTS: ReadonlyArray<EnvironmentPresentation> = [];
 
-// Fork: carries upstream #17234.
-const selectClaudeResumeCompactionEnabled = (settings: {
-  claudeResumeCompactionEnabled: boolean;
-}) => settings.claudeResumeCompactionEnabled;
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 
 type ChatViewProps =
@@ -1613,10 +1611,12 @@ export default function ChatView(props: ChatViewProps) {
       ? (activeRuntime?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null)
       : null,
   });
-  // Fork: carries upstream #17234. The setting replaces the per-environment
-  // localStorage dismissal. Only the user writes it, so it stays a two-way
-  // switch; a native "Don't ask again" hides the offer in its own thread only.
-  const resumeCompactionEnabled = useClientSettings(selectClaudeResumeCompactionEnabled);
+  const [resumeCompactionPermanentlyDismissed, setResumeCompactionPermanentlyDismissed] =
+    useLocalStorage(
+      `t3code:resume-compaction-dismissed:${environmentId}:${activeProviderInstanceId ?? "claudeAgent"}`,
+      false,
+      Schema.Boolean,
+    );
   const nativeResumeCompactionDismissed = hasDismissedResumeCompaction(
     (serverProjection?.runtimeRequests ?? [])
       .filter((request) => request.kind === "user_input" && request.status === "resolved")
@@ -1625,6 +1625,15 @@ export default function ChatView(props: ChatViewProps) {
         payload: { answers: request.answers },
       })),
   );
+  useEffect(() => {
+    if (nativeResumeCompactionDismissed && !resumeCompactionPermanentlyDismissed) {
+      setResumeCompactionPermanentlyDismissed(true);
+    }
+  }, [
+    nativeResumeCompactionDismissed,
+    resumeCompactionPermanentlyDismissed,
+    setResumeCompactionPermanentlyDismissed,
+  ]);
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -2534,7 +2543,7 @@ export default function ChatView(props: ChatViewProps) {
       settings,
       activeProviderInstanceId ?? ProviderInstanceId.make("claudeAgent"),
     ) !== "off" &&
-    resumeCompactionEnabled && // Fork: upstream #17234
+    !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&
     !hasHeldQueuedRuns &&

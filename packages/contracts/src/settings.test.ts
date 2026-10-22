@@ -180,24 +180,6 @@ describe("ClientSettings quit confirmation", () => {
   });
 });
 
-// Fork: carries upstream #17234.
-describe("ClientSettings Claude resume compaction", () => {
-  it("defaults on and preserves an explicit opt-out and opt-back-in", () => {
-    expect(decodeClientSettings({}).claudeResumeCompactionEnabled).toBe(true);
-    expect(
-      decodeClientSettings({ claudeResumeCompactionEnabled: false }).claudeResumeCompactionEnabled,
-    ).toBe(false);
-    expect(
-      decodeClientSettingsPatch({ claudeResumeCompactionEnabled: false })
-        .claudeResumeCompactionEnabled,
-    ).toBe(false);
-    expect(
-      decodeClientSettingsPatch({ claudeResumeCompactionEnabled: true })
-        .claudeResumeCompactionEnabled,
-    ).toBe(true);
-  });
-});
-
 describe("provider enabled defaults", () => {
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
