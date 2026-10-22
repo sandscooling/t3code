@@ -13,6 +13,7 @@ import {
   useThreadShell,
 } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
+import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import {
   effectiveSnoozed,
@@ -103,7 +104,10 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceContentWidth } from "../layout/workspace-content-width";
 import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
-import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
+import {
+  useDuoBottomBarInset,
+  useNativeColumnLayoutMetrics,
+} from "../../native/native-layout-metrics";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
@@ -160,6 +164,7 @@ import {
   COMPOSER_EXPANDED_CHROME,
   COMPOSER_LAYOUT_TRANSITION,
   COMPOSER_TRANSITION_DURATION_MS,
+  THREAD_COMPOSER_BOTTOM_GUTTER,
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
@@ -529,20 +534,23 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
   const selectedThreadKeyRef = useRef(selectedThreadKey);
   const lastScrolledSubmittedMessageIdRef = useRef<MessageId | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(false);
-  const handleComposerFocusChange = (focused: boolean) => {
-    setComposerFocused(focused);
-    handleOwnedInputFocusChange(focused);
-  };
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [submittedMessageId, setSubmittedMessageId] = useState<MessageId | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
   // Android Back hides the keyboard without blurring. Keep its safe-area padding
   // fixed through the animation and cancel it with matching composer/list offsets.
+  const bottomBarInset = useDuoBottomBarInset();
+  // The pill already adds its own gutter; iPad and Duo align its edge with the native bar.
+  const alignedBottomInset =
+    bottomBarInset ??
+    (Platform.OS === "ios" && Platform.isPad ? Math.max(insets.bottom, 12) : undefined);
+  // A hardware keyboard can focus the editor without occupying any screen height.
   const composerBottomInset =
-    Platform.OS === "ios" && (composerExpanded || composerFocused)
+    Platform.OS === "ios" && (composerExpanded || liveKeyboardHeight > 0)
       ? 0
-      : Math.max(insets.bottom, 12);
+      : alignedBottomInset !== undefined
+        ? Math.max(0, alignedBottomInset - THREAD_COMPOSER_BOTTOM_GUTTER)
+        : Math.max(insets.bottom, 12);
   const composerKeyboardOffset = Platform.OS === "android" ? composerBottomInset : 0;
   const contentPresentationKind = props.contentPresentation.kind;
   const realThreadSyncLabel = (() => {
@@ -1114,9 +1122,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
 
   useLayoutEffect(() => {
     selectedThreadKeyRef.current = selectedThreadKey;
-    // A replaced or unmounted native editor may not emit a blur event.
-    setComposerFocused(false);
-  }, [selectedThreadKey, showContent]);
+  }, [selectedThreadKey]);
 
   useEffect(() => {
     setAnchorMessageId(null);
@@ -1494,6 +1500,10 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                     thread={props.selectedThread}
                     environmentId={props.environmentId}
                   />
+                  <ChatGptUsageLimitNotice
+                    key={`chatgpt-limit:${props.selectedThread.latestRun?.runId}`}
+                    thread={props.selectedThread}
+                  />
                   {props.feedbackSubmissions.map((submission) => (
                     <ComposerFeedback
                       key={submission.id}
@@ -1691,7 +1701,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                         onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
                         onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                         onExpandedChange={setComposerExpanded}
-                        onEditorFocusChange={handleComposerFocusChange}
+                        onEditorFocusChange={handleOwnedInputFocusChange}
                       />
                     </>
                   )}
