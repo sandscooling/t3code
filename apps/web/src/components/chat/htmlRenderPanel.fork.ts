@@ -1,5 +1,5 @@
 // Fork-owned: agent HTML renders open in the right panel instead of inline.
-import type { OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import type { ThreadStructureVisibleTurnItem } from "@t3tools/client-runtime/state/shell";
 import { htmlRenderFileName, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import { DateTime } from "effect";
@@ -40,7 +40,7 @@ export function isQuestionPageTitle(title: string): boolean {
 }
 
 /** The thread's completed html_render pages, timed by completion: a row's createdAt is when the call started. */
-export function htmlRenderSightings(turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>) {
+export function htmlRenderSightings(turnItems: ReadonlyArray<ThreadStructureVisibleTurnItem>) {
   return turnItems.flatMap(({ item }) => {
     if (item.type !== "dynamic_tool" || item.status !== "completed") return [];
     const htmlRender = htmlRenderFromToolItem(item);
@@ -163,7 +163,7 @@ export function nextQuestionHtmlRenderOpen(
 export function useAutoOpenHtmlRenders(input: {
   readonly threadKey: string | null;
   readonly enabled: boolean;
-  readonly turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  readonly turnItems: ReadonlyArray<ThreadStructureVisibleTurnItem>;
   readonly open: (attachment: ChatFileAttachment) => void;
   readonly pendingUserInput: PendingUserInput | null;
   readonly questionIndex: number;
