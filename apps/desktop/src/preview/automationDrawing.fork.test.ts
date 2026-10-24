@@ -13,7 +13,7 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const key = { threadId: "thread-1", tabId: "server-tab" };
 
 const makeDebuggee = () => ({
-  webContents: {} as Electron.WebContents,
+  webContents: new NodeEvents.EventEmitter() as unknown as Electron.WebContents,
   debugger: new NodeEvents.EventEmitter() as unknown as Electron.Debugger,
 });
 
