@@ -47,8 +47,13 @@ export function withClaudeUnifiedWindows(
       windows.set(id, row);
     }
   }
+  // Upstream #24128: the snapshot carries every window the account reports, so
+  // it can stand in for a failed probe. The CLI drops a window from it once its
+  // reset passes, so it can lack the weekly window right after the week resets.
+  const complete = windows.size > 0;
   for (const window of named?.windows ?? []) {
     windows.set(window.id, window);
   }
-  return windows.size > 0 ? { windows: [...windows.values()] } : undefined;
+  if (windows.size === 0) return undefined;
+  return { windows: [...windows.values()], ...(complete ? { complete: true } : {}) };
 }

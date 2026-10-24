@@ -23,6 +23,7 @@ describe("claudeRateLimitEventToUpdate", () => {
         noNames,
       ),
     ).toEqual({
+      complete: true,
       windows: [
         {
           id: "five_hour",
@@ -42,5 +43,20 @@ describe("claudeRateLimitEventToUpdate", () => {
         },
       ],
     });
+  });
+
+  // Fork (#24128): only the per-window snapshot can stand in for a failed probe.
+  it("leaves an event without unifiedWindows sparse", () => {
+    const update = claudeRateLimitEventToUpdate(
+      {
+        status: "allowed_warning",
+        rateLimitType: "five_hour",
+        utilization: 0.8,
+        resetsAt: 1_790_404_800,
+      } as never,
+      noNames,
+    );
+    expect(update?.windows.map((window) => window.id)).toEqual(["five_hour"]);
+    expect(update?.complete).toBeUndefined();
   });
 });

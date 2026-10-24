@@ -78,11 +78,15 @@ export function applyUsageLimitsUpdate(input: {
       changed = true;
     }
   }
-  if (!changed && previous !== undefined) {
+  // Fork: upstream #24128, a complete update clears a failed probe.
+  const unavailable = update.complete
+    ? undefined
+    : previous === undefined
+      ? { reason: "probeFailed" as const }
+      : previous.unavailable;
+  if (!changed && previous !== undefined && unavailable === previous.unavailable) {
     return previous;
   }
-  const unavailable =
-    previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
   return {
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
     ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
