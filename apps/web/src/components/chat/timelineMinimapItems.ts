@@ -21,6 +21,11 @@ export function deriveTimelineMinimapItems(
     if (row?.kind !== "message" || row.message.role !== "user") {
       continue;
     }
+    // Fork: only messages the user typed get a tick, not agent, server or scheduled ones.
+    const { createdBy, senderThreadId, scheduledTaskId } = row.message;
+    if ((createdBy ?? "user") !== "user" || senderThreadId || scheduledTaskId) {
+      continue;
+    }
 
     items.push({
       id: row.id,
