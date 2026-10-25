@@ -1,5 +1,5 @@
 import type { OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
-import { backgroundWorkTaskHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { backgroundWorkTaskHoldsThread } from "@t3tools/shared/crewSession";
 
 /**
  * Fork: when the background work banner's clock starts, or null for no clock.
@@ -13,14 +13,18 @@ export function backgroundWorkClockStartedAt(
 
 /**
  * Fork: what a sidebar row reading Waiting waits on, or null when nothing holds it.
- * Only tasks that hold completion count, so an unheld command started after a
- * subagent neither resets the clock nor changes the icon.
+ * Only tasks that hold the thread count, so an unheld command started after a
+ * subagent neither resets the clock nor changes the icon (in a crew session
+ * every command holds).
  */
-export function sidebarWaitingOn(tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>): {
+export function sidebarWaitingOn(
+  tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
+  thread: Parameters<typeof backgroundWorkTaskHoldsThread>[0],
+): {
   readonly kind: "agent" | "command" | "pull-request";
   readonly startedAt: string | null;
 } | null {
-  const holding = tasks.filter(backgroundWorkTaskHoldsCompletion);
+  const holding = tasks.filter((task) => backgroundWorkTaskHoldsThread(thread, task));
   const task = newestTask(holding) ?? holding[0];
   if (task === undefined) {
     return null;

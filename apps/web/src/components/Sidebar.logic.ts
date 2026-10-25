@@ -1,7 +1,6 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
-import { isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
+import { backgroundWorkHoldsThread, isIdleCrewSession } from "@t3tools/shared/crewSession"; // Fork: crew sessions read Idle
 import * as React from "react";
 import {
   isAtomCommandInterrupted,
@@ -1129,7 +1128,7 @@ export function resolveThreadStatusPill(input: {
 
   if (
     (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) ||
-    backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
+    backgroundWorkHoldsThread(thread, thread.pendingBackgroundTasks ?? []) // Fork: crew commands hold
   ) {
     return {
       label: "Waiting",

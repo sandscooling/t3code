@@ -80,6 +80,14 @@ describe("crew session status", () => {
     expect(pillLabel({ runtime: runtime("failed", "usage_limit") })).not.toBe("Idle");
   });
 
+  it("shows Waiting, not Idle, while an unheld command it started runs", () => {
+    const gate = { pendingBackgroundTasks: [{ taskId: "gate", kind: "command" as const }] };
+    expect(pillLabel(gate)).toBe("Waiting");
+    expect(pillLabel({ ...gate, spawnedByThreadId: undefined })).toBe("Completed");
+    expect(pillLabel({ ...gate, spawnedByThreadId: null })).toBe("Completed");
+    expect(pillLabel({ pendingBackgroundTasks: [] })).toBe("Idle");
+  });
+
   it("is not project activity", () => {
     const idle = resolveThreadStatusPill({ thread: crew });
     expect(resolveProjectStatusIndicator([idle, null])).toBeNull();

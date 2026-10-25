@@ -12,6 +12,8 @@
  * Done and unread like any top-level thread, and its completions alert.
  */
 
+import { backgroundWorkTaskHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
+
 const ORCHESTRATOR_TITLE = "Orchestrator";
 
 interface CrewSessionThread {
@@ -38,6 +40,30 @@ export function isIdleCrewSession(
   status: string,
 ): boolean {
   return status === "ready" && isCrewSession(thread) && thread.settledOverride !== "settled";
+}
+
+type BackgroundWorkHoldTask = Parameters<typeof backgroundWorkTaskHoldsCompletion>[0];
+
+/**
+ * Whether one piece of background work holds the thread Waiting. Elsewhere a
+ * command holds only when someone chose to wait for it, so a dev server left
+ * running does not. A crew session resumes when any command it started ends,
+ * and settling it stops that command, so every running command holds it.
+ */
+export function backgroundWorkTaskHoldsThread(
+  thread: CrewSessionThread,
+  task: BackgroundWorkHoldTask,
+): boolean {
+  return (
+    backgroundWorkTaskHoldsCompletion(task) || (task.kind === "command" && isCrewSession(thread))
+  );
+}
+
+export function backgroundWorkHoldsThread(
+  thread: CrewSessionThread,
+  tasks: ReadonlyArray<BackgroundWorkHoldTask>,
+): boolean {
+  return tasks.some((task) => backgroundWorkTaskHoldsThread(thread, task));
 }
 
 export type ThreadAlertKind = "completion" | "failure" | "input" | "approval";

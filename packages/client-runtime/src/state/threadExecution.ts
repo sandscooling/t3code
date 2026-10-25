@@ -23,6 +23,7 @@ import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { backgroundWorkHoldsThread } from "@t3tools/shared/crewSession"; // Fork: crew commands hold
 import { getProviderOptionCurrentLabel, getProviderOptionStatedValue } from "@t3tools/shared/model";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import * as DateTime from "effect/DateTime";
@@ -232,7 +233,9 @@ export function deriveThreadStructureRuntime(
   const liveActivityRun = latestMatchingRun(projection, (run) =>
     ACTIVITY_RUN_STATUSES.has(run.status),
   );
-  const backgroundWorkHoldsRun = backgroundWorkHoldsCompletion(
+  // Fork: any command a crew session left running holds it too.
+  const backgroundWorkHoldsRun = backgroundWorkHoldsThread(
+    projection.thread,
     derivePendingBackgroundWork({
       latestRun: latestRunProjection,
       providerThreads: projection.providerThreads,

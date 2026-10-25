@@ -1376,6 +1376,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             // Fork: what Waiting waits on, and since when.
                             <SidebarWaitingOn
                               tasks={thread.pendingBackgroundTasks}
+                              thread={thread}
                               Duration={WorkingDuration}
                             />
                           ) : null}

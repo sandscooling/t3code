@@ -121,6 +121,27 @@ describe("resolveThreadListV2Status", () => {
       expect(threadHasUnseenCompletion(thread)).toBe(true);
     },
   );
+
+  // Fork: a crew session resumes when its command ends, so it waits instead of reading Idle.
+  it("presents a crew session with an unheld command as waiting", () => {
+    const status = (fields: Partial<OrchestrationV2ThreadShell>) =>
+      resolveThreadListV2Status(
+        presentThreadShell(
+          environmentId,
+          makeRawThreadShell({
+            latestRunId: RunId.make("run-gate"),
+            status: "completed",
+            ...fields,
+          }),
+        ),
+      );
+    const crew = { spawnedByThreadId: ThreadId.make("thread-orchestrator") };
+    const gate = { pendingBackgroundTasks: [{ taskId: "gate", kind: "command" as const }] };
+
+    expect(status({ ...crew, ...gate })).toBe("waiting");
+    expect(status(gate)).toBe("ready");
+    expect(status(crew)).toBe("ready");
+  });
 });
 
 describe("queued messages keep a settled thread active", () => {

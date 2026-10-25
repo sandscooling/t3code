@@ -5,7 +5,13 @@ import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { projectThreadAwarenessV2 } from "./agentAwareness.ts";
-import { isCrewSession, isIdleCrewSession, isSilencedCrewAlert } from "./crewSession.ts";
+import {
+  backgroundWorkHoldsThread,
+  backgroundWorkTaskHoldsThread,
+  isCrewSession,
+  isIdleCrewSession,
+  isSilencedCrewAlert,
+} from "./crewSession.ts";
 
 const crew = { spawnedByThreadId: "orchestrator" as ThreadId, settledOverride: null };
 // A top-level orchestrator (and its handoff successor) has no spawner.
@@ -61,6 +67,29 @@ describe("isIdleCrewSession", () => {
   it("leaves orchestrators and the user's own threads alone", () => {
     expect(isIdleCrewSession(orchestrator, "ready")).toBe(false);
     expect(isIdleCrewSession(ownThread, "ready")).toBe(false);
+  });
+});
+
+describe("backgroundWorkHoldsThread", () => {
+  const command = { kind: "command" as const };
+
+  it("holds a crew session on any running command, held or not", () => {
+    expect(backgroundWorkHoldsThread(crew, [command])).toBe(true);
+    expect(backgroundWorkTaskHoldsThread(crew, { ...command, held: true })).toBe(true);
+  });
+
+  it("holds other threads only on a held command, so a dev server does not", () => {
+    for (const thread of [orchestrator, ownThread, spawnedOrchestrator]) {
+      expect(backgroundWorkHoldsThread(thread, [command])).toBe(false);
+      expect(backgroundWorkHoldsThread(thread, [{ ...command, held: true }])).toBe(true);
+    }
+  });
+
+  it("holds every thread on the work that always holds, and none on no work", () => {
+    for (const thread of [crew, ownThread]) {
+      expect(backgroundWorkHoldsThread(thread, [{ kind: "subagent" }])).toBe(true);
+      expect(backgroundWorkHoldsThread(thread, [])).toBe(false);
+    }
   });
 });
 

@@ -19,6 +19,7 @@ describe("backgroundWorkClockStartedAt", () => {
 });
 
 describe("sidebarWaitingOn", () => {
+  const topLevel = {};
   const subagent = {
     taskId: "agent",
     kind: "subagent" as const,
@@ -31,7 +32,7 @@ describe("sidebarWaitingOn", () => {
       kind: "command" as const,
       startedAt: "2026-10-02T10:05:00.000Z",
     };
-    expect(sidebarWaitingOn([subagent, devServer])).toEqual({
+    expect(sidebarWaitingOn([subagent, devServer], topLevel)).toEqual({
       kind: "agent",
       startedAt: "2026-10-02T10:00:00.000Z",
     });
@@ -44,7 +45,7 @@ describe("sidebarWaitingOn", () => {
       held: true,
       startedAt: "2026-10-02T10:05:00.000Z",
     };
-    expect(sidebarWaitingOn([subagent, benchmark])).toEqual({
+    expect(sidebarWaitingOn([subagent, benchmark], topLevel)).toEqual({
       kind: "command",
       startedAt: "2026-10-02T10:05:00.000Z",
     });
@@ -53,27 +54,30 @@ describe("sidebarWaitingOn", () => {
   it("reads a monitor and a background task as commands", () => {
     for (const kind of ["monitor", "background_task"] as const) {
       expect(
-        sidebarWaitingOn([{ taskId: kind, kind, startedAt: "2026-10-02T10:05:00.000Z" }]),
+        sidebarWaitingOn([{ taskId: kind, kind, startedAt: "2026-10-02T10:05:00.000Z" }], topLevel),
       ).toEqual({ kind: "command", startedAt: "2026-10-02T10:05:00.000Z" });
     }
   });
 
   it("names a pull request watch, without a clock since a watch has no start time", () => {
     expect(
-      sidebarWaitingOn([{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }]),
+      sidebarWaitingOn(
+        [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }],
+        topLevel,
+      ),
     ).toEqual({ kind: "pull-request", startedAt: null });
   });
 
   it("prefers a clocked holding task over a pull request watch", () => {
     const watch = { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" as const };
-    expect(sidebarWaitingOn([watch, subagent])).toEqual({
+    expect(sidebarWaitingOn([watch, subagent], topLevel)).toEqual({
       kind: "agent",
       startedAt: "2026-10-02T10:00:00.000Z",
     });
   });
 
   it("keeps the icon without a clock when no holding task reports a start time", () => {
-    expect(sidebarWaitingOn([{ taskId: "agent", kind: "subagent" }])).toEqual({
+    expect(sidebarWaitingOn([{ taskId: "agent", kind: "subagent" }], topLevel)).toEqual({
       kind: "agent",
       startedAt: null,
     });
@@ -81,7 +85,27 @@ describe("sidebarWaitingOn", () => {
 
   it("is null when nothing holds the thread", () => {
     expect(
-      sidebarWaitingOn([{ taskId: "dev", kind: "command", startedAt: "2026-10-02T10:05:00.000Z" }]),
+      sidebarWaitingOn(
+        [{ taskId: "dev", kind: "command", startedAt: "2026-10-02T10:05:00.000Z" }],
+        topLevel,
+      ),
     ).toBeNull();
+  });
+
+  it("clocks and names an unheld command in a crew session, which every command holds", () => {
+    const gate = {
+      taskId: "gate",
+      kind: "command" as const,
+      startedAt: "2026-10-02T10:05:00.000Z",
+    };
+    const crew = { spawnedByThreadId: "orchestrator", title: "t3-x-dev" };
+    expect(sidebarWaitingOn([subagent, gate], crew)).toEqual({
+      kind: "command",
+      startedAt: "2026-10-02T10:05:00.000Z",
+    });
+    expect(sidebarWaitingOn([gate], crew)).toEqual({
+      kind: "command",
+      startedAt: "2026-10-02T10:05:00.000Z",
+    });
   });
 });

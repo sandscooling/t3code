@@ -1,4 +1,4 @@
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { backgroundWorkHoldsThread } from "@t3tools/shared/crewSession"; // Fork: crew commands hold
 import { threadPullRequestsOf } from "../threadPullRequests.ts";
 import type {
   ThreadLinkedPullRequest,
@@ -220,10 +220,11 @@ function terminalRunStatus(status: OrchestrationV2RunStatus): boolean {
 // dev server, present the run's own status (#14872). The server suppresses the
 // roster while an interruptible activity run exists, so a remaining roster is
 // stronger than checkpoint-oriented waiting.
-// Fork: a command someone chose to wait for (held) holds it like a subagent.
+// Fork: a command someone chose to wait for (held) holds it like a subagent,
+// and so does any command a crew session left running.
 function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
   const parkAtIdle =
-    backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) &&
+    backgroundWorkHoldsThread(thread, thread.pendingBackgroundTasks ?? []) &&
     thread.status !== "failed";
   if (thread.latestRunId === null && thread.activeProviderThreadId === null && !parkAtIdle) {
     return null;

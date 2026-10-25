@@ -19,9 +19,10 @@ const WAITING_ON = {
  */
 export function SidebarWaitingOn(props: {
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  thread: Parameters<typeof sidebarWaitingOn>[1];
   Duration: ComponentType<{ startedAt: string | null }>;
 }) {
-  const waitingOn = sidebarWaitingOn(props.tasks);
+  const waitingOn = sidebarWaitingOn(props.tasks, props.thread);
   if (waitingOn === null) {
     return null;
   }
