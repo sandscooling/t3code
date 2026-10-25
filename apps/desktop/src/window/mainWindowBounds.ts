@@ -7,14 +7,10 @@ type DisplayBounds = DesktopAppSettings.DesktopWindowBounds;
 export const MAIN_WINDOW_MIN_SIZE = { width: 840, height: 620 } as const;
 
 /**
- * Fork: Windows grows an edge-snapped window by a few px at fractional scaling,
- * and the grown bounds get saved, so DesktopWindow clamps them back with this
- * instead of dropping to the default size. Drop when upstream fixes it.
- *
- * Clamps bounds into the display they overlap most; null when they overlap none.
- * An overhang past the right or bottom edge is trimmed rather than shifted,
- * because Windows regrows the window each launch and shifting would walk it
- * across the screen.
+ * Fork: Windows grows an edge-snapped window by a few px at fractional scaling and saves it, so this
+ * clamps bounds into the display they overlap most (null when none) instead of using the default.
+ * Overhang is trimmed, not shifted, because Windows regrows the window each launch and shifting
+ * would walk it across the screen. Drop when upstream fixes it.
  */
 export function clampBoundsIntoMostOverlappedDisplay(
   bounds: DesktopAppSettings.DesktopWindowBounds,

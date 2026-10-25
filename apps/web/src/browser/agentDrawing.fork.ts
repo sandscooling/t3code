@@ -1,15 +1,8 @@
 /**
- * Fork: a server tab an agent acts on keeps drawing while nobody shows it.
- *
- * Electron draws no frames for a `<webview>` parked outside the window, so a
- * background agent's screenshots, clicks and keys stall (upstream #16567).
- * While the server holds the tab (`apps/server/src/preview/ServerBrowser.fork.ts`)
- * the wrapper "peeks": a 1x1 px, 1% opacity corner of the window, above the
- * app and click-through. The webview inside keeps its full size, clipped by
- * the wrapper, so the page lays out and draws as if shown. The desktop
- * unthrottles the guest meanwhile (`apps/desktop/src/preview/automationDrawing.fork.ts`).
- * The behind-the-app placement recordings and picture-in-picture use is
- * unreliable on Windows, so it is left to them.
+ * Fork: Electron draws no frames for an offscreen `<webview>`, stalling a background agent's
+ * screenshots and input (pingdotgg/t3code#16567). While the server holds the tab, the wrapper
+ * peeks as a 1x1 px, 1% opacity click-through corner, the webview full-size inside it, and the
+ * desktop unthrottles the guest (automationDrawing.fork.ts). Behind-the-app is unreliable on Windows.
  */
 import { useEffect } from "react";
 import { create } from "zustand";

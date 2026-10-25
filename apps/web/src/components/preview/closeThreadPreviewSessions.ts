@@ -16,14 +16,9 @@ interface CloseThreadPreviewSessionsInput<E> {
 }
 
 /**
- * Closes every preview session on a thread in one request, applying the same
- * optimistic local removal `closePreviewSession` does for a single tab.
- *
- * The sidebar globe and ElectronBrowserHost both read this store, so the local
- * half drops the globe and unmounts a desktop webview at once rather than when
- * the server's "closed" event arrives through PreviewSessionsFeed.
- *
- * A failed close restores every session it removed.
+ * Closes every preview session on a thread in one request, with `closePreviewSession`'s optimistic
+ * local removal, so the sidebar globe and a desktop webview go at once rather than when the
+ * server's "closed" event arrives. A failed close restores every session it removed.
  */
 export async function closeThreadPreviewSessions<E>(
   input: CloseThreadPreviewSessionsInput<E>,

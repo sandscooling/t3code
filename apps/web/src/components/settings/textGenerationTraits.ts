@@ -1,14 +1,9 @@
 import type { ServerProviderModel } from "@t3tools/contracts";
 
 /**
- * Fork: the text-generation model's traits, without Claude's output style.
- *
- * Titles, commit messages, and branch names are generated against a JSON
- * schema, which an output style cannot usefully change and could fight.
- * Dropping the descriptor from the picker's capabilities hides the control,
- * keeps it out of the trigger label, and keeps it out of the selections
- * written back on change, so the picker never offers a control that silently
- * does nothing.
+ * Fork: the text-generation model's traits, without Claude's output style. Titles, commit messages
+ * and branch names are generated against a JSON schema an output style could only fight, so the
+ * descriptor is dropped from the picker's control, trigger label and written-back selections.
  */
 export function withoutOutputStyleTrait(
   models: ReadonlyArray<ServerProviderModel>,

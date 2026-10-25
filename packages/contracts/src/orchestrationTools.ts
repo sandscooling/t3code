@@ -5,11 +5,9 @@ import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, NonNegativeInt, PositiveInt, ThreadId } from "./baseSchemas.ts";
 
 /**
- * Contracts for the `session_*` MCP tools an agent uses to start, list, wake,
- * settle, and release other sessions in any project on its server. Sessions are real threads, so they
- * show in the sidebar, checkpoint on their own, and outlive the turn that
- * created them. What the sessions are for (tickets, roles, review) is the
- * calling agent's business; nothing here knows about it.
+ * Contracts for the `session_*` MCP tools that start, list, wake, settle, and release sessions in
+ * any project on the server. Sessions are real threads: they show in the sidebar and outlive the
+ * turn that created them. What they are for is the calling agent's business.
  */
 
 /**
@@ -252,13 +250,9 @@ export const SessionListInput = Schema.Struct({
 export type SessionListInput = typeof SessionListInput.Type;
 
 /**
- * `running` while a turn is in flight (preparing, queued, starting, running,
- * or finishing up), `held` when no turn runs but messages wait in a queue the
- * server paused after a Stop, a server restart, or a provider failure (nothing
- * sends them until the queue is resumed), `monitoring`
- * when the last turn ended but left background work such as a watch or a
- * background command going, `ready` otherwise. session_wake reaches every one
- * of them.
+ * `running` while a turn is in flight, `held` when messages wait in a queue the server paused
+ * (after a Stop, restart or provider failure) until it is resumed, `monitoring` when the last
+ * turn left background work going, `ready` otherwise. session_wake reaches every one of them.
  */
 export const SessionStatus = Schema.Literals(["running", "held", "monitoring", "ready"]);
 export type SessionStatus = typeof SessionStatus.Type;

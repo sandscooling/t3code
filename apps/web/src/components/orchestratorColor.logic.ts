@@ -2,12 +2,9 @@ import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
 
 /**
- * Fork: the swatches a project's orchestrator card can wear. The class names
- * are spelled out so Tailwind generates them: the 500 shade in light, the 400
- * in dark. `light-dark()` rather than a `dark:` variant keeps one class's
- * specificity, so a lifted row's `shadow-lg` still wins in both themes. The
- * color is a bar down the card's left edge, drawn as an inset shadow so it
- * follows the rounded corners and moves nothing.
+ * Fork: orchestrator card swatches, spelled out so Tailwind generates them (500 light, 400 dark).
+ * `light-dark()` rather than `dark:` keeps one class's specificity, so a lifted row's `shadow-lg`
+ * still wins. The bar is an inset shadow so it follows the rounded corners and moves nothing.
  */
 export const ORCHESTRATOR_COLORS: ReadonlyArray<{
   readonly id: SidebarOrchestratorColor;
@@ -96,13 +93,9 @@ export function parseOrchestratorColorMenuId(
 }
 
 /**
- * Ids of the threads that are orchestrators: a top-level thread titled exactly
- * "Orchestrator". Spawning sessions does not count, because chained crews
- * release each successor to top level and it spawns the next. A retired
- * "Orchestrator-<date>" keeps no tint, and a handoff successor takes it once it
- * renames itself. A spawned thread is crew rather than top-level only when its
- * spawner is in the list and in the same project. One spawned from another
- * project, or by a spawner no longer listed, is top-level in its own project.
+ * Orchestrators are top-level threads titled exactly "Orchestrator" (spawning does not count:
+ * chained crews release each successor to top level). A spawned thread is crew only when its
+ * spawner is listed and in the same project; otherwise it is top-level in its own project.
  */
 export function orchestratorThreadIds(
   threads: ReadonlyArray<{

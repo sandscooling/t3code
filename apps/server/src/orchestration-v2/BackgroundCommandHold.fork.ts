@@ -12,11 +12,9 @@ import { CLAUDE_PROVIDER } from "./Adapters/ClaudeAdapterV2.ts";
 import type * as ThreadManagement from "./ThreadManagementService.ts";
 
 /**
- * How long a wait gives its command to register. Claude registers a
- * background Bash through a roster update that trails the tool result (46 ms
- * in the race this guards), and a batched wait can beat it. Seconds cover a
- * busy CLI or machine; the wait is paid in full only when nothing new comes,
- * and stays far inside an MCP client's 60 s call timeout.
+ * How long a wait gives its command to register: Claude's roster update for a background Bash
+ * trails the tool result (46 ms in the race this guards), so a batched wait can beat it. It is paid
+ * in full only when nothing new comes, and stays far inside an MCP client's 60 s call timeout.
  */
 export const BACKGROUND_COMMAND_REGISTRATION_WAIT = Duration.seconds(5);
 

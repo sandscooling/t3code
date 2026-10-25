@@ -53,17 +53,10 @@ export const spawnedThreadIdsOf = (
 type SettleCommand = Extract<OrchestrationV2ServerCommand, { readonly type: "thread.settle" }>;
 
 /**
- * An explicit settle also settles the sessions this thread spawned, one level
- * deep, as v1 did. Each child settles as its own command under its own lock
- * once the parent's settle has committed and released its lock, so a
- * concurrent wake on a child is ordered against that settle rather than
- * overwritten by it. A child the settle guard refuses (active or blocked work)
- * stays open. A retried parent replays each child's receipt. Automatic
- * settlement is thread.auto-settle and never cascades.
- *
- * Run it after the parent's dispatch has returned (outside its lock). It is
- * uninterruptible, so a cancelled request cannot stop it halfway, and it never
- * fails: a broken cascade is logged.
+ * An explicit settle also settles this thread's spawned sessions, one level deep, each as its own
+ * command under its own lock after the parent's commits, so a concurrent wake is ordered against it.
+ * A refused child stays open, a retried parent replays receipts, and auto-settle never cascades.
+ * Run it outside the parent's lock; it is uninterruptible and never fails (failures are logged).
  */
 export const settleSpawnedThreads = <E>(
   deps: {

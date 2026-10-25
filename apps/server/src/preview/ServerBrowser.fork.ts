@@ -1,14 +1,9 @@
 // @effect-diagnostics globalTimers:off - Bounds Playwright promises, which run outside the Effect runtime.
 /**
- * Fork: keeps a desktop-rendered tab drawing while the server drives it.
- *
- * The desktop parks a tab nobody shows offscreen, where Chromium draws no
- * frames: screenshots never settle (upstream #16567), animations stop, and
- * mouse and key input never lands. While a tab holds a lease the desktop gives
- * it a 1 px, nearly transparent sliver of the window and unthrottles it
- * (`apps/desktop/src/preview/automationDrawing.fork.ts`). Leases count per
- * tab. The last one lingers before switching off, so CDP work that outlives
- * its action still gets frames, and back-to-back actions do not flap.
+ * Fork: keeps a desktop-rendered tab drawing while the server drives it. A tab parked offscreen
+ * draws no frames, so screenshots, animations and input stall; a lease gives it a 1 px, nearly
+ * transparent sliver and unthrottles it (`apps/desktop/src/preview/automationDrawing.fork.ts`).
+ * Leases count per tab; the last lingers before switching off, so trailing CDP work gets frames.
  */
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -92,11 +87,9 @@ export const make = Effect.fnUntraced(function* (
 export const DRAWING_GRACE_MS = 60_000;
 
 /**
- * Runs one agent action, holding its drawing lease until the work settles, or
- * `DRAWING_GRACE_MS` past the deadline for work that never does. The tab's
- * queue waits for the work only until the request's own deadline: by then the
- * agent was already told it timed out, and work that never settles must not
- * wedge every later action on the tab.
+ * Runs one agent action, holding its drawing lease until the work settles, or `DRAWING_GRACE_MS`
+ * past the deadline. The tab's queue waits only until the request's own deadline: the agent was
+ * already told it timed out, and work that never settles must not wedge later actions.
  */
 export const runAgentAction = <A>(
   release: () => void,

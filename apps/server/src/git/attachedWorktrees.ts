@@ -38,11 +38,9 @@ export class AttachedWorktreeMissingError extends Schema.TaggedError<AttachedWor
 export const isAttachedWorktreeMissingError = Schema.is(AttachedWorktreeMissingError);
 
 /**
- * The real path of `resolved`, or for a missing path the real path of its
- * nearest existing ancestor with the missing tail re-appended, so a gone
- * worktree under a junction still lands where its root does. Native realpath,
- * because Effect's FileSystem.realPath is Node's JS one, which leaves Windows
- * 8.3 short names (C:\Users\KEVINL~1) unexpanded.
+ * The real path of `resolved`, or for a missing path its nearest existing ancestor's plus the
+ * missing tail, so a gone worktree under a junction lands where its root does. Native realpath,
+ * because Effect's FileSystem.realPath leaves Windows 8.3 short names (C:\Users\KEVINL~1) as is.
  */
 const realPathOfNearestAncestor = Effect.fnUntraced(function* (resolved: string) {
   const path = yield* Path.Path;
@@ -94,11 +92,9 @@ export const isInsideT3WorktreesDir = Effect.fnUntraced(function* (target: strin
 export type AttachedWorktreeGuardServices = ServerConfig | Path.Path;
 
 /**
- * Builds ProviderTurnStartService's guard for a missing worktree: one outside
- * T3's own worktrees dir was attached, not created, so T3 never recreates it.
- * The guard settles the run as failed ("Attached worktree missing") through the
- * service's `settleRunBeforeStart` and returns true, and the caller returns
- * before its recreate. A missing worktree T3 created returns false.
+ * ProviderTurnStartService's guard for a missing worktree: one outside T3's worktrees dir was
+ * attached, not created, so it is never recreated. The guard fails the run ("Attached worktree
+ * missing") via `settleRunBeforeStart` and returns true; a missing one T3 created returns false.
  */
 export const makeAttachedWorktreeGuard = Effect.gen(function* () {
   const context = yield* Effect.context<AttachedWorktreeGuardServices>();
@@ -177,11 +173,9 @@ export type AttachedWorktreeCheck =
   | { readonly ok: false; readonly detail: string };
 
 /**
- * Checks a caller-supplied worktree against what git lists for the project:
- * an existing directory, not the project's own checkout, listed by
- * `git worktree list`, with the named branch checked out (any branch when
- * `branch` is null). On success the path is the one git reports, so later
- * comparisons stay stable.
+ * Checks a caller-supplied worktree: an existing directory, not the project's own checkout, listed
+ * by `git worktree list` with the named branch checked out (any when `branch` is null). On success
+ * the path is the one git reports, so later comparisons stay stable.
  */
 export const checkAttachedWorktree = Effect.fnUntraced(function* (input: {
   readonly projectRoot: string;

@@ -1,11 +1,8 @@
 /**
- * Fork-owned: the `session_*` MCP tools on Orchestrator v2. A session is an
- * ordinary top-level thread the user can watch and talk to, started with a
- * name, filed under a group, and linked to the session that spawned it unless
- * spawned standalone or released, so an orchestrator can run a crew across
- * projects. v2's own `delegate_task`
- * children are hidden subagents and its thread tools stop at the caller's
- * project; these reach any project by threadId.
+ * Fork-owned: the `session_*` MCP tools on Orchestrator v2. A session is a named top-level thread
+ * the user can watch and talk to, filed under a group and linked to its spawner, so an orchestrator
+ * can run a crew across projects. v2's `delegate_task` children are hidden subagents and its thread
+ * tools stop at the caller's project; these reach any project by threadId.
  */
 import {
   ALL_PROJECTS,
@@ -121,13 +118,10 @@ const requireMessage = (message: string) =>
     : Effect.void;
 
 /**
- * Where a session stands, for an orchestrator deciding whether to wait. A run
- * still finishing up counts as running; background work a finished turn left
- * behind (a watch, a background command) shows as monitoring, since the
- * session will speak again on its own. `held` is whether the server paused its
- * queue (after a Stop, a server restart, or a provider failure): the shell
- * presents only the newest unheld run, so without it a session with messages
- * stuck in that queue reads as ready.
+ * Where a session stands, for an orchestrator deciding whether to wait. A run finishing up counts as
+ * running; background work a finished turn left behind shows as monitoring. `held` means the server
+ * paused its queue (Stop, restart, provider failure); the shell presents only the newest unheld run,
+ * so without it a session with stuck messages reads as ready.
  */
 const sessionStatus = (thread: OrchestrationV2ThreadShell, held: boolean): SessionStatus =>
   thread.activeRunId !== null || thread.activityRunStatus != null || thread.status === "queued"
@@ -210,11 +204,9 @@ const modelOptionDescriptors = (model: ServerProvider["models"][number]) =>
   model.capabilities?.optionDescriptors ?? [];
 
 /**
- * Turns spawn's optional provider, model, and options into the selection the
- * new thread runs on. Nothing asked for means an exact copy of the caller's.
- * Everything asked for is checked against the provider registry here, because
- * a bad slug would otherwise only fail inside the provider after the thread
- * exists, leaving the orchestrator a broken session and no reason why.
+ * Turns spawn's optional provider, model, and options into the new thread's selection; nothing asked
+ * for copies the caller's. It is checked against the provider registry here, because a bad slug
+ * would otherwise fail inside the provider after the thread exists, with no reason given.
  */
 const resolveSpawnModel = (
   providers: ReadonlyArray<ServerProvider>,
@@ -551,11 +543,9 @@ const make = Effect.gen(function* () {
       project,
     });
 
-    // The caller stays out of the group on purpose: one orchestrator drives
-    // many lanes, and groups are the lanes, not the driver. It is the spawner
-    // instead, so settling it settles what it started. A handoff makes the new
-    // session the caller's sibling, since settling the old orchestrator must
-    // not take its successor with it.
+    // The caller stays out of the group (groups are lanes, not the driver) but is the spawner, so
+    // settling it settles what it started. A handoff makes the new session the caller's sibling,
+    // since settling the old orchestrator must not take its successor with it.
     const handoff = input.handoff === true;
     // A standalone session records no spawner at all, the way a thread the
     // user made has none, so nothing the caller does later reaches it.
@@ -818,23 +808,10 @@ const make = Effect.gen(function* () {
     yield* requireMessage(input.message);
     const { caller, sessions } = yield* loadScope(scope);
     const target = yield* resolveSession(sessions, caller, input.name);
-    // "auto" steers a running turn, queues behind one that cannot be steered,
-    // and starts a turn otherwise. The dispatch also reopens a settled thread.
-    // A steer aborts an open question or approval and the provider asks again,
-    // stranding the old card (pingdotgg/t3code#15517), so that waits in the
-    // queue instead. With no run in flight, "queue" starts a turn like "auto".
-    // The shell is read outside the thread lock: a question raised in that
-    // gap still steers.
-    // A Stop, a server restart, or a provider failure holds the queue until
-    // something resumes it, and a message sent past a held queue starts at
-    // once, ahead of the ones waiting there. So a wake resumes it first, which
-    // starts its head run when nothing else is running, and its own message
-    // joins the end of that queue, even behind a running turn it could steer.
-    // Only a provider failure leaves the latest executed run failed (Stop
-    // interrupts it, a restart cancels it), and resuming then would hand the
-    // next message to the provider that just failed, which fails it and holds
-    // the queue again. That is refused instead. latestExecutedRun skips a
-    // cancelled queued run that never started, which the shell's run may be.
+    // "auto" steers a running turn, else queues or starts one; an open question queues instead, since
+    // a steer strands its card (pingdotgg/t3code#15517). A held queue is resumed first, so this message
+    // joins its end. After a provider failure resuming would fail again, so that is refused;
+    // latestExecutedRun skips a cancelled queued run that never started.
     const held = yield* hasHeldQueue(target.id);
     if (held) {
       const { runs } = yield* threads
@@ -878,12 +855,9 @@ const make = Effect.gen(function* () {
   ) {
     const { caller, sessions } = yield* loadScope(scope);
     const target = yield* resolveSession(sessions, caller, input.name);
-    // The server owns settle eligibility, and an explicit settle also settles
-    // the sessions the target spawned, one command each right after the
-    // target's, as every other way of settling does. That finishes before
-    // dispatch returns, so this only reports what it did. A session settling
-    // itself is mid-turn, so it settles, cascade included, once that turn
-    // completes, as t3_thread_organize's settle does.
+    // The server owns settle eligibility, and an explicit settle cascades to the sessions the target
+    // spawned before dispatch returns, so this only reports. A session settling itself is mid-turn, so
+    // it settles, cascade included, once that turn completes.
     const result = yield* threads
       .settleThread({
         commandId: yield* newCommandId,

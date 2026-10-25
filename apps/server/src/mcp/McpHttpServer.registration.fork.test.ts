@@ -89,9 +89,8 @@ const ToolsListPayload = Schema.fromJsonString(
 );
 const decodeToolsListPayload = Schema.decodeUnknownEffect(ToolsListPayload);
 
-// Fork: upstream deleted its production-layer listing test (#22557). This keeps the
-// one check that the session_* toolkit is still registered in McpHttpServer.ts,
-// which a merge can drop without any other test failing.
+// Fork: upstream deleted its production-layer listing test. This keeps the one check that the
+// session_* toolkit is still registered in McpHttpServer.ts, which a merge can drop silently.
 it.effect("production mcp layer lists the session tools beside upstream's over http", () =>
   Effect.scoped(
     Effect.gen(function* () {

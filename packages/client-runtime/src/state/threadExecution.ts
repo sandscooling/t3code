@@ -233,7 +233,7 @@ export function deriveThreadStructureRuntime(
   const liveActivityRun = latestMatchingRun(projection, (run) =>
     ACTIVITY_RUN_STATUSES.has(run.status),
   );
-  // Fork: any command a crew session left running holds it too.
+  // Fork: any command or monitor a crew session left running holds it too.
   const backgroundWorkHoldsRun = backgroundWorkHoldsThread(
     projection.thread,
     derivePendingBackgroundWork({

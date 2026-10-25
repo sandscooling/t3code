@@ -62,14 +62,10 @@ export interface SpawnSessionsResult {
 }
 
 /**
- * Starts `count` sessions in one project, each already running so it registers
- * as a peer an orchestrator can address. A draft thread never spawns a provider
- * process, so the opening turn is what makes the session real. That is why this
- * uses `bootstrap.createThread` rather than a create-then-send pair.
- *
- * Sequential on purpose: in worktree mode every session cuts a checkout from
- * the same repository, and git does not appreciate that happening N ways at
- * once.
+ * Starts `count` running sessions in one project via `bootstrap.createThread`: a draft never
+ * spawns a provider process, so the opening turn is what makes a session an addressable peer.
+ * Sequential because in worktree mode each session cuts a checkout from the same repository,
+ * and git does not tolerate that N ways at once.
  */
 export async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSessionsResult> {
   const useWorktree = input.envMode === "worktree" && input.baseBranch !== null;
@@ -134,11 +130,9 @@ export async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSes
 }
 
 /**
- * The command palette's "New thread in..." session fleet. The query there can
- * carry a trailing count ("fleet 5"); this splits it off so the palette filters
- * by the project name alone, and `runProject` starts the fleet when a count was
- * typed. `runProject` returns false when there is no count, so the caller goes
- * on to start a single thread as usual.
+ * The command palette's "New thread in..." session fleet: splits a trailing count ("fleet 5") off
+ * the query so the palette filters by project name alone. `runProject` starts the fleet, or
+ * returns false without a count so the caller starts a single thread as usual.
  */
 export function useSessionFleet(input: {
   readonly groups: ReadonlyArray<{ readonly value: string }> | undefined;

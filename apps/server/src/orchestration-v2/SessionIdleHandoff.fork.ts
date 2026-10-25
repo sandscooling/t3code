@@ -1,20 +1,8 @@
 /**
- * Fork-owned: idle handoff for sessions. A session that opts in, through
- * session_idle_handoff or session_spawn's `idleHandoff`, and then sits idle
- * for `afterMinutes` after a turn that ended at `minTokens` of context or more,
- * gets one message asking it to hand off while its provider's prompt cache is
- * still warm. Otherwise the next turn, often hours later, re-reads the whole
- * context cold.
- *
- * Idle is the thread's own state only: no run in flight or queued, no question
- * or approval pending, no subagent or held background command running. Other
- * sessions it spawned are separate threads and do not count.
- *
- * The setting lives in a table this service creates itself rather than in a
- * migration, since a fork migration has to be renumbered above upstream's on
- * every sync. Idle time comes from persisted state (the last run's end), so a
- * restart neither loses a reminder nor repeats one: the message's command id
- * names the run it follows, and command receipts make a second send a no-op.
+ * Fork-owned: a session that opts in (session_idle_handoff, or session_spawn's `idleHandoff`) and
+ * sits idle `afterMinutes` after a turn ending at `minTokens` or more gets one handoff request while
+ * its prompt cache is warm. Its table is self-created, since a fork migration needs renumbering each
+ * sync; idle time is persisted and the command id names the run, so a restart never repeats one.
  */
 import {
   CommandId,
@@ -97,8 +85,8 @@ const CHECK_SPACING_MS = 30_000;
 const ACTIVE_STATUSES = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 
 /**
- * The thread's own work in flight. A background command only counts when
- * someone waits for it (wait_for_background_commands); one left running on
+ * The thread's own work in flight. Background work only counts when someone waits for it
+ * (wait_for_background_commands, or the agent's t3_background_wait); one left running on
  * purpose, like a dev server, does not.
  */
 const isBusy = (shell: OrchestrationV2ThreadShell) =>
@@ -107,7 +95,10 @@ const isBusy = (shell: OrchestrationV2ThreadShell) =>
   ACTIVE_STATUSES.has(shell.status) ||
   shell.pendingRuntimeRequest !== null ||
   (shell.pendingBackgroundTasks ?? []).some(
-    (task) => task.kind === "subagent" || (task.kind === "command" && task.held === true),
+    (task) =>
+      task.kind === "subagent" ||
+      task.awaited === true ||
+      (task.kind === "command" && task.held === true),
   );
 
 /** Context size at the root provider thread's newest usage report, as the context meter reads it. */
@@ -261,11 +252,9 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => new IdleHandoffStoreError({ operation: "write", cause })),
     );
 
-  // In memory only, so a restart starts from persisted state. `lastBusyAt`
-  // catches work that ends without a new run, such as a held background
-  // command; `nextCheckAt` spaces out reads of a thread that cannot fire yet;
-  // `belowLine` remembers a run already found under the token line, which
-  // dueAt honours too.
+  // In memory only, so a restart starts from persisted state. `lastBusyAt` catches work that ends
+  // without a new run (a held background command); `nextCheckAt` spaces out reads of a thread that
+  // cannot fire yet; `belowLine` remembers a run already under the token line, which dueAt honours.
   const lastBusyAt = new Map<string, number>();
   const nextCheckAt = new Map<string, number>();
   const belowLine = new Map<string, string>();

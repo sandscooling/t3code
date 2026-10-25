@@ -1,8 +1,6 @@
-// Fork: keeps every thread's preview sessions current, not only the routed
-// thread's. usePreviewSession feeds previewStateStore for the routed thread
-// alone, so without this a background thread's tabs never reach the sidebar
-// globe or SettledPreviewReaper, and a tab closed while you are elsewhere
-// stays in the store.
+// Fork: keeps every thread's preview sessions current. usePreviewSession feeds
+// previewStateStore for the routed thread alone, so without this a background thread's tabs
+// never reach the sidebar globe or SettledPreviewReaper, and a tab closed elsewhere lingers.
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {

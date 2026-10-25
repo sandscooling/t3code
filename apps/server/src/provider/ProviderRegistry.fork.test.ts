@@ -184,7 +184,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         ),
       );
 
-      // Moved from ProviderRegistry.test.ts when upstream deleted its test (#22557).
+      // Moved from ProviderRegistry.test.ts when upstream deleted its test.
       it.effect("reads a missing or timed-out probe as a failed usage read", () =>
         Effect.gen(function* () {
           // The last published windows survive a failed read rather than blanking.

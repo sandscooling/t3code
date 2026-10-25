@@ -324,6 +324,37 @@ it.effect("stays quiet while a turn runs or a message waits in a held queue", ()
   ).pipe(Effect.provide(base)),
 );
 
+it.effect("waits out work the agent marked awaited, but not an unmarked monitor", () =>
+  lifetime((service, sweep) =>
+    Effect.gen(function* () {
+      const awaited = yield* seedThread("thread:awaited");
+      const unmarked = yield* seedThread("thread:unmarked");
+      const sink = yield* EventSink.EventSinkV2;
+      for (const threadId of [awaited, unmarked]) {
+        yield* service.set(threadId, setting);
+        yield* turn(threadId, { ordinal: 1, endsAt: at(0), usedTokens: 250_000 });
+        yield* sink.write({
+          events: [
+            providerThread(threadId, at(1), [
+              {
+                kind: "monitor",
+                taskId: "ci",
+                description: "CI",
+                ...(threadId === awaited ? { awaited: true as const } : {}),
+              },
+            ]),
+          ],
+        });
+      }
+
+      yield* clockAt(240);
+      yield* sweep;
+      expect(yield* reminders(awaited)).toHaveLength(0);
+      expect(yield* reminders(unmarked)).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(base)),
+);
+
 it.effect("waits out a held background command, then counts the window from when it ended", () =>
   lifetime((service, sweep) =>
     Effect.gen(function* () {

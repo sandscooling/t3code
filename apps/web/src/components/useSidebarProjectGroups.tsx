@@ -1,8 +1,6 @@
-// Fork: the "Group threads by project" sidebar. Sidebar.tsx renders the flat
-// list; this hook folds the same sections into one group per project and hands
-// back the grouped list items, row order and drag adapters. Every returned
-// helper passes the flat list through untouched while grouping is off. The
-// layout and drag model are described in Sidebar.groups.ts.
+// Fork: the "Group threads by project" sidebar. Folds Sidebar.tsx's flat sections into one
+// group per project, returning grouped items, row order and drag adapters; every helper passes
+// the flat list through untouched while grouping is off. Layout and drag model: Sidebar.groups.ts.
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";

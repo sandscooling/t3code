@@ -51,10 +51,13 @@ describe("sidebarWaitingOn", () => {
     });
   });
 
-  it("reads a monitor and a background task as commands", () => {
+  it("reads an awaited monitor and a background task as commands", () => {
     for (const kind of ["monitor", "background_task"] as const) {
       expect(
-        sidebarWaitingOn([{ taskId: kind, kind, startedAt: "2026-10-02T10:05:00.000Z" }], topLevel),
+        sidebarWaitingOn(
+          [{ taskId: kind, kind, awaited: true, startedAt: "2026-10-02T10:05:00.000Z" }],
+          topLevel,
+        ),
       ).toEqual({ kind: "command", startedAt: "2026-10-02T10:05:00.000Z" });
     }
   });
@@ -62,14 +65,18 @@ describe("sidebarWaitingOn", () => {
   it("names a pull request watch, without a clock since a watch has no start time", () => {
     expect(
       sidebarWaitingOn(
-        [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }],
+        [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor", awaited: true }],
         topLevel,
       ),
     ).toEqual({ kind: "pull-request", startedAt: null });
   });
 
   it("prefers a clocked holding task over a pull request watch", () => {
-    const watch = { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" as const };
+    const watch = {
+      taskId: "pull-request-watch:github.com/acme/app#1",
+      kind: "monitor" as const,
+      awaited: true as const,
+    };
     expect(sidebarWaitingOn([watch, subagent], topLevel)).toEqual({
       kind: "agent",
       startedAt: "2026-10-02T10:00:00.000Z",

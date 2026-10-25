@@ -1,10 +1,7 @@
 /**
- * Fork: the account-wide windows on every streamed `rate_limit_event`.
- *
- * The CLI only sets the top-level `utilization` once the named window passes a
- * warning threshold, but every event carries each account-wide window under
- * `unifiedWindows`. Reading those keeps the bars live for an account with
- * headroom, whose `get_usage` probe may be too slow to land.
+ * Fork: the account-wide windows on every streamed `rate_limit_event`. The CLI sets the top-level
+ * `utilization` only past a warning threshold, but `unifiedWindows` carries every window, which
+ * keeps the bars live when the `get_usage` probe is too slow to land.
  *
  * @module provider/claudeUnifiedWindows
  */
@@ -47,7 +44,7 @@ export function withClaudeUnifiedWindows(
       windows.set(id, row);
     }
   }
-  // Upstream #24128: the snapshot carries every window the account reports, so
+  // Upstream pingdotgg/t3code#24128: the snapshot carries every window the account reports, so
   // it can stand in for a failed probe. The CLI drops a window from it once its
   // reset passes, so it can lack the weekly window right after the week resets.
   const complete = windows.size > 0;

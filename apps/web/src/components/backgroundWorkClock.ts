@@ -15,7 +15,7 @@ export function backgroundWorkClockStartedAt(
  * Fork: what a sidebar row reading Waiting waits on, or null when nothing holds it.
  * Only tasks that hold the thread count, so an unheld command started after a
  * subagent neither resets the clock nor changes the icon (in a crew session
- * every command holds).
+ * every command and monitor holds).
  */
 export function sidebarWaitingOn(
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,

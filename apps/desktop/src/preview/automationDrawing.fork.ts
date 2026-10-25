@@ -1,19 +1,8 @@
 /**
- * Fork: keeps a server tab drawing while the server acts on it.
- *
- * A `<webview>` nobody shows is parked offscreen, where Chromium draws no
- * frames, so the server's screenshots, clicks, keys and animations stall
- * (upstream #16567). While the server holds a tab's lease
- * (`apps/server/src/preview/ServerBrowser.fork.ts`), this unthrottles the
- * guest and the main window through the "automation" frame-capture consumer.
- * The renderer gives the webview a 1 px sliver of the window
- * (`apps/web/src/browser/agentDrawing.fork.ts`). Off, it is exactly the
- * parked tab it was, so it costs nothing.
- *
- * That draws in a normal, covered or unfocused window, but not a minimized
- * one. Subscribing to the guest's frames keeps it painting there, at the cost
- * of copying every frame into this process, so the subscription is held only
- * while the window is minimized or hidden (measured on Electron 44, Windows).
+ * Fork: keeps a server tab drawing while the server holds its lease (server `ServerBrowser.fork.ts`).
+ * A parked offscreen `<webview>` draws no frames, so this unthrottles the guest and window through
+ * the "automation" frame-capture consumer, and the renderer gives it a 1 px sliver (web
+ * `agentDrawing.fork.ts`). Minimized or hidden, it also subscribes to frames, copying each one.
  */
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";

@@ -25,12 +25,10 @@ export type BrowserStatusThread = Pick<
 >;
 
 /**
- * "Agent using browser" means the thread has a tab open while its turn is
- * working, the same condition as the sidebar's Working pill. Since upstream
- * moved the browser onto the server, no data every row already has says a
- * preview tool call is in flight, so this approximates it: a thread that
- * opened a tab and moved on to other work still lights up until its turn ends
- * or the tab closes.
+ * "Agent using browser" means a tab is open while the turn is working (the Working pill's
+ * condition). No row data says a preview tool call is in flight now the browser runs on the
+ * server, so this approximates it: a thread that opened a tab stays lit until its turn ends or
+ * the tab closes.
  */
 export function browserStatusIndicator(input: {
   readonly hasPreviewSession: boolean;

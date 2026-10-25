@@ -1,13 +1,7 @@
-// Fork: group the default sidebar by project.
-//
-// Each project gets a header followed by its orchestrator rows, then its own
-// pinned, active and snoozed rows; one settled shelf sits below every group.
-// Orchestrator rows are not drag handles and stay out of every drag slice.
-// The upstream drag code (Sidebar.drag, Sidebar.logic) assumes one flat
-// list, so a drag only ever
-// sees a slice of the grouped list: the dragged thread's own group plus the
-// settled shelf. Other groups can never be a drop target, which keeps every
-// order write inside one project.
+// Fork: group the default sidebar by project: a header, orchestrator rows, then pinned, active
+// and snoozed rows, with one settled shelf below every group. Upstream's drag code assumes one
+// flat list, so a drag only sees its own group plus the settled shelf, which keeps every order
+// write inside one project. Orchestrator rows are not drag handles.
 
 import type { SortingStrategy } from "@dnd-kit/sortable";
 import { createSidebarSortingStrategy } from "./Sidebar.drag";
@@ -127,11 +121,9 @@ export function moveSidebarGroup<T>(input: {
   return rest;
 }
 
-/** The part of a grouped list one drag can reach: the group's pinned and
-    active rows, then the shared settled shelf. Snoozed rows are left out, so
-    grouped snoozed rows wake from their button rather than by dragging, and so
-    are orchestrator rows (`lead`), which are not drag handles and sit ahead of
-    the group's pinned header, outside any section the drag code knows. */
+/** The part of a grouped list one drag can reach: the group's pinned and active rows, then the
+    settled shelf. Snoozed rows (they wake from their button) and orchestrator rows (`lead`, ahead
+    of the pinned header, outside any section the drag code knows) are left out. */
 export function sliceSidebarGroupForDrag(
   items: readonly SidebarListItem[],
   group: string | undefined,

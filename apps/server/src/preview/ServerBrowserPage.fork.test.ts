@@ -90,7 +90,7 @@ describe("bounded captures", () => {
   });
 
   it("a capture that answers in time is returned unchanged", async () => {
-    // Upstream #19913 sizes the screenshot from its PNG header.
+    // Upstream sizes the screenshot from its PNG header.
     const header = Buffer.alloc(24);
     header.write("IHDR", 12);
     header.writeUInt32BE(1280, 16);

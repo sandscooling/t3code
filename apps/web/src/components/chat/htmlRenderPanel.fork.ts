@@ -79,15 +79,10 @@ export interface HtmlRenderAutoOpenState {
 }
 
 /**
- * Decides which render, if any, to open in the panel as the viewed thread's
- * renders change. A thread's first sighting opens nothing, and neither does a
- * render that appeared before the user started viewing it: history, an older
- * page, or what a returning thread's catch-up replays. A call still running
- * when the user arrived counts from its completion, so it opens. Each render
- * opens at most once, and the newest of a batch wins. A question page
- * (`isQuestionPageTitle`) is marked seen but never opened here, so a round's
- * pages publish in the background; when one is the newest of a batch, the
- * batch opens nothing.
+ * Which render to open as the viewed thread's renders change. Nothing from before the user
+ * arrived opens (a still-running call counts from its completion); each render opens once, newest
+ * of a batch wins. A question page (`isQuestionPageTitle`) is only marked seen, so a round's pages
+ * publish in the background, and a batch whose newest is one opens nothing.
  */
 export function nextHtmlRenderAutoOpen(
   previous: HtmlRenderAutoOpenState | null,
@@ -129,12 +124,10 @@ export interface QuestionHtmlRenderOpenState {
 }
 
 /**
- * Decides whether the page for the question on screen opens. Like the
- * newest-first rule, a thread's first sighting (switching in, returning to a
- * round) opens nothing, and a target that changes while the panel is
- * unavailable is recorded without opening, so a later resize opens nothing.
- * Within the viewed thread, a new target opens: a request arriving live, Next
- * or Previous, or a newer page for the same question.
+ * Whether the on-screen question's page opens. A thread's first sighting opens nothing, and a
+ * target changing while the panel is unavailable is recorded unopened, so a later resize opens
+ * nothing. Within the viewed thread a new target opens: a live request, Next or Previous, or a
+ * newer page for the same question.
  */
 export function nextQuestionHtmlRenderOpen(
   previous: QuestionHtmlRenderOpenState | null,
@@ -154,11 +147,9 @@ export function nextQuestionHtmlRenderOpen(
 }
 
 /**
- * Opens each new render in the viewed thread's right panel once. While the
- * panel is unavailable (`enabled` false) renders are still marked seen, so a
- * later resize does not open old pages. While a question round is pending and
- * a page is titled for the question on screen, that page owns the panel: new
- * renders are only marked seen, and Next or Previous re-targets it.
+ * Opens each new render in the viewed thread's right panel once; while unavailable (`enabled`
+ * false) renders are still marked seen, so a later resize opens no old pages. During a question
+ * round the on-screen question's page owns the panel: new renders are only marked seen.
  */
 export function useAutoOpenHtmlRenders(input: {
   readonly threadKey: string | null;

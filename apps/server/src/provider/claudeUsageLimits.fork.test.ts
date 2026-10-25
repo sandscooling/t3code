@@ -45,7 +45,7 @@ describe("claudeRateLimitEventToUpdate", () => {
     });
   });
 
-  // Fork (#24128): only the per-window snapshot can stand in for a failed probe.
+  // Fork (pingdotgg/t3code#24128): only the per-window snapshot can stand in for a failed probe.
   it("leaves an event without unifiedWindows sparse", () => {
     const update = claudeRateLimitEventToUpdate(
       {

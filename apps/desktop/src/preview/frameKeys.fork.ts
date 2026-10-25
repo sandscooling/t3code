@@ -1,20 +1,8 @@
 /**
- * Fork: an agent's keys reach a field inside a cross-origin iframe, such as a
- * Stripe card field (js.stripe.com, sometimes nested).
- *
- * `guestKeys.fork.ts` sends keys to the guest's main widget, and Chromium
- * renders an out-of-process iframe with a widget of its own, so the field
- * never sees them while the main frame does. DevTools key commands on the
- * iframe's own session reach its widget. Chromium retargets those commands
- * to the app's focused widget only for a main frame, and these sessions are
- * never one: only `iframe` targets are tracked. Playwright's auto-attach
- * already opens them, so this only listens.
- *
- * The focus chain is walked from the page: the focused element, then, for a
- * frame, the frame's own focused element, through any nesting. Every step
- * reads its frame from an isolated world, whose DOM the page cannot patch to
- * steer the keys. A frame that is out of process but has no session fails the
- * command rather than guess.
+ * Fork: an agent's keys reach a field in a cross-origin iframe, such as a Stripe card field. Chromium
+ * gives an out-of-process iframe its own widget, so keys go as DevTools commands on the iframe's own
+ * session, which Playwright's auto-attach already opens. The focus chain is walked from an isolated
+ * world the page cannot patch; an out-of-process frame with no session fails the command.
  */
 import { asAgentKey, GuestKeyError, insertedText } from "./guestKeys.fork.ts";
 
@@ -188,13 +176,10 @@ export const targetFrame = (debuggee: Electron.Debugger, target: KeyTarget) => (
 });
 
 /**
- * Sends one key command on an iframe's own session. Chromium replies after
- * the frame has processed it, so no settle wait is needed. Line breaks follow
- * the same rule as the main path: kept in a multi-line editor, dropped from a
- * single-line field, where the main path's `"\r"` would submit its form. A
- * focus that moved off the walked element since the walk fails the command.
- * The key still passes `guest`'s `before-input-event`, so it is marked as the
- * agent's there, as the main path's is.
+ * Sends one key command on an iframe's own session; Chromium replies after the frame processes it.
+ * Line breaks follow the main path: kept in a multi-line editor, dropped where `"\r"` would submit.
+ * A focus that moved off the walked element fails the command, and the key still passes `guest`'s
+ * `before-input-event`, marked as the agent's.
  */
 export const sendFrameKeys = async (
   guest: Electron.WebContents,

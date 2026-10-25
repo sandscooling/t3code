@@ -9,11 +9,9 @@ import {
   toggledCollapsedLatestRunId,
 } from "./MessagesTimeline.logic.fork";
 
-// Keyed by the timeline's thread key, so a collapse survives a thread switch.
-// An entry only exists while a thread's latest turn is collapsed, and it goes
-// stale harmlessly once a newer run becomes the latest. Read only when the
-// thread changes: the React Compiler caches render-time reads of module state
-// on their inputs, so the rendered value lives in state.
+// Keyed by thread so a collapse survives a thread switch; an entry goes stale harmlessly once a
+// newer run is latest. Read only when the thread changes: the React Compiler caches render-time
+// reads of module state on their inputs, so the rendered value lives in state.
 const collapsedLatestRunIdByThread = new Map<string, RunId>();
 
 /** The user's collapse of the latest completed turn's fold, for one thread. */

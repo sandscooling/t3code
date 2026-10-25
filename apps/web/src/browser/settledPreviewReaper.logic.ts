@@ -1,20 +1,10 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 /**
- * Which threads should have their browser preview sessions closed.
- *
- * An offscreen preview tab is not parked the way an idle terminal is. Its page
- * keeps running on the server, or in the desktop's webview, for as long as the
- * session exists. That is the right call for a thread an agent may still
- * drive, and it means a settled thread's tab goes on running the page's
- * timers, fetches and sockets indefinitely. A reactive app polling on a
- * four-day-old thread is pure waste.
- *
- * Settled is read straight off the shell, which the server stamps. That is the
- * same flag the sidebar partitions on, so a tab is only reaped once its thread
- * has visibly moved out of the active list, and the exemptions the settlement
- * policy already applies (a running session, a pending approval, a keep-active
- * pin) hold here for free.
+ * Which threads' preview sessions to close. An offscreen tab keeps its page's timers and sockets
+ * running for as long as the session exists, so a settled thread's tab is pure waste. Settled is
+ * the server-stamped flag the sidebar partitions on, so the settlement policy's exemptions
+ * (running session, pending approval, keep-active pin) hold here for free.
  */
 
 export interface ReapableThreadInput {

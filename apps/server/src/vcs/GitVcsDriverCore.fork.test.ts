@@ -87,13 +87,9 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const pathService = yield* Path.Path;
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        // `git remote -v` separates name, url and direction with whitespace, so
-        // a url that itself contains a space is only recoverable by anchoring on
-        // the trailing "(fetch)". Parsing the url as a run of non-whitespace
-        // dropped such remotes without a trace, and callers then behaved as
-        // though the remote was absent: this call invented a second remote
-        // instead of reusing origin. Local paths with spaces are ordinary, from
-        // "C:\Users\First Last" to "~/My Projects".
+        // `git remote -v` separates fields with whitespace, so a url with a space is recoverable only by
+        // anchoring on "(fetch)". A non-whitespace match dropped such remotes, and this call then invented
+        // a second remote instead of reusing origin. Local paths with spaces are ordinary.
         const remoteParent = yield* makeTmpDir("git-vcs-driver-spaced remote-");
         const remotePath = pathService.join(remoteParent, "bare repo.git");
         yield* fileSystem.makeDirectory(remotePath, { recursive: true });

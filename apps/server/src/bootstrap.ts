@@ -98,13 +98,9 @@ export const readBootstrapEnvelope = Effect.fn("readBootstrapEnvelope")(function
       stream.removeListener("error", handleError);
       input.removeListener("line", handleLine);
       input.removeListener("close", handleClose);
-      // Teardown can still fail asynchronously, and the listener that would
-      // have caught it is gone by now, so the error would reach the process as
-      // an uncaught exception. Windows makes this reachable: `resolveFdPath`
-      // has no `/proc/self/fd` equivalent there, so the stream owns the
-      // caller's descriptor and closing it after the caller already did raises
-      // EBADF. The envelope has been read or abandoned by this point, so a
-      // teardown error carries nothing worth surfacing.
+      // Teardown can still fail asynchronously after its listener is gone, as an uncaught exception.
+      // On Windows `resolveFdPath` has no `/proc/self/fd`, so the stream owns the caller's descriptor
+      // and closing it again raises EBADF. The envelope is done with, so nothing is worth surfacing.
       stream.on("error", ignoreTeardownError);
       input.close();
       stream.destroy();
@@ -233,9 +229,8 @@ const makeDirectBootstrapStream = (fd: number): NodeStream.Readable => {
   }
 };
 
-// Stdin pipes inherited across the wsl.exe boundary report EACCES when we try
-// to re-open them via /proc/self/fd/0 — fall back to reading the fd directly
-// in that case, the same way we already do for ENXIO/EINVAL/EPERM.
+// WSL-inherited stdin pipes cannot be reopened via /proc/self/fd/0 (EACCES),
+// so they must be read directly.
 const isBootstrapFdPathDuplicationError = Predicate.compose(
   Predicate.hasProperty("code"),
   (_) => _.code === "ENXIO" || _.code === "EINVAL" || _.code === "EPERM" || _.code === "EACCES",

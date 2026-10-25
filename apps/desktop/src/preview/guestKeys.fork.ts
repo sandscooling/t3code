@@ -1,19 +1,9 @@
 // @effect-diagnostics globalTimers:off - Bounds Electron frame calls, which run outside the Effect runtime.
 /**
- * Fork: an agent's keys reach a desktop tab's page and nothing else.
- *
- * Chromium's DevTools `Input.dispatchKeyEvent`, `Input.insertText` and
- * `Input.imeSetComposition` hand a main frame's keys to whichever widget has
- * focus in the outermost WebContents. A `<webview>` guest is an inner
- * WebContents, so while the user types in the app those keys land in the app,
- * such as the chat composer, whether or not the tab is shown. Upstream #11354
- * sent native packets instead; #15328 moved desktop tabs onto CDP through the
- * relay (`CdpRelay.ts`) and lost that.
- *
- * The relay hands those methods here and never to the debugger. Each becomes
- * Electron packets on the guest's own widget, which cannot be retargeted. A
- * key the guest's widget does not take fails the command, and with it the
- * agent's tool.
+ * Fork: an agent's keys reach a desktop tab's page and nothing else. DevTools key and text commands
+ * go to the focused widget of the outermost WebContents, so a `<webview>` guest's keys would land in
+ * the app while the user types there. The relay (`CdpRelay.ts`) hands them here as Electron packets
+ * on the guest's own widget; a key that widget does not take fails the command.
  */
 
 /** The DevTools methods Chromium retargets to the app's focused widget. */
@@ -139,11 +129,9 @@ let sending: Electron.WebContents | null = null;
 export const isAgentKey = (contents: Electron.WebContents) => sending === contents;
 
 /**
- * Runs one key send with `guest` marked as taking an agent's key. Electron's
- * `sendInputEvent` and a DevTools key command on an iframe's session both
- * forward the key, and so emit `before-input-event`, before they return, so
- * the mark covers exactly that call and is gone before the user's next key.
- * Only the call itself is covered, not a promise it returns.
+ * Runs one key send with `guest` marked as taking an agent's key. `sendInputEvent` and an iframe
+ * session's DevTools key command both emit `before-input-event` before returning, so the mark
+ * covers exactly that call (not a promise it returns) and is gone before the user's next key.
  */
 export const asAgentKey = <A>(guest: Electron.WebContents, send: () => A): A => {
   // The guard skips the preview manager's menu-shortcut sync, and a human editing
@@ -191,12 +179,10 @@ const within = <A>(work: Promise<A>, fallback: A): Promise<A> => {
 };
 
 /**
- * `performance.eventCounts` counts every dispatched event, whatever the page's
- * listeners do. A count read before the send and awaited after it means the
- * page has processed the keys. Electron has no input ack, and a CDP read
- * travels a different pipe than input, so it can overtake the keys. Both run
- * in the frame the focus walk found (`frameKeys.fork.ts`), in an isolated
- * world the page cannot patch.
+ * `performance.eventCounts` counts every dispatched event whatever the listeners do, so a count read
+ * before the send and awaited after it means the page has processed the keys (Electron has no input
+ * ack, and a CDP read can overtake input). Both run in the focus walk's frame
+ * (`frameKeys.fork.ts`), in an isolated world the page cannot patch.
  */
 const COUNTS_EXPRESSION = `(() => {
   const counts = performance.eventCounts;
@@ -246,11 +232,9 @@ export interface MainKeyTarget extends GuestKeyTarget {
 }
 
 /**
- * Delivers one DevTools key command to `guest` alone, and replies once the
- * page has processed it, as Chromium's own reply does. `target` is where the
- * focus walk found the page's focused element. Every key-down and
- * key-up must pass the guest's own `before-input-event`, which Electron emits
- * synchronously inside `sendInputEvent`; one that does not fails the command.
+ * Delivers one DevTools key command to `guest` alone and replies once the page has processed it, as
+ * Chromium's own reply does. `target` is where the focus walk found the focused element. Every key
+ * must pass the guest's own `before-input-event` (emitted inside `sendInputEvent`) or it fails.
  */
 export const sendGuestKeys = async (
   guest: Electron.WebContents,

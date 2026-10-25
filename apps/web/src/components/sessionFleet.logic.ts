@@ -49,13 +49,10 @@ export interface SessionSpawnQuery {
 }
 
 /**
- * Splits a trailing session count off the "New thread in..." query, so
- * "fleet 5" filters projects by "fleet" while asking for five sessions.
- * Without this the digits join the filter and the project list empties out.
- *
- * A project whose title genuinely ends in a number ("Sprint 3") is the
- * ambiguous case: the count wins, and the filter still matches the project,
- * so the palette shows what it is about to do rather than guessing silently.
+ * Splits a trailing session count off the "New thread in..." query, so "fleet 5" filters by
+ * "fleet" and asks for five sessions instead of emptying the project list. For a title ending in
+ * a number ("Sprint 3") the count wins, and the filter still matches, so the palette shows what
+ * it is about to do.
  */
 export function parseSessionSpawnQuery(query: string): SessionSpawnQuery {
   const match = /^(.*\S)\s+(\d{1,2})$/.exec(query);
@@ -101,11 +98,9 @@ export function handleSessionCountKey<
       highlightedItemValue: ctx.highlightedItemValue,
     });
 
-  // The autocomplete drives Enter off its own notion of an active item, and a
-  // completed query ("Fleet Cooling 5", or "Fleet Cooling " straight after Tab)
-  // matches no item, so it had no target and the keypress did nothing while
-  // clicking the row worked. Running the row this resolves to is what a click
-  // already does, so the only case this changes is the one that was broken.
+  // The autocomplete drives Enter off its own active item, and a completed query
+  // ("Fleet Cooling 5", or "Fleet Cooling " after Tab) matches none, so Enter did nothing.
+  // Running the row this resolves to is what a click already does.
   if (event.key === "Enter") {
     const item = target();
     if (!item) {

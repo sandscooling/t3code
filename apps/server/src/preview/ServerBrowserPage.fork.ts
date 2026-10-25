@@ -1,12 +1,9 @@
 // @effect-diagnostics globalTimers:off - Bounds Playwright promises, which run outside the Effect runtime.
 /**
- * Fork: bounds work on a page that may draw no frames (upstream #16567).
- *
- * `Page.captureScreenshot` waits for the page's next frame, and a desktop tab
- * parked offscreen never draws one, so an unbounded capture hangs forever and
- * holds the tab's capture lock and action queue with it. The server keeps a
- * tab it acts on drawing (`ServerBrowser.fork.ts`), which makes this a safety
- * net: a snapshot whose capture still times out answers with its text.
+ * Fork: bounds work on a page that may draw no frames (pingdotgg/t3code#16567). A capture waits for
+ * the next frame, which a parked tab never draws, so an unbounded one hangs holding the tab's capture
+ * lock and queue. `ServerBrowser.fork.ts` keeps acted-on tabs drawing, so this is a safety net: a
+ * snapshot whose capture still times out answers with its text.
  */
 import type { PreviewAutomationSnapshot } from "@t3tools/contracts";
 

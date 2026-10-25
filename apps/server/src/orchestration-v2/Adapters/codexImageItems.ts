@@ -28,11 +28,9 @@ function trimText(value: string | null | undefined): string | undefined {
 }
 
 /**
- * Fork: turns a completed Codex imageGeneration or imageView item into the two
- * events of a dynamic_tool work-log row carrying the image as viewedImagePath.
- * v2 otherwise drops these items; v1 read the same paths. Returns null for any
- * other item so the adapter carries on, and an empty list for an image item
- * with no path.
+ * Fork: turns a completed Codex imageGeneration or imageView item into a dynamic_tool work-log row's
+ * two events carrying viewedImagePath, since v2 otherwise drops them. Null for any other item, so
+ * the adapter carries on; an empty list for an image item with no path.
  */
 export const codexImageItemEvents = <E, R>(
   item: CodexSchema.V2ItemCompletedNotification__ThreadItem,

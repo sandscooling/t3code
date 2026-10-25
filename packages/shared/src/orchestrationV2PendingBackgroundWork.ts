@@ -35,12 +35,7 @@ const TERMINAL_RUN_STATUSES = new Set<OrchestrationV2Run["status"]>([
   "rolled_back",
 ]);
 
-/**
- * Includes `waiting`: a successful turn persists as waiting until checkpoint capture flips it to
- * completed, and waiting is only set from completed. Excludes `rolled_back`: the provider-thread
- * roster is not run-tied, so a rolled-back latest run must fail the gate entirely (not only item
- * filter).
- */
+// waiting is completed work awaiting checkpoints; exclude rolled_back entirely because provider threads are not run-tied.
 const SETTLED_FOR_BACKGROUND_WAIT_RUN_STATUSES = new Set<OrchestrationV2Run["status"]>([
   "cancelled",
   "completed",
@@ -93,24 +88,33 @@ export function deriveBlockedOnThreadWait(input: {
 }
 
 export function backgroundWorkHoldsCompletion(
-  tasks: ReadonlyArray<{
-    readonly kind: PendingBackgroundWorkTask["kind"];
-    readonly held?: boolean | undefined;
-  }>,
+  tasks: ReadonlyArray<BackgroundWorkHoldTask>,
 ): boolean {
   return tasks.some((task) => backgroundWorkTaskHoldsCompletion(task));
 }
 
-// Fork: exported for the sidebar's Waiting clock and icon.
-export function backgroundWorkTaskHoldsCompletion(task: {
-  readonly kind: PendingBackgroundWorkTask["kind"];
+// Fork: `held` is the Wait button and wait_for_background_commands, on commands only.
+type BackgroundWorkHoldTask = Pick<PendingBackgroundWorkTask, "kind" | "awaited"> & {
   readonly held?: boolean | undefined;
-}): boolean {
-  switch (task.kind) {
+};
+
+// Fork: exported for the sidebar's Waiting clock and icon, and for crewSession.ts.
+export function backgroundWorkTaskHoldsCompletion(task: BackgroundWorkHoldTask): boolean {
+  return (
+    task.awaited === true ||
+    (task.kind === "command" && task.held === true) ||
+    backgroundWorkKindHoldsCompletion(task.kind)
+  );
+}
+
+// Commands and monitors are as often a dev server or its watchdog as a wait, so they hold
+// only when the agent marks them awaited.
+function backgroundWorkKindHoldsCompletion(kind: PendingBackgroundWorkTask["kind"]): boolean {
+  switch (kind) {
     case "command":
-      return task.held === true;
-    case "subagent":
     case "monitor":
+      return false;
+    case "subagent":
     case "background_task":
       return true;
   }
@@ -140,6 +144,7 @@ type PendingBackgroundWorkTurnItem = {
     readonly nativeId: string | null;
   } | null;
   readonly input?: unknown;
+  readonly monitor?: boolean | undefined;
   readonly prompt?: string | undefined;
   readonly childThreadId?: ThreadId | null;
   readonly startedAt?: OrchestrationV2TurnItem["startedAt"]; // Fork: elapsed time
@@ -203,7 +208,7 @@ function pendingTaskFromTurnItem(
         ...(item.childThreadId == null ? {} : { childThreadId: item.childThreadId }),
       };
     case "command_execution":
-      return { ...named, kind: "command" };
+      return { ...named, kind: item.monitor === true ? "monitor" : "command" };
     default:
       return { ...named, kind: "background_task" };
   }
@@ -217,10 +222,7 @@ function nativeTaskIdFromTurnItem(item: PendingBackgroundWorkTurnItem): string {
   return String(item.id);
 }
 
-/**
- * The turn items the pending-work list names, without its settled-run gate.
- * Stop ends exactly these, so the list and Stop cannot disagree.
- */
+/** Items Stop ends, without the pending list's settled-run gate. */
 export function pendingBackgroundTurnItems<Item extends PendingBackgroundWorkTurnItem>(input: {
   readonly turnItems: ReadonlyArray<Item>;
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
@@ -243,32 +245,16 @@ type BackgroundWorkSources = {
   readonly providerThreads: ReadonlyArray<PendingBackgroundWorkProviderThread>;
   readonly turnItems: ReadonlyArray<PendingBackgroundWorkTurnItem>;
   readonly activeProviderThreadId?: string | null;
-  /**
-   * Run rows used to exclude items owned by rolled_back runs. Optional for
-   * callers that already filtered (SQL shell path); in-memory callers should
-   * pass projection runs so policy cannot drift.
-   */
+  /** Excludes rolled-back runs; optional only when the caller already filtered them, as SQL shell reads do. */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
 };
 
 /**
- * Every piece of background work a thread names, without the settled-run gate.
- *
- * Sources:
- * - Provider-thread roster (Claude SDK background tasks)
- * - Active command_execution / dynamic_tool / subagent turn items
- * - Pull request watches, as monitors: a watch wakes the agent, so the thread
- *   stays working between wakes instead of returning to the inbox. Callers
- *   that pick a run to interrupt leave `pullRequests` out; Stop ends watches
- *   on its own.
- *
- * Dedupes by native task ID. Excludes Grok persistent monitors (`dynamic_tool`
- * input with `persistent: true`). Excludes turn items whose run resolves to
- * `rolled_back` (abandoned work); items with a null or absent run id stay
- * eligible (matches SQL shell path). Does not consult subagent entities (those
- * double-count turn items). Holding commands reads this directly, because an
- * agent holds its command before its own turn settles.
+ * Fork: every piece of background work a thread names (roster, active turn items, pull request
+ * watches), without the settled-run gate, deduped by native task id and skipping rolled-back runs.
+ * Holding commands reads this directly because an agent holds its command before its turn
+ * settles. Callers picking a run to interrupt leave `pullRequests` out; Stop ends watches itself.
  */
 export function collectBackgroundWork(
   input: BackgroundWorkSources,
@@ -316,13 +302,10 @@ export function collectBackgroundWork(
   return Array.from(byTaskId.values());
 }
 
-// Fork: a wait holds only the commands the latest run started, so a dev server
-// an earlier turn left running never keeps a later turn Working. Roster
-// commands (Claude) carry no run id, so start time places them: every command
-// task carries its start, and runs and adapters share the server clock. A wake
-// run (a notification, a delegated result, a restart continuation) starts a
-// new scope on purpose: scoping by workStartedAt instead would let a pull
-// request watch's wake hold a dev server.
+// Fork: a wait holds only the latest run's commands, so an earlier turn's dev server never
+// keeps a later turn Working. Roster commands carry no run id, so start time places them (one
+// server clock). A wake run starts a new scope on purpose: scoping by workStartedAt would let a
+// pull request watch's wake hold a dev server.
 export function backgroundCommandHoldScopeStartedAt(
   runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "startedAt">>,
 ): DateTime.Utc | null {
@@ -423,6 +406,7 @@ function pullRequestWatchTasks(
             taskId: `pull-request-watch:${link.host.toLowerCase()}/${link.repository.toLowerCase()}#${link.number}`,
             description: `Watching pull request #${link.number}`,
             kind: "monitor" as const,
+            awaited: true as const,
           },
         ],
   );

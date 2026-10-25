@@ -1,10 +1,7 @@
 /**
- * Fork: Claude's `/output-style` as a per-thread trait.
- *
- * The capabilities probe reads the styles the CLI reports on its init
- * handshake, and every model in the Claude snapshot carries them as an
- * `outputStyle` select descriptor. The adapter forwards the selection as
- * `settings.outputStyle` (see claudeModelOptions.ts).
+ * Fork: Claude's `/output-style` as a per-thread trait. The capabilities probe reads the styles the
+ * CLI reports at init, every Claude model carries them as an `outputStyle` select descriptor, and
+ * the adapter forwards the pick as `settings.outputStyle` (claudeModelOptions.ts).
  *
  * @module provider/claudeOutputStyle
  */
@@ -22,15 +19,10 @@ export const DEFAULT_CLAUDE_OUTPUT_STYLE = "default";
 export const CLAUDE_OUTPUT_STYLE_OPTION_ID = "outputStyle";
 
 /**
- * Normalize the output style names reported by the SDK init handshake.
- *
- * The CLI resolves these itself from its built-ins plus the user-level
- * `output-styles` directory, so T3 Code never scans the filesystem for them.
- * They arrive built-ins first, by name (a style file's frontmatter `name`,
- * not its filename). Names are kept verbatim (they are the token
- * `settings.outputStyle` matches on) and deduped case-insensitively, since two
- * scopes can define the same name and the CLI resolves such a collision to a
- * single style.
+ * Styles arrive from the SDK init handshake, built-ins first, by frontmatter `name`; the CLI
+ * resolves them, so T3 Code never scans the filesystem. Names stay verbatim, as the token
+ * `settings.outputStyle` matches, and dedupe case-insensitively because the CLI resolves a
+ * cross-scope name collision to one style.
  */
 export function parseClaudeOutputStyles(
   styles: ReadonlyArray<string> | undefined,
@@ -52,12 +44,8 @@ export function parseClaudeOutputStyles(
 }
 
 /**
- * Append an output-style trait to every model in the snapshot.
- *
- * Output styles are a CLI-wide setting rather than a per-model one, so the
- * same descriptor rides on each model; clients read traits off the selected
- * model's capabilities and have no other channel for it. Mirrors how
- * OpenCode publishes its discovered `agent` list.
+ * Output styles are CLI-wide, not per-model, but clients read traits only off the selected model's
+ * capabilities, so the same descriptor rides on every model, as OpenCode's `agent` list does.
  */
 export function withClaudeOutputStyleDescriptor(
   models: ReadonlyArray<ServerProviderModel>,

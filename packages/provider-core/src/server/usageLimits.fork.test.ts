@@ -1,4 +1,4 @@
-// Fork tests for usageLimits.ts: the `complete` update carried from upstream #24128.
+// Fork tests for usageLimits.ts: the `complete` update carried from pingdotgg/t3code#24128.
 import { describe, expect, it } from "vite-plus/test";
 
 import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";

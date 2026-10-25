@@ -1,22 +1,9 @@
 // @effect-diagnostics globalTimers:off - Bounds Electron renderer calls, which run outside the Effect runtime.
 /**
- * Fork: the one door between the server and a desktop tab's debugger, so the
- * agent's input stays in the page and the app's focus stays with the user.
- *
- * - Keys go to the guest's own widget (`guestKeys.fork.ts`), or, when the
- *   focused field is in an out-of-process iframe, to that iframe's own
- *   session (`frameKeys.fork.ts`).
- * - A pointer press gives the app its focus back. Chromium focuses the guest
- *   on a DevTools mouse press, so the app's `<webview>` element takes focus
- *   and the user's own typing goes into the page until they click back, even
- *   for a tab nobody shows (upstream #10980). Focusing the element the user
- *   had before returns keyboard focus to it, while the page keeps its own
- *   focused element, so the agent's later keys still land there (#13914
- *   measured the same on Windows).
- * - Input commands reach the guest in the order the server sent them, so a
- *   press held up by that focus hop is never overtaken by its release.
- * - `Target.sendMessageToTarget` is refused: a raw message would carry a
- *   command past these checks.
+ * Fork: the one door between the server and a desktop tab's debugger. Keys go to the guest's own
+ * widget or a focused out-of-process iframe's session; a pointer press returns focus to the app's
+ * previous element (Chromium focuses the guest on a DevTools press) while the page keeps its own;
+ * input keeps send order; `Target.sendMessageToTarget` is refused, as it would bypass these checks.
  */
 import { findKeyTarget, sendFrameKeys, targetFrame } from "./frameKeys.fork.ts";
 import { guestKeyPackets, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.ts";
@@ -140,13 +127,10 @@ export const INPUT_HOLD_DEADLINE_MS = 10_000;
 const inputTails = new WeakMap<Electron.WebContents, Promise<void>>();
 
 /**
- * Runs `send` once every input command queued before it for `guest` has gone
- * to the guest. Playwright fires a click's move, press and release at once and
- * relies on DevTools keeping their order, so a press held up by its focus hop
- * would otherwise let its release reach the page first. `send` calls `sent`
- * once its command is on the wire; the next command waits for that alone, not
- * for the rest of `send`. Past the deadline `signal` aborts, and `send` must
- * check it right before sending. A failure reaches only its own caller.
+ * Runs `send` once every input command queued before it for `guest` has gone out: Playwright fires
+ * a click's move, press and release at once, and a focus hop must not reorder them. `send` calls
+ * `sent` once on the wire (all the next command waits for) and must check `signal`, aborted past
+ * the deadline, right before sending. A failure reaches only its own caller.
  */
 const inInputOrder = <A>(
   guest: Electron.WebContents,

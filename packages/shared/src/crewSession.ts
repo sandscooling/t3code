@@ -1,15 +1,8 @@
 /**
- * Fork: crew sessions. A thread another session spawned (session_spawn sets
- * `spawnedByThreadId`) is a crew session. When it stops it is not done in the
- * user's sense: it is idle, waiting for its orchestrator, a peer, or to be
- * settled. Clients label it Idle and its finished-turn alerts stay quiet.
- *
- * Orchestrators are not crew sessions. A top-level orchestrator has no
- * spawner (nor does its handoff successor, which inherits that null). One an
- * orchestrator in another project spawned is recognised by its title: exactly
- * "Orchestrator", the same rule as the sidebar's orchestrator color, so a
- * retired "Orchestrator-<date>" still counts as crew. An orchestrator reads
- * Done and unread like any top-level thread, and its completions alert.
+ * Fork: a thread session_spawn started (`spawnedByThreadId`) is a crew session: stopped means
+ * idle, waiting on its orchestrator or a settle, so it reads Idle and its completions stay quiet.
+ * A spawned orchestrator is told apart by its exact title "Orchestrator" (the sidebar color rule),
+ * so a retired "Orchestrator-<date>" still counts as crew.
  */
 
 import { backgroundWorkTaskHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
@@ -45,17 +38,17 @@ export function isIdleCrewSession(
 type BackgroundWorkHoldTask = Parameters<typeof backgroundWorkTaskHoldsCompletion>[0];
 
 /**
- * Whether one piece of background work holds the thread Waiting. Elsewhere a
- * command holds only when someone chose to wait for it, so a dev server left
- * running does not. A crew session resumes when any command it started ends,
- * and settling it stops that command, so every running command holds it.
+ * Elsewhere a command or monitor holds only when awaited or held, so a dev server left running
+ * does not. A crew session resumes when any of its commands or monitors ends, and settling it
+ * stops them, so every running one holds it.
  */
 export function backgroundWorkTaskHoldsThread(
   thread: CrewSessionThread,
   task: BackgroundWorkHoldTask,
 ): boolean {
   return (
-    backgroundWorkTaskHoldsCompletion(task) || (task.kind === "command" && isCrewSession(thread))
+    backgroundWorkTaskHoldsCompletion(task) ||
+    ((task.kind === "command" || task.kind === "monitor") && isCrewSession(thread))
   );
 }
 
