@@ -1,10 +1,11 @@
 // Fork-owned tests for ThreadNotificationCoordinator.
+import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { render, stubGlobal, type Screen } from "../../test/render";
+import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -323,13 +324,16 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
+    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }];
     await app.render();
     state.background = [];
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(1);
   });
 
@@ -337,8 +341,10 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
+    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     state.background = [
       { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
       { taskId: "bench", kind: "command", held: true },
@@ -347,6 +353,7 @@ describe("thread notifications", () => {
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [];
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(2);
   });
 
@@ -355,8 +362,10 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
+    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
@@ -367,9 +376,11 @@ describe("thread notifications", () => {
     state.mode = "notifications-and-sound";
     state.focused = false;
     await app.render();
+    using _timers = fakeTimers();
     state.stopRequested = true;
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
   });

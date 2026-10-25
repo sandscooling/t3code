@@ -1,4 +1,5 @@
 import {
+  type EnvironmentThreadShell,
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
@@ -11,7 +12,7 @@ import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3too
 import * as Option from "effect/Option";
 // Fork: no completion toast, so no CircleCheckIcon.
 import { CircleAlertIcon, MessageCircleQuestionIcon, ShieldQuestionIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironmentIds } from "../state/environments";
@@ -24,7 +25,12 @@ import {
   threadNotificationTag,
   unlockNotificationAudio,
 } from "../threadNotifications";
-import { resolveSidebarThreadStatus } from "./Sidebar.logic";
+import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
+import {
+  createThreadNotificationGate,
+  type ThreadNotificationKind,
+  type ThreadNotificationObservation,
+} from "./ThreadNotificationCoordinator.logic";
 import { toastManager } from "./ui/toast";
 
 /**
@@ -100,13 +106,15 @@ export function ThreadNotificationCoordinator() {
   ));
 }
 
-interface NotificationState {
+interface NotificationState extends ThreadNotificationObservation {
   readonly raw: OrchestrationV2ThreadShell;
   readonly subagentRequest: PendingSubagentRequest | null;
-  readonly attention: string | null;
-  readonly completion: number | null;
+  readonly thread: EnvironmentThreadShell;
+  readonly status: SidebarThreadStatus;
   // Fork: an unchanged thread is skipped, so it must still count as awaiting.
   readonly awaitsAnswer: boolean;
+  // Fork: a held command keeps the thread waiting on its completion alert.
+  readonly holdsCompletion: boolean;
 }
 
 function EnvironmentNotifications({
@@ -131,15 +139,140 @@ function EnvironmentNotifications({
   // Fork: threads with a standing answer toast open. Unlike `previous` it
   // survives a disconnect, so an answer that landed meanwhile still clears it.
   const standing = useRef(new Set<ThreadId>());
+  const isActiveThread = (threadId: ThreadId) =>
+    activeEnvironmentId === environmentId && activeThreadId === threadId;
+  // Fork: questions and approvals stand until answered; failures and limits fall
+  // away on their own. Completions have no toast at all.
+  const showToast = ({ thread, status, awaitsAnswer }: NotificationState, title: string) => {
+    if (awaitsAnswer) standing.current.add(thread.id);
+    const toastId = toastManager.add({
+      ...(awaitsAnswer
+        ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
+        : undefined),
+      type: status === "failed" ? "error" : "warning",
+      title,
+      description: thread.title,
+      data: {
+        hideCopyButton: true,
+        dismissOnActiveThreadRef: awaitsAnswer ? { environmentId, threadId: thread.id } : null,
+        leadingIcon:
+          status === "approval" ? (
+            <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+          ) : status === "failed" ? (
+            <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+          ) : (
+            <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
+          ),
+      },
+      actionProps: {
+        children: "Open thread",
+        onClick: () => {
+          toastManager.close(toastId);
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId, threadId: thread.id },
+          });
+        },
+      },
+    });
+  };
+  // Fork: first sight, on load or after a reconnect: a thread already waiting on
+  // an answer gets its standing toast back, quietly. The stable id refreshes it.
+  const restoreStandingToast = useEffectEvent((entry: NotificationState) => {
+    if (!inAppNotificationsEnabled || isActiveThread(entry.thread.id)) return;
+    showToast(entry, entry.status === "approval" ? "Approval needed" : "Input needed");
+  });
+
+  // Completions fire from a timer, so read settings, focus and route when presenting.
+  const present = useEffectEvent((threadId: ThreadId, kind: ThreadNotificationKind) => {
+    const entry = previous.current.get(threadId);
+    if (!entry) return;
+    const { thread, status } = entry;
+    // Fork: a crew session finishing a turn is idle, not done, so it stays quiet.
+    if (isSilencedCrewAlert(thread, kind)) return;
+    const title =
+      kind === "completion"
+        ? "Thread completed"
+        : status === "approval"
+          ? "Approval needed"
+          : status === "limited"
+            ? "Usage limit reached"
+            : status === "failed"
+              ? "Thread failed"
+              : status === "request"
+                ? "Guest request"
+                : "Input needed";
+    if (hasNotificationSound(mode)) {
+      void playNotificationSound(kind, () =>
+        hasNotificationSound(getClientSettings().notificationMode),
+      );
+    }
+    const onScreen = document.visibilityState === "visible" && document.hasFocus();
+    // Fork: a question must still be waiting when the reader comes back, so its
+    // toast does not depend on focus (a browser preview or dictation can hold it).
+    // A background question still gets its system popup below.
+    if (
+      kind === "input" &&
+      inAppNotificationsEnabled &&
+      !isActiveThread(thread.id) &&
+      (entry.awaitsAnswer || onScreen)
+    ) {
+      showToast(entry, title);
+      if (onScreen) return;
+    }
+    if (
+      !hasDesktopNotifications(mode) ||
+      onScreen ||
+      typeof Notification === "undefined" ||
+      Notification.permission !== "granted"
+    )
+      return;
+    try {
+      const notification = new Notification(title, {
+        body: thread.title,
+        tag: threadNotificationTag(environmentId, thread.id),
+        silent: true,
+      });
+      onNotification(environmentId, notification);
+      notification.addEventListener("click", () => {
+        notification.close();
+        window.focus();
+        void window.desktopBridge?.revealWindow?.().catch(() => undefined);
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: thread.id },
+        });
+      });
+    } catch {
+      // Some browsers expose Notification but reject desktop presentation.
+    }
+  });
+  const gate = useRef<ReturnType<typeof createThreadNotificationGate<ThreadId>>>(null);
+  useEffect(() => {
+    const created = createThreadNotificationGate<ThreadId>((threadId, kind) =>
+      present(threadId, kind),
+    );
+    gate.current = created;
+    return () => {
+      created.clear();
+      gate.current = null;
+      // A new gate has no pending completions, so forget the states they compared against.
+      previous.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
+    const pendingCompletions = gate.current;
+    if (!pendingCompletions) return;
     if (threads === null) {
+      pendingCompletions.clear();
       previous.current.clear();
       return;
     }
     const next = new Map<ThreadId, NotificationState>();
     const awaiting = new Set<ThreadId>(); // Fork: threads still waiting on an answer
     const subagentRequests = pendingSubagentRequestsByThread(threads);
+    const changed: Array<[NotificationState | undefined, NotificationState]> = [];
     for (const rawThread of threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
@@ -161,146 +294,39 @@ function EnvironmentNotifications({
           ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
-      // Fork: a held command re-arms the alert, so a completion that already
-      // alerted alerts again when it ends.
-      const completion =
-        status === "waiting" &&
-        thread.pendingBackgroundTasks.some(
-          (task) => task.kind === "command" && backgroundWorkTaskHoldsCompletion(task),
-        )
-          ? null
-          : status === "ready" &&
-              thread.latestRun?.status === "completed" &&
-              Number.isFinite(completedAt)
-            ? completedAt
-            : (prior?.completion ?? null);
-      // Fork: only threads that want the reader get a toast. Questions and
-      // approvals stand until answered; failures and limits fall away on their
-      // own. Completions have no toast at all, only their sound and background
-      // system popup.
-      const awaitsAnswer =
-        thread.archivedAt === null && (status === "input" || status === "approval");
-      next.set(thread.id, {
+      const settled = status === "ready" && thread.latestRun?.status === "completed";
+      const state = {
         raw: rawThread,
         subagentRequest,
+        thread,
+        status,
         attention,
-        completion,
-        awaitsAnswer,
-      });
-      if (thread.archivedAt !== null) continue;
-      if (awaitsAnswer) awaiting.add(thread.id);
-      const isActiveThread = activeEnvironmentId === environmentId && activeThreadId === thread.id;
-      const showToast = (title: string) => {
-        if (awaitsAnswer) standing.current.add(thread.id);
-        const toastId = toastManager.add({
-          ...(awaitsAnswer
-            ? { id: attentionToastId(environmentId, thread.id), timeout: 0 }
-            : undefined),
-          type: status === "failed" ? "error" : "warning",
-          title,
-          description: thread.title,
-          data: {
-            hideCopyButton: true,
-            dismissOnActiveThreadRef: awaitsAnswer ? { environmentId, threadId: thread.id } : null,
-            leadingIcon:
-              status === "approval" ? (
-                <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
-              ) : status === "failed" ? (
-                <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
-              ) : (
-                <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
-              ),
-          },
-          actionProps: {
-            children: "Open thread",
-            onClick: () => {
-              toastManager.close(toastId);
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: { environmentId, threadId: thread.id },
-              });
-            },
-          },
-        });
+        settled,
+        completedAt: settled && Number.isFinite(completedAt) ? completedAt : null,
+        // Fork: only questions and approvals want an answer, so only they stand.
+        awaitsAnswer: thread.archivedAt === null && (status === "input" || status === "approval"),
+        holdsCompletion:
+          status === "waiting" &&
+          thread.pendingBackgroundTasks.some(
+            (task) => task.kind === "command" && backgroundWorkTaskHoldsCompletion(task),
+          ),
       };
-      if (!prior) {
-        // Fork: first sight, on load or after a reconnect: a thread already
-        // waiting on an answer gets its standing toast back, quietly. The stable
-        // id means an existing toast is refreshed rather than duplicated.
-        if (awaitsAnswer && inAppNotificationsEnabled && !isActiveThread) {
-          showToast(status === "approval" ? "Approval needed" : "Input needed");
-        }
-        continue;
-      }
-      const kind =
-        attention && attention !== prior.attention
-          ? "input"
-          : !rawThread.latestRunStopRequested &&
-              !rawThread.latestRunSilent &&
-              completion !== null &&
-              (prior.completion === null || completion > prior.completion)
-            ? "completion"
-            : null;
-      if (!kind) continue;
-      // Fork: a crew session finishing a turn is idle, not done, so it stays quiet.
-      if (isSilencedCrewAlert(thread, kind)) continue;
-      const title =
-        kind === "completion"
-          ? "Thread completed"
-          : status === "approval"
-            ? "Approval needed"
-            : status === "limited"
-              ? "Usage limit reached"
-              : status === "failed"
-                ? "Thread failed"
-                : status === "request"
-                  ? "Guest request"
-                  : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
-      }
-      const onScreen = document.visibilityState === "visible" && document.hasFocus();
-      // Fork: a question must still be waiting when the reader comes back, so
-      // its toast does not depend on focus; the app can think it is unfocused
-      // while the reader is looking at it (a browser preview or dictation
-      // holding focus). A background question still gets its system popup below.
-      if (
-        kind === "input" &&
-        inAppNotificationsEnabled &&
-        !isActiveThread &&
-        (awaitsAnswer || onScreen)
-      ) {
-        showToast(title);
-        if (onScreen) continue;
-      }
-      if (
-        !hasDesktopNotifications(mode) ||
-        onScreen ||
-        typeof Notification === "undefined" ||
-        Notification.permission !== "granted"
-      )
-        continue;
-      try {
-        const notification = new Notification(title, {
-          body: thread.title,
-          tag: threadNotificationTag(environmentId, thread.id),
-          silent: true,
-        });
-        onNotification(environmentId, notification);
-        notification.addEventListener("click", () => {
-          notification.close();
-          window.focus();
-          void window.desktopBridge?.revealWindow?.().catch(() => undefined);
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: { environmentId, threadId: thread.id },
-          });
-        });
-      } catch {
-        // Some browsers expose Notification but reject desktop presentation.
-      }
+      next.set(thread.id, state);
+      if (state.awaitsAnswer) awaiting.add(thread.id); // Fork
+      changed.push([prior, state]);
+    }
+    previous.current = next;
+    // Fork: forgetting a thread while a held command runs re-arms its completion,
+    // so a completion that already alerted alerts again when the command ends.
+    pendingCompletions.retain(
+      new Set([...next].filter(([, state]) => !state.holdsCompletion).map(([id]) => id)),
+    );
+    for (const [prior, state] of changed) {
+      pendingCompletions.observe(state.thread.id, prior, state, {
+        archived: state.thread.archivedAt !== null,
+        quiet: state.raw.latestRunStopRequested === true || state.raw.latestRunSilent === true,
+      });
+      if (!prior && state.awaitsAnswer) restoreStandingToast(state); // Fork
     }
     // Fork: a standing toast becomes a stale label the moment its thread stops
     // asking: answered anywhere (even while disconnected), turned into a
@@ -310,17 +336,7 @@ function EnvironmentNotifications({
       toastManager.close(attentionToastId(environmentId, threadId));
       standing.current.delete(threadId);
     }
-    previous.current = next;
-  }, [
-    activeEnvironmentId,
-    activeThreadId,
-    environmentId,
-    inAppNotificationsEnabled,
-    mode,
-    navigate,
-    onNotification,
-    threads,
-  ]);
+  }, [environmentId, threads]);
 
   return null;
 }
