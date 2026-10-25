@@ -23,7 +23,9 @@ import {
   RunId,
   RuntimeRequestId,
   ThreadId,
+  TurnItemId,
   type OrchestrationV2DomainEvent,
+  type OrchestrationV2ProviderFailure,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadProjection,
   type ServerProvider,
@@ -54,6 +56,7 @@ import * as ProviderTurnStart from "../../../orchestration-v2/ProviderTurnStartS
 import * as RunExecutionService from "../../../orchestration-v2/RunExecutionService.ts";
 import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
+import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -263,6 +266,9 @@ function makeHarness(
     external,
     database,
     idleHandoffs,
+    SessionWakeFailureNotice.layer.pipe(
+      Layer.provide(Layer.merge(threadManagement, serverSettings)),
+    ),
     NodeServices.layer,
     NodeCrypto.layer,
   );
@@ -1227,6 +1233,338 @@ it.effect("refuses a wake to a queue a provider failure held, leaving it held", 
       ["First.", "queued", true],
     ]);
     expect(yield* statusOf(threadId)).toBe("held");
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+const providerError: OrchestrationV2ProviderFailure = {
+  class: "provider_error",
+  message: "API Error: 500 Internal server error.",
+  code: "api_error_500",
+  retryable: null,
+};
+const usageLimit: OrchestrationV2ProviderFailure = {
+  class: "usage_limit",
+  message: "You've hit your usage limit.",
+  code: null,
+  retryable: null,
+  resetAt: "2026-10-25T12:00:00.000Z",
+};
+
+/**
+ * Ends run `runId` (the thread's newest by default) `ended`, a failure with the
+ * provider error item it leaves on the root node first, and returns the run.updated.
+ */
+const endRun = (
+  threadId: ThreadId,
+  ended: "completed" | "interrupted" | "failed",
+  runId?: RunId,
+  failure: OrchestrationV2ProviderFailure = providerError,
+) =>
+  Effect.gen(function* () {
+    const before = yield* projectionOf(threadId);
+    const run =
+      before.runs.find((candidate) => candidate.id === runId) ??
+      before.runs.toSorted((left, right) => right.ordinal - left.ordinal)[0]!;
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const runEnded: OrchestrationV2DomainEvent = {
+      id: EventId.make(`${run.id}:${ended}`),
+      type: "run.updated",
+      threadId,
+      runId: run.id,
+      occurredAt: now,
+      payload: { ...run, status: ended, completedAt: now },
+    };
+    const errorItem: OrchestrationV2DomainEvent = {
+      id: EventId.make(`${run.id}:error`),
+      type: "turn-item.updated",
+      threadId,
+      runId: run.id,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make(`error:${run.id}`),
+        threadId,
+        runId: run.id,
+        nodeId: run.rootNodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1000,
+        status: "failed",
+        title: "Provider error",
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "error",
+        failure,
+      },
+    };
+    yield* sink.write({ events: ended === "failed" ? [errorItem, runEnded] : [runEnded] });
+    return runEnded;
+  });
+
+/** Every failure notice the thread was sent, by text. */
+const noticesTo = (threadId: ThreadId) =>
+  projectionOf(threadId).pipe(
+    Effect.map((projection) =>
+      projection.messages
+        .filter((message) => message.text.includes("session_wake to"))
+        .map((message) => message.text),
+    ),
+  );
+
+it.effect("tells the waker once when the run its wake started fails, across projects", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const target = yield* seed({
+      id: "thread:fleet-browser",
+      title: "browser-dev",
+      projectId: otherProjectId,
+    });
+    const woken = yield* ok(orchestratorId, "session_wake", { name: target, message: "Go." });
+    expect(woken.delivery).toBe("started");
+
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const failed = yield* endRun(target, "failed");
+    // A failed run is updated again later (a checkpoint), each a run.updated.
+    yield* notices.handle(failed);
+    yield* notices.handle(failed);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      "T3 Code: your session_wake to browser-dev (thread:fleet-browser) failed: API Error: 500 Internal server error.",
+    ]);
+
+    // The notice is no wake, so its own run failing tells nobody.
+    yield* notices.handle(yield* endRun(orchestratorId, "failed"));
+    expect(yield* noticesTo(orchestratorId)).toHaveLength(1);
+    expect(yield* noticesTo(target)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("sends no notice when the woken run completes or the user stops it", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    for (const ended of ["completed", "interrupted"] as const) {
+      const target = yield* seed({ id: `thread:${ended}`, title: `L-${ended}` });
+      yield* ok(orchestratorId, "session_wake", { name: target, message: "Go." });
+      yield* notices.handle(yield* endRun(target, ended));
+    }
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("sends no notice for a failed run that no wake started", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const target = yield* seed({ id: "thread:sent", title: "L-sent" });
+    // As t3_thread_send delivers: the same sender, but not a session_wake.
+    yield* dispatch((commandId) => ({
+      type: "message.dispatch",
+      commandId,
+      threadId: target,
+      messageId: MessageId.make("message:thread-send"),
+      senderThreadId: orchestratorId,
+      text: "Go.",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    }));
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    yield* notices.handle(yield* endRun(target, "failed"));
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("tells a handed-off waker's successor, and a settled waker nothing", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const successor = yield* seed({ id: "thread:orchestrator-2", title: "Orchestrator-2" });
+    const target = yield* seed({ id: "thread:busy", title: "L-busy" });
+    const woken = yield* ok(orchestratorId, "session_wake", { name: target, message: "Also." });
+    expect(woken.delivery).toBe("started");
+    yield* dispatch((commandId) => ({
+      type: "thread.metadata.update",
+      commandId,
+      threadId: orchestratorId,
+      successorThreadId: successor,
+    }));
+
+    const settledWaker = yield* seed({ id: "thread:settled-waker", title: "L-waker" });
+    const other = yield* seed({ id: "thread:other", title: "L-other" });
+    yield* ok(settledWaker, "session_wake", { name: other, message: "Go." });
+    yield* dispatch((commandId) => ({
+      type: "thread.settle",
+      commandId,
+      threadId: settledWaker,
+    }));
+
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    yield* notices.handle(yield* endRun(target, "failed"));
+    yield* notices.handle(yield* endRun(other, "failed"));
+    expect(yield* noticesTo(successor)).toEqual([
+      "T3 Code: your session_wake to L-busy (thread:busy) failed: API Error: 500 Internal server error.",
+    ]);
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
+    expect(yield* noticesTo(settledWaker)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+// As the orchestrator holds it: the run ahead fails, and startNextQueuedRun holds every
+// queued run behind it instead of failing them, so the wake's own run never fails.
+it.effect("tells the waker once when its queued wake is held behind a run that failed", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const target = yield* seed({
+      id: "thread:held-behind",
+      title: "L-held",
+      projectId: otherProjectId,
+    });
+    const ahead = yield* runningTurn(target, { question: true });
+    const queued = yield* ok(orchestratorId, "session_wake", { name: target, message: "Next." });
+    expect(queued.delivery).toBe("queued");
+
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    yield* notices.handle(yield* endRun(target, "failed", ahead));
+    // The stored stream replays, so this awaits the hold whether or not it is written yet.
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const stored = yield* threads.streamStoredEventsFrom({ threadId: target }).pipe(
+      Stream.filter(
+        (candidate) =>
+          candidate.event.type === "run.updated" &&
+          candidate.event.payload.status === "queued" &&
+          candidate.event.payload.queueHeld === true,
+      ),
+      Stream.runHead,
+    );
+    const hold = Option.getOrThrow(stored).event;
+    yield* notices.handle(hold);
+    yield* notices.handle(hold);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      "T3 Code: your session_wake to L-held (thread:held-behind) is held behind a run that failed, until the user resumes the queue in the app (t3_queue_cancel drops it): API Error: 500 Internal server error.",
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+/** Holds every queued run, as holdStoppedThread does on a Stop, and returns the hold events. */
+const holdQueue = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const before = yield* projectionOf(threadId);
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const holds = before.runs
+      .filter((run) => run.status === "queued")
+      .map((run): OrchestrationV2DomainEvent => ({
+        id: EventId.make(`${run.id}:stop-held`),
+        type: "run.updated",
+        threadId,
+        runId: run.id,
+        occurredAt: now,
+        payload: { ...run, queueHeld: true },
+      }));
+    yield* sink.write({ events: holds });
+    return holds;
+  });
+
+// startNextQueuedRun leaves a queue behind a usage limit unheld, so no hold event comes either.
+it.effect("tells the waker once when its queued wake waits behind a usage limit", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const target = yield* seed({
+      id: "thread:limited",
+      title: "L-limited",
+      projectId: otherProjectId,
+    });
+    const ahead = yield* runningTurn(target, { question: true });
+    const queued = yield* ok(orchestratorId, "session_wake", { name: target, message: "Next." });
+    expect(queued.delivery).toBe("queued");
+
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const failed = yield* endRun(target, "failed", ahead, usageLimit);
+    yield* notices.handle(failed);
+    yield* notices.handle(failed);
+    // A Stop holding the same queued run later is the same wait.
+    for (const hold of yield* holdQueue(target)) yield* notices.handle(hold);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      "T3 Code: your session_wake to L-limited (thread:limited) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue_cancel drops it): You've hit your usage limit.",
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("still tells a limited waker when the run after the limit fails and holds it", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const target = yield* seed({ id: "thread:limit-then-fail", title: "L-retry" });
+    const limited = yield* runningTurn(target, { question: true });
+    yield* ok(orchestratorId, "session_wake", { name: target, message: "Next." });
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    yield* notices.handle(yield* endRun(target, "failed", limited, usageLimit));
+
+    // As UsageLimitRecoveryWorker resumes after the reset; this run then fails in the provider.
+    yield* dispatch((commandId) => ({
+      type: "message.dispatch",
+      commandId,
+      threadId: target,
+      messageId: MessageId.make("message:limit-resume"),
+      text: "Continue where you left off.",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "server",
+    }));
+    const resumed = (yield* projectionOf(target)).runs.find(
+      (run) => run.userMessageId === MessageId.make("message:limit-resume"),
+    )!;
+    yield* notices.handle(yield* endRun(target, "failed", resumed.id));
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const stored = yield* threads.streamStoredEventsFrom({ threadId: target }).pipe(
+      Stream.filter(
+        (candidate) =>
+          candidate.event.type === "run.updated" &&
+          candidate.event.payload.status === "queued" &&
+          candidate.event.payload.queueHeld === true,
+      ),
+      Stream.runHead,
+    );
+    yield* notices.handle(Option.getOrThrow(stored).event);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue_cancel drops it): You've hit your usage limit.",
+      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is held behind a run that failed, until the user resumes the queue in the app (t3_queue_cancel drops it): API Error: 500 Internal server error.",
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("sends no held notice for a Stop hold, even behind a usage limit", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+
+    const stopped = yield* seed({ id: "thread:stop-held", title: "L-stop" });
+    const stoppedRun = yield* runningTurn(stopped, { question: true });
+    yield* ok(orchestratorId, "session_wake", { name: stopped, message: "Next." });
+    yield* endTurnHoldingQueue(stopped, stoppedRun, "interrupted");
+    for (const run of (yield* projectionOf(stopped)).runs) {
+      if (run.queueHeld === true) {
+        yield* notices.handle({
+          id: EventId.make(`${run.id}:held`),
+          type: "run.updated",
+          threadId: stopped,
+          runId: run.id,
+          occurredAt: yield* DateTime.now,
+          payload: run,
+        });
+      }
+    }
+
+    // The limit's own notice never ran (the reactor lagged), and a Stop then held the queue.
+    const limited = yield* seed({ id: "thread:limit-stop", title: "L-limit-stop" });
+    const limitedRun = yield* runningTurn(limited, { question: true });
+    yield* ok(orchestratorId, "session_wake", { name: limited, message: "Next." });
+    yield* endRun(limited, "failed", limitedRun, usageLimit);
+    for (const hold of yield* holdQueue(limited)) yield* notices.handle(hold);
+
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

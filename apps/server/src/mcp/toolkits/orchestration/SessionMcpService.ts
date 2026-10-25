@@ -56,6 +56,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attachedWorktrees.ts";
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
+import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -835,7 +836,7 @@ const make = Effect.gen(function* () {
         projectId: target.projectId,
         commandId,
         threadId: target.id,
-        messageId: MessageId.make(commandId),
+        messageId: SessionWakeFailureNotice.sessionWakeMessageId(commandId),
         senderThreadId: caller.id,
         text: input.message,
         attachments: [],

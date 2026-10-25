@@ -1,6 +1,7 @@
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as SessionIdleHandoff from "./SessionIdleHandoff.fork.ts"; // Fork: idle handoff
+import * as SessionWakeFailureNotice from "./SessionWakeFailureNotice.fork.ts"; // Fork: wake failure notice
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -382,6 +383,10 @@ export const layerProduction = Layer.mergeAll(
   ),
   // Fork: the session_* tools' idle handoff, on the shared scheduler.
   SessionIdleHandoff.layer.pipe(Layer.provide(layerThreadManagementProvided)),
+  // Fork: tells a session_wake sender when the run its wake joined fails.
+  SessionWakeFailureNotice.layerStarted.pipe(
+    Layer.provide(Layer.merge(layerOrchestratorProvided, layerThreadManagementProvided)),
+  ),
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
