@@ -1282,6 +1282,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     prBadge === null &&
     diff === null &&
     !isRemote &&
+    browserStatus === null && // Fork: the globe keeps the meta line
     runningTerminalIds.length === 0;
 
   return (
