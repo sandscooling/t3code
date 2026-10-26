@@ -41,6 +41,7 @@ export function LiveElapsed({
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: tick the elapsed label once a second by writing the DOM, so the row never re-renders.
   useEffect(() => {
     const update = () => {
       if (textRef.current) {

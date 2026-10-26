@@ -27,5 +27,11 @@ export const DesktopBrowserCommand = Schema.Union([
   }),
   // Fork: while active, the desktop keeps the tab drawing frames even when nobody shows it.
   Schema.Struct({ type: Schema.Literal("drawing"), ...TabKey, active: Schema.Boolean }),
+  /** Whether an agent turn runs on the thread, so the tabs it uses stay focused between steps. */
+  Schema.Struct({
+    type: Schema.Literal("turn"),
+    threadId: TrimmedNonEmptyString,
+    active: Schema.Boolean,
+  }),
 ]);
 export type DesktopBrowserCommand = typeof DesktopBrowserCommand.Type;

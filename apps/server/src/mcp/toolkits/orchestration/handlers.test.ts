@@ -215,7 +215,7 @@ function makeHarness(
     ProviderRegistryMock.layer(providers),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
-      folderForThread: () => Effect.succeed(Option.none()),
+      folderForThread: () => Effect.succeedNone,
     }),
   );
   const realLaunch = ThreadLaunch.layer.pipe(
@@ -228,18 +228,16 @@ function makeHarness(
       return ThreadLaunch.ThreadLaunchService.of({
         launch: (input) =>
           real.launch(input).pipe(
-            Effect.flatMap((result) =>
-              failLaunchOnce.delete(input.title)
-                ? Effect.fail(
-                    new ThreadLaunch.ThreadLaunchError({
-                      operation: "dispatch-message",
-                      commandId: input.commandId,
-                      projectId: input.projectId,
-                      threadId: result.threadId,
-                      cause: "failed by the test",
-                    }),
-                  )
-                : Effect.succeed(result),
+            Effect.filterOrFail(
+              () => !failLaunchOnce.delete(input.title),
+              (result) =>
+                new ThreadLaunch.ThreadLaunchError({
+                  operation: "dispatch-message",
+                  commandId: input.commandId,
+                  projectId: input.projectId,
+                  threadId: result.threadId,
+                  cause: "failed by the test",
+                }),
             ),
           ),
         checkWorktreeBase: real.checkWorktreeBase,
@@ -294,12 +292,15 @@ function makeHarness(
       });
     }),
   ).pipe(Layer.provide(threadManagement));
-  return McpHttpServer.toolkitRegistration(OrchestrationToolkit, OrchestrationToolkitHandlersLive)
-    .pipe(
-      Layer.provide(SessionMcpService.layer.pipe(Layer.provide(services))),
-      Layer.provide(liveCallers),
-    )
-    .pipe(Layer.provideMerge(McpServer.McpServer.layer), Layer.provideMerge(services));
+  return McpHttpServer.toolkitRegistration(
+    OrchestrationToolkit,
+    OrchestrationToolkitHandlersLive,
+  ).pipe(
+    Layer.provide(SessionMcpService.layer.pipe(Layer.provide(services))),
+    Layer.provide(liveCallers),
+    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(services),
+  );
 }
 
 const client = McpSchema.McpServerClient.of({
@@ -1738,7 +1739,7 @@ const turnStartWithMissingWorktree = (
               }),
           }),
           Layer.mock(ProjectService.ProjectService)({
-            getById: () => Effect.succeed(Option.some(projects[0] as never)),
+            getById: () => Effect.succeedSome(projects[0] as never),
           }),
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
             // Start reads the thread first to take its worktree's startup lease.

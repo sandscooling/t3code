@@ -64,6 +64,7 @@ function matchMedia() {
 
 let MessagesTimeline: typeof import("./MessagesTimeline").MessagesTimeline;
 
+// oxlint-disable-next-line typescript/no-extraneous-class -- An empty stand-in for the DOM Element class, so `instanceof Element` checks work.
 const ElementStub = class ElementStub {};
 function stubDomGlobals() {
   const classList = {
@@ -189,11 +190,11 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(assetUrlMocks.useAssetUrlState).toHaveBeenCalledWith(ACTIVE_THREAD_ENVIRONMENT_ID, {
-      _tag: "media-file",
-      threadId: ThreadId.make("thread-1"),
-      path: imagePath,
-    });
+    expect(assetUrlMocks.useAssetUrlState).toHaveBeenCalledWith(
+      ACTIVE_THREAD_ENVIRONMENT_ID,
+      { _tag: "media-file", threadId: ThreadId.make("thread-1"), path: imagePath },
+      undefined,
+    );
     expect(markup).toContain('src="https://environment.test/api/assets/signed-token/result.png"');
   });
 });

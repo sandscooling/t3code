@@ -4,7 +4,7 @@
  * peeks as a 1x1 px, 1% opacity click-through corner, the webview full-size inside it, and the
  * desktop unthrottles the guest (automationDrawing.fork.ts). Behind-the-app is unreliable on Windows.
  */
-import { useEffect } from "react";
+import type { DesktopPreviewBridge } from "@t3tools/contracts";
 import { create } from "zustand";
 
 import type { HostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
@@ -34,16 +34,10 @@ export const useAgentDrawingStore = create<AgentDrawingState>()((set) => ({
     }),
 }));
 
-/** Listens for the desktop's drawing switches. Mounted once, by the host of every webview. */
-export function useAgentDrawingEvents() {
-  useEffect(
-    () =>
-      window.desktopBridge?.preview?.onAutomationDrawing?.((event) =>
-        useAgentDrawingStore.getState().apply(event),
-      ),
-    [],
-  );
-}
+/** Listens for the desktop's drawing switches, for the app's lifetime (`startElectronBrowserHost`). */
+export const startAgentDrawingEvents = (preview: DesktopPreviewBridge): (() => void) =>
+  preview.onAutomationDrawing?.((event) => useAgentDrawingStore.getState().apply(event)) ??
+  (() => {});
 
 /** Whether the server holds this tab drawing; only its own server's tabs can be. */
 export const useAgentDrawing = (threadId: string, tabId: string, serverDriven: boolean) =>

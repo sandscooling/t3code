@@ -43,10 +43,9 @@ interface DrawingTab {
 }
 
 /** Applies the server's drawing switches, in order, for the manager's lifetime. */
-export const applyAutomationDrawing = <E>(
-  switches: Stream.Stream<DrawingSwitch>,
-  tabs: AutomationDrawingTabs<E>,
-) => {
+export const applyAutomationDrawing = Effect.fn("desktop.preview.applyAutomationDrawing")(function <
+  E,
+>(switches: Stream.Stream<DrawingSwitch>, tabs: AutomationDrawingTabs<E>) {
   const drawing = new Map<string, DrawingTab>();
   const watchedWindows = new WeakSet<Electron.BrowserWindow>();
 
@@ -70,34 +69,32 @@ export const applyAutomationDrawing = <E>(
     window.on("show", sync);
   };
 
-  const stop = (id: string) =>
-    Effect.gen(function* () {
-      const current = drawing.get(id);
-      if (!current) return;
-      drawing.delete(id);
-      subscribe(current, false);
-      yield* tabs.restore(current.tabId);
-    });
-  const start = (id: string) =>
-    Effect.gen(function* () {
-      let tabId: string | undefined;
-      for (const tab of yield* tabs.tabs) {
-        if (tab.serverTab && keyOf(tab.serverTab) === id) tabId = tab.tabId;
-      }
-      if (tabId === undefined) return;
-      const guest = yield* tabs.webContents(tabId);
-      const current = drawing.get(id);
-      if (current?.tabId === tabId && current.guest === guest) return;
-      // A swapped guest (crash recovery) starts over.
-      yield* stop(id);
-      yield* tabs.unthrottle(tabId);
-      const tab: DrawingTab = { tabId, guest, subscribed: false };
-      drawing.set(id, tab);
-      const window = yield* tabs.window;
-      if (window === undefined) return;
-      watch(window);
-      subscribe(tab, offScreen(window));
-    });
+  const stop = Effect.fn("desktop.preview.stopAutomationDrawing")(function* (id: string) {
+    const current = drawing.get(id);
+    if (!current) return;
+    drawing.delete(id);
+    subscribe(current, false);
+    yield* tabs.restore(current.tabId);
+  });
+  const start = Effect.fn("desktop.preview.startAutomationDrawing")(function* (id: string) {
+    let tabId: string | undefined;
+    for (const tab of yield* tabs.tabs) {
+      if (tab.serverTab && keyOf(tab.serverTab) === id) tabId = tab.tabId;
+    }
+    if (tabId === undefined) return;
+    const guest = yield* tabs.webContents(tabId);
+    const current = drawing.get(id);
+    if (current?.tabId === tabId && current.guest === guest) return;
+    // A swapped guest (crash recovery) starts over.
+    yield* stop(id);
+    yield* tabs.unthrottle(tabId);
+    const tab: DrawingTab = { tabId, guest, subscribed: false };
+    drawing.set(id, tab);
+    const window = yield* tabs.window;
+    if (window === undefined) return;
+    watch(window);
+    subscribe(tab, offScreen(window));
+  });
   return switches.pipe(
     Stream.runForEach(({ key, active }) => {
       const id = keyOf(key);
@@ -108,7 +105,7 @@ export const applyAutomationDrawing = <E>(
       );
     }),
   );
-};
+});
 
 /** Tells the renderer which server tabs to place where they can draw. */
 export const forwardAutomationDrawing = Effect.fn("desktop.preview.forwardAutomationDrawing")(

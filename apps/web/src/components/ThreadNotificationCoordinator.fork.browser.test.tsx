@@ -1,11 +1,13 @@
 // Fork-owned tests for ThreadNotificationCoordinator.
 import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
+import type { AnyRouter } from "@tanstack/react-router";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
+import { fakeTimers, stubGlobal } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -106,45 +108,58 @@ function threadShell() {
   return lastThreadShell;
 }
 
-vi.mock(import("@effect/atom-react"), async (original) => ({
+vi.mock(import("../hooks/useSettings"), async (original) => ({
   ...(await original()),
-  useAtomValue: (() => ({
-    status: state.live ? "live" : "disconnected",
-    snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
+  subscribeClientSettings: (() => () => {}) as never,
+  getClientSettings: (() => ({
+    notificationMode: state.mode,
+    inAppNotificationsEnabled: state.inApp,
   })) as never,
 }));
-vi.mock(import("@tanstack/react-router"), async (original) => ({
-  ...(await original()),
-  useNavigate: (() => state.navigate) as never,
-  useParams: (() => state.active) as never,
-}));
-vi.mock("../hooks/useSettings", () => ({
-  useClientSettings: (
-    select: (
-      settings: Pick<ClientSettings, "notificationMode" | "inAppNotificationsEnabled">,
-    ) => unknown,
-  ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp }),
-  getClientSettings: () => ({ notificationMode: state.mode }),
-}));
-vi.mock("../state/environments", () => ({
-  useEnvironmentIds: () => ["env-1"],
-}));
-vi.mock("../state/shell", () => ({
-  environmentShell: { stateValueAtom: vi.fn() },
-}));
+vi.mock(import("../state/shell"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentShell: {
+      ...actual.environmentShell,
+      stateValueAtom: ((id: string) => shellAtom(id)) as never,
+    },
+  };
+});
+vi.mock(import("../state/presentation"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentSummaries: {
+      ...actual.environmentSummaries,
+      // Read lazily: the factory runs before this module's own bindings exist.
+      get environmentIdsAtom() {
+        return environmentIdsAtom as never;
+      },
+    },
+  };
+});
 vi.mock("../threadNotifications", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../threadNotifications")>()),
   playNotificationSound: state.sound,
+  unlockNotificationAudio: vi.fn(),
   setNotificationBadge: vi.fn(),
 }));
 vi.mock("./ui/toast", () => ({
   toastManager: { add: state.add, close: state.close },
 }));
 
-import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
+import { startThreadNotifications } from "./ThreadNotificationCoordinator";
+
+const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
+const environmentIdsAtom = Atom.make<ReadonlyArray<string>>(["env-1"]);
+const shellValue = () => ({
+  status: state.live ? "live" : "disconnected",
+  snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
+});
 
 // The mocked modules read `state`, so every test starts by resetting all of it. The first
-// render is left to the test because some tests change state before the coordinator mounts.
+// render is left to the test because some tests change state before the service starts.
 function setup() {
   vi.clearAllMocks();
   Object.assign(state, {
@@ -178,11 +193,22 @@ function setup() {
   stack.use(
     stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" })),
   );
-  let screen: Screen | undefined;
+  const registry = AtomRegistry.make();
+  stack.defer(() => registry.dispose());
+  const router = {
+    get state() {
+      return { matches: [{ params: state.active }] };
+    },
+    navigate: state.navigate,
+  } as unknown as AnyRouter;
+  let started = false;
   return {
+    // Publishes the current shell; the first call also starts the service.
     render: async () => {
-      if (screen) await screen.rerender(<ThreadNotificationCoordinator />);
-      else screen = stack.use(await render(<ThreadNotificationCoordinator />));
+      registry.set(shellAtom("env-1"), shellValue());
+      if (started) return;
+      started = true;
+      stack.defer(startThreadNotifications(registry, router));
     },
     [Symbol.asyncDispose]: () => stack.disposeAsync(),
   };

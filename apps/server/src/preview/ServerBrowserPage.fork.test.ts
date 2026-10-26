@@ -45,7 +45,7 @@ const makePage = (
   return {
     page: page as unknown as Page,
     cdp: cdp as unknown as CDPSession,
-    renderScale: 2,
+    renderScale: 1,
     consoleEntries: [],
     networkEntries: [],
     actionTimeline: [],
@@ -113,8 +113,8 @@ describe("bounded captures", () => {
 
   it("a stalled capture on its own reports a timeout", async () => {
     vi.useFakeTimers();
-    const { page, cdp } = makePage(() => new Promise(() => {}));
-    const capture = ServerBrowserPage.captureViewport(page, cdp, { format: "jpeg", scale: 1 }).then(
+    const { cdp } = makePage(() => new Promise(() => {}));
+    const capture = ServerBrowserPage.captureViewport(cdp, { format: "jpeg" }).then(
       () => null,
       (error: unknown) => error,
     );

@@ -172,6 +172,7 @@ export function useAutoOpenHtmlRenders(input: {
       : JSON.stringify([requestId, questionAttachmentId]);
 
   const stateRef = useRef<HtmlRenderAutoOpenState | null>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: open a new HTML render in the panel once, when it arrives.
   useEffect(() => {
     const next = nextHtmlRenderAutoOpen(stateRef.current, {
       threadKey,
@@ -186,6 +187,7 @@ export function useAutoOpenHtmlRenders(input: {
   }, [enabled, open, questionTarget, renders, threadKey]);
 
   const questionStateRef = useRef<QuestionHtmlRenderOpenState | null>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: open the HTML render a pending question points at, once per question.
   useEffect(() => {
     const next = nextQuestionHtmlRenderOpen(questionStateRef.current, {
       threadKey,

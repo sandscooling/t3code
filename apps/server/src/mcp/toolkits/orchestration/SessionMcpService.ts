@@ -134,27 +134,29 @@ const sessionStatus = (thread: OrchestrationV2ThreadShell, held: boolean): Sessi
         : "ready";
 
 /** Finds a project by the projectId, name, or path session_projects reports. */
-const resolveProject = (projects: ReadonlyArray<Project>, ref: string): Result<Project> =>
-  Effect.gen(function* () {
-    const byId = projects.find((project) => project.id === ref);
-    const matches = byId
-      ? [byId]
-      : projects.filter((project) => project.title === ref || project.workspaceRoot === ref);
-    const target = matches[0];
-    if (target === undefined) {
-      return yield* toolError(
-        "project-not-found",
-        `no project is named ${ref}; session_projects lists ${projects.map((project) => project.title).join(", ")}`,
-      );
-    }
-    if (matches.length > 1) {
-      return yield* toolError(
-        "ambiguous-name",
-        `${matches.length} projects are named ${ref}; pass the projectId from session_projects`,
-      );
-    }
-    return target;
-  });
+const resolveProject = Effect.fn("SessionMcpService.resolveProject")(function* (
+  projects: ReadonlyArray<Project>,
+  ref: string,
+) {
+  const byId = projects.find((project) => project.id === ref);
+  const matches = byId
+    ? [byId]
+    : projects.filter((project) => project.title === ref || project.workspaceRoot === ref);
+  const target = matches[0];
+  if (target === undefined) {
+    return yield* toolError(
+      "project-not-found",
+      `no project is named ${ref}; session_projects lists ${projects.map((project) => project.title).join(", ")}`,
+    );
+  }
+  if (matches.length > 1) {
+    return yield* toolError(
+      "ambiguous-name",
+      `${matches.length} projects are named ${ref}; pass the projectId from session_projects`,
+    );
+  }
+  return target;
+});
 
 /**
  * Finds the one session a tool was pointed at. A threadId reaches any
@@ -162,31 +164,30 @@ const resolveProject = (projects: ReadonlyArray<Project>, ref: string): Result<P
  * on a session whose prose title could never pass the name pattern. A name
  * only resolves in the caller's own project, where names are unique.
  */
-const resolveSession = (
+const resolveSession = Effect.fn("SessionMcpService.resolveSession")(function* (
   sessions: ReadonlyArray<OrchestrationV2ThreadShell>,
   caller: OrchestrationV2ThreadShell,
   ref: string,
-): Result<OrchestrationV2ThreadShell> =>
-  Effect.gen(function* () {
-    const byId = sessions.find((thread) => thread.id === ref);
-    const matches = byId
-      ? [byId]
-      : sessions.filter((thread) => thread.projectId === caller.projectId && thread.title === ref);
-    if (matches.length === 0) {
-      return yield* toolError(
-        "thread-not-found",
-        `no open or settled session has the threadId ${ref}, and none in your project has that name`,
-      );
-    }
-    const target = matches[0];
-    if (matches.length > 1 || target === undefined) {
-      return yield* toolError(
-        "ambiguous-name",
-        `${matches.length} open sessions are named ${ref}; rename all but one`,
-      );
-    }
-    return target;
-  });
+) {
+  const byId = sessions.find((thread) => thread.id === ref);
+  const matches = byId
+    ? [byId]
+    : sessions.filter((thread) => thread.projectId === caller.projectId && thread.title === ref);
+  if (matches.length === 0) {
+    return yield* toolError(
+      "thread-not-found",
+      `no open or settled session has the threadId ${ref}, and none in your project has that name`,
+    );
+  }
+  const target = matches[0];
+  if (matches.length > 1 || target === undefined) {
+    return yield* toolError(
+      "ambiguous-name",
+      `${matches.length} open sessions are named ${ref}; rename all but one`,
+    );
+  }
+  return target;
+});
 
 const describeOption = (descriptor: ProviderOptionDescriptor): SessionModelOption => {
   const fallback = getProviderOptionCurrentValue(descriptor);
@@ -209,79 +210,74 @@ const modelOptionDescriptors = (model: ServerProvider["models"][number]) =>
  * for copies the caller's. It is checked against the provider registry here, because a bad slug
  * would otherwise fail inside the provider after the thread exists, with no reason given.
  */
-const resolveSpawnModel = (
+const resolveSpawnModel = Effect.fn("SessionMcpService.resolveSpawnModel")(function* (
   providers: ReadonlyArray<ServerProvider>,
   inherited: ModelSelection,
   input: SessionSpawnInput,
-): Result<ModelSelection> =>
-  Effect.gen(function* () {
-    if (
-      input.instanceId === undefined &&
-      input.model === undefined &&
-      input.options === undefined
-    ) {
-      return inherited;
-    }
-    const instanceId = input.instanceId ?? inherited.instanceId;
-    const provider = providers.find((candidate) => candidate.instanceId === instanceId);
-    if (provider === undefined) {
+) {
+  if (input.instanceId === undefined && input.model === undefined && input.options === undefined) {
+    return inherited;
+  }
+  const instanceId = input.instanceId ?? inherited.instanceId;
+  const provider = providers.find((candidate) => candidate.instanceId === instanceId);
+  if (provider === undefined) {
+    return yield* toolError(
+      "invalid-model",
+      `no usable provider ${instanceId}; session_models lists ${providers.map((candidate) => candidate.instanceId).join(", ")}`,
+    );
+  }
+
+  const sameProvider = provider.instanceId === inherited.instanceId;
+  const requested =
+    input.model ??
+    (sameProvider
+      ? inherited.model
+      : (provider.models.find((model) => model.isDefault) ?? provider.models[0])?.slug);
+  const slug =
+    requested === undefined
+      ? null
+      : resolveSelectableModel(provider.driver, requested, provider.models);
+  const model = provider.models.find((candidate) => candidate.slug === slug);
+  if (model === undefined) {
+    return yield* toolError(
+      "invalid-model",
+      `${provider.instanceId} has no model ${requested ?? "(none listed)"}; call session_models with instanceId ${provider.instanceId} for its slugs`,
+    );
+  }
+
+  if (input.options === undefined) {
+    // The caller's options only mean something on the caller's own model.
+    const keepOptions = sameProvider && model.slug === inherited.model;
+    return createModelSelection(
+      provider.instanceId,
+      model.slug,
+      keepOptions ? inherited.options : undefined,
+    );
+  }
+  const descriptors = modelOptionDescriptors(model);
+  for (const option of input.options) {
+    const descriptor = descriptors.find((candidate) => candidate.id === option.id);
+    const valid =
+      descriptor?.type === "select"
+        ? descriptor.options.some((choice) => choice.id === option.value)
+        : descriptor?.type === "boolean" && typeof option.value === "boolean";
+    if (!valid) {
       return yield* toolError(
         "invalid-model",
-        `no usable provider ${instanceId}; session_models lists ${providers.map((candidate) => candidate.instanceId).join(", ")}`,
+        `${model.slug} does not accept ${option.id}=${String(option.value)}; it takes ${
+          descriptors
+            .map((candidate) =>
+              candidate.type === "select"
+                ? `${candidate.id}=${candidate.options.map((choice) => choice.id).join("|")}`
+                : `${candidate.id}=true|false`,
+            )
+            .join(", ") || "no options"
+        }`,
       );
     }
-
-    const sameProvider = provider.instanceId === inherited.instanceId;
-    const requested =
-      input.model ??
-      (sameProvider
-        ? inherited.model
-        : (provider.models.find((model) => model.isDefault) ?? provider.models[0])?.slug);
-    const slug =
-      requested === undefined
-        ? null
-        : resolveSelectableModel(provider.driver, requested, provider.models);
-    const model = provider.models.find((candidate) => candidate.slug === slug);
-    if (model === undefined) {
-      return yield* toolError(
-        "invalid-model",
-        `${provider.instanceId} has no model ${requested ?? "(none listed)"}; call session_models with instanceId ${provider.instanceId} for its slugs`,
-      );
-    }
-
-    if (input.options === undefined) {
-      // The caller's options only mean something on the caller's own model.
-      const keepOptions = sameProvider && model.slug === inherited.model;
-      return createModelSelection(
-        provider.instanceId,
-        model.slug,
-        keepOptions ? inherited.options : undefined,
-      );
-    }
-    const descriptors = modelOptionDescriptors(model);
-    for (const option of input.options) {
-      const descriptor = descriptors.find((candidate) => candidate.id === option.id);
-      const valid =
-        descriptor?.type === "select"
-          ? descriptor.options.some((choice) => choice.id === option.value)
-          : descriptor?.type === "boolean" && typeof option.value === "boolean";
-      if (!valid) {
-        return yield* toolError(
-          "invalid-model",
-          `${model.slug} does not accept ${option.id}=${String(option.value)}; it takes ${
-            descriptors
-              .map((candidate) =>
-                candidate.type === "select"
-                  ? `${candidate.id}=${candidate.options.map((choice) => choice.id).join("|")}`
-                  : `${candidate.id}=true|false`,
-              )
-              .join(", ") || "no options"
-          }`,
-        );
-      }
-    }
-    return createModelSelection(provider.instanceId, model.slug, input.options);
-  });
+  }
+  return createModelSelection(provider.instanceId, model.slug, input.options);
+});
 
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -395,8 +391,8 @@ const make = Effect.gen(function* () {
   );
 
   /** Every branch git reports checked out in a worktree of the project, paging through listRefs. */
-  const listProjectWorktrees = (projectRoot: string) =>
-    Effect.gen(function* () {
+  const listProjectWorktrees = Effect.fn("SessionMcpService.listProjectWorktrees")(
+    function* (projectRoot: string) {
       const worktrees: Array<ListedWorktree> = [];
       let cursor: number | null = 0;
       while (cursor !== null) {
@@ -418,34 +414,37 @@ const make = Effect.gen(function* () {
         cursor = page.nextCursor;
       }
       return worktrees;
-    }).pipe(
-      Effect.catchTags({
-        GitCommandError: (error) =>
-          toolError("invalid-worktree", `could not list git worktrees: ${error.message}`),
-      }),
-    );
+    },
+    Effect.catchTags({
+      GitCommandError: (error) =>
+        toolError("invalid-worktree", `could not list git worktrees: ${error.message}`),
+    }),
+  );
 
   /**
    * Checks a worktree against what git lists for the project: it exists, is
    * not the main checkout, and git lists it, with `branch` checked out when
    * one is named.
    */
-  const checkWorktree = (project: Project, worktreePath: string, branch: string | null) =>
-    Effect.gen(function* () {
-      const checked = yield* checkAttachedWorktree({
-        projectRoot: project.workspaceRoot,
-        path: worktreePath,
-        branch,
-        worktrees: yield* listProjectWorktrees(project.workspaceRoot),
-      }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-      );
-      if (!checked.ok) {
-        return yield* toolError("invalid-worktree", checked.detail);
-      }
-      return checked;
-    });
+  const checkWorktree = Effect.fn("SessionMcpService.checkWorktree")(function* (
+    project: Project,
+    worktreePath: string,
+    branch: string | null,
+  ) {
+    const checked = yield* checkAttachedWorktree({
+      projectRoot: project.workspaceRoot,
+      path: worktreePath,
+      branch,
+      worktrees: yield* listProjectWorktrees(project.workspaceRoot),
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    if (!checked.ok) {
+      return yield* toolError("invalid-worktree", checked.detail);
+    }
+    return checked;
+  });
 
   /**
    * Where a spawned session runs: a worktree the caller created, another
@@ -453,13 +452,13 @@ const make = Effect.gen(function* () {
    * T3 only records the branch and path; it never creates the worktree, so an
    * inherited one is checked too, in case it was removed since.
    */
-  const resolveSpawnWorktree = (input: {
-    readonly spawn: SessionSpawnInput;
-    readonly caller: OrchestrationV2ThreadShell;
-    readonly sessions: ReadonlyArray<OrchestrationV2ThreadShell>;
-    readonly project: Project;
-  }) =>
-    Effect.gen(function* () {
+  const resolveSpawnWorktree = Effect.fn("SessionMcpService.resolveSpawnWorktree")(
+    function* (input: {
+      readonly spawn: SessionSpawnInput;
+      readonly caller: OrchestrationV2ThreadShell;
+      readonly sessions: ReadonlyArray<OrchestrationV2ThreadShell>;
+      readonly project: Project;
+    }) {
       const worktree = input.spawn.worktree;
       if (worktree !== undefined && !("sameAs" in worktree)) {
         const checked = yield* checkWorktree(input.project, worktree.path, worktree.branch);
@@ -487,7 +486,8 @@ const make = Effect.gen(function* () {
         yield* checkWorktree(input.project, inherited.worktreePath, null);
       }
       return { branch: inherited.branch, worktreePath: inherited.worktreePath };
-    });
+    },
+  );
 
   /**
    * A handoff successor inherits the caller's spawner, so it is the caller's
@@ -560,28 +560,27 @@ const make = Effect.gen(function* () {
     const threadId = ThreadId.make(commandId);
     // A spawn that fails once its thread exists archives that thread, so no
     // half-made session holds the name against a retry.
-    const abandon = (detail: string) =>
-      Effect.gen(function* () {
-        const exists = yield* threads.getThreadShell(threadId).pipe(
-          Effect.map((shell) => shell !== null && shell.deletedAt === null),
-          Effect.orElseSucceed(() => false),
-        );
-        if (!exists) return yield* toolError("dispatch-failed", detail);
-        const archived = yield* dispatch({
-          type: "thread.archive",
-          commandId: yield* newCommandId,
-          threadId,
-        }).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(() => false),
-        );
-        return yield* toolError(
-          "dispatch-failed",
-          archived
-            ? `${detail}; the new session ${threadId} was archived, so the name ${input.name} is free`
-            : `${detail}; the new session ${threadId} could not be archived and still holds the name ${input.name}`,
-        );
-      });
+    const abandon = Effect.fn("SessionMcpService.abandonSpawn")(function* (detail: string) {
+      const exists = yield* threads.getThreadShell(threadId).pipe(
+        Effect.map((shell) => shell !== null && shell.deletedAt === null),
+        Effect.orElseSucceed(() => false),
+      );
+      if (!exists) return yield* toolError("dispatch-failed", detail);
+      const archived = yield* dispatch({
+        type: "thread.archive",
+        commandId: yield* newCommandId,
+        threadId,
+      }).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false),
+      );
+      return yield* toolError(
+        "dispatch-failed",
+        archived
+          ? `${detail}; the new session ${threadId} was archived, so the name ${input.name} is free`
+          : `${detail}; the new session ${threadId} could not be archived and still holds the name ${input.name}`,
+      );
+    });
     yield* launches
       .launch({
         commandId,

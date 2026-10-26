@@ -200,6 +200,7 @@ it.effect("settles a spawned session under its own lock, after the parent's sett
       })
       .pipe(Effect.forkChild);
     let attempts = 0;
+    // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- Fork: the cascade exposes no milestone between the parent's commit and the child's lock; the loop is bounded and never sleeps.
     while ((yield* projections.getThread(parent)).settledOverride !== "settled") {
       assert.isBelow(++attempts, 10_000, "the parent's settle never committed");
       yield* Effect.yieldNow;

@@ -206,6 +206,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
   const awaitUntil = (predicate: () => boolean, label: string): Effect.Effect<void> =>
     Effect.gen(function* () {
+      // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- Fork: waits on in-memory adapter state the SDK fake exposes no signal for; bounded, and never sleeps.
       for (let attempt = 0; attempt < 5000; attempt++) {
         if (predicate()) {
           return;

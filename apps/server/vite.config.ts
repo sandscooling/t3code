@@ -129,7 +129,11 @@ export default mergeConfig(
       fileParallelism: false,
       sequence: { sequencer: WeightedShardSequencer },
       // Fork: resolves the 8.3 short form of TEMP before any test runs (see the file).
-      setupFiles: ["./test/setupWindowsTempPath.ts", "./src/testUtils/gitConfig.setup.ts"],
+      setupFiles: [
+        "./test/setupWindowsTempPath.ts",
+        "./src/testUtils/gitConfig.setup.ts",
+        "./src/testUtils/managedServiceEnv.setup.ts",
+      ],
       hookTimeout: 120_000,
       testTimeout: 120_000,
     },

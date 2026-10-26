@@ -172,7 +172,12 @@ describe("guestKeys", () => {
       host.attach(key, tab.tab);
       yield* roundTrip(host, "Input.dispatchMouseEvent", { type: "mousePressed", x: 1, y: 1 });
       yield* roundTrip(host, "Runtime.evaluate", { expression: "1" });
-      expect(tab.commands).toEqual(["Input.dispatchMouseEvent", "Runtime.evaluate"]);
+      // Upstream holds the hidden guest focused before forwarding the agent's commands.
+      expect(tab.commands).toEqual([
+        "Emulation.setFocusEmulationEnabled",
+        "Input.dispatchMouseEvent",
+        "Runtime.evaluate",
+      ]);
       expect(tab.sent).toEqual([]);
     }).pipe(Effect.scoped),
   );

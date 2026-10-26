@@ -66,8 +66,40 @@ export type ThreadToastData = {
     | "secondary";
 };
 
-const toastManager = Toast.createToastManager<ThreadToastData>();
-const anchoredToastManager = Toast.createToastManager<ThreadToastData>();
+type BaseToastManager = ReturnType<typeof Toast.createToastManager<ThreadToastData>>;
+type ToastManagerListener = Parameters<BaseToastManager[" subscribe"]>[0];
+type ToastManagerEvent = Parameters<ToastManagerListener>[0];
+
+/**
+ * base-ui's manager drops events while no provider is subscribed. App services raise toasts
+ * from before the first render (and while the root error view replaces the providers), so hold
+ * those until a provider listens.
+ */
+function createBufferedToastManager(): BaseToastManager {
+  const manager = Toast.createToastManager<ThreadToastData>();
+  const listeners = new Set<ToastManagerListener>();
+  const pending: ToastManagerEvent[] = [];
+  manager[" subscribe"]((event) => {
+    if (listeners.size === 0) {
+      pending.push(event);
+      return;
+    }
+    for (const listener of listeners) listener(event);
+  });
+  return {
+    ...manager,
+    " subscribe"(listener) {
+      listeners.add(listener);
+      for (const event of pending.splice(0)) listener(event);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const toastManager = createBufferedToastManager();
+const anchoredToastManager = createBufferedToastManager();
 type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
@@ -542,6 +574,7 @@ function Toasts({ position }: { position: ToastPosition }) {
   }, [toasts]);
 
   // Fork: opening a thread closes the toasts waiting on it.
+  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: close the toasts waiting on a thread once that thread is open.
   useEffect(() => {
     for (const toastId of toastIdsToDismissForActiveThread(toasts, activeThreadRef)) {
       toastManager.close(toastId);
