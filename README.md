@@ -59,6 +59,7 @@ Always available to every agent session, with no setting to turn on:
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
+- The packaged desktop backend starts: `zod` is a direct dependency of the server, so the bundle finds `zod/v4` (upstream issue [#25840](https://github.com/pingdotgg/t3code/issues/25840)).
 
 ### Windows test suite
 
@@ -66,14 +67,14 @@ Upstream CI does not run on Windows. The fork adds 8.3 `TEMP` path handling and 
 
 ## Building
 
-Node.js 24 and a recent `rustup` toolchain:
+[Vite+](https://vite.plus) (it brings the pinned Node) and a recent Rust toolchain. On Linux the AppImage also needs `libsecret`, `pkgconf`, `imagemagick` and `fuse2`:
 
 ```bash
-pnpm install
-pnpm dist:desktop:win
+vp i
+vp run dist:desktop:linux
 ```
 
-The installer lands in `release/`. A local build replaces an installed official build, and a rebuild of the same version overwrites the previous installer. Copy `.env.example` to `.env` first to build with T3 Connect (remote access and phone alerts); without it, cloud features are off. Let Connect install its own cloudflared rather than installing one system-wide.
+The AppImage lands in `release/`; `vp run dist:desktop:win` builds the Windows installer instead. A rebuild of the same version overwrites the previous artifact. Copy `.env.example` to `.env` first to build with T3 Connect (remote access and phone alerts); without it, cloud features are off. Let Connect install its own cloudflared rather than installing one system-wide.
 
 ## Links
 
