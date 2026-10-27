@@ -820,7 +820,7 @@ const make = Effect.gen(function* () {
       if (latestExecutedRun(runs)?.status === "failed") {
         return yield* toolError(
           "queue-held",
-          `session ${target.title} has messages held after its last turn failed in the provider; ask the user to resume the queue in the app once the provider works, or drop messages with t3_queue_cancel (t3_queue_list shows them)`,
+          `session ${target.title} has messages held after its last turn failed in the provider; ask the user to resume the queue in the app once the provider works, or drop messages with t3_queue action cancel (t3_queue action list shows them)`,
         );
       }
       yield* dispatch({

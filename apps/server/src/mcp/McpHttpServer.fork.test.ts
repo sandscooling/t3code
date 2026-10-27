@@ -90,27 +90,39 @@ it.effect("preview waits are capped inside the 60 s tool-call limit", () =>
         );
       };
       // Every tool whose host waits on timeoutMs, with the smallest valid input.
-      const timedTools = {
-        preview_navigate: { operation: "navigate", args: { url: "localhost:5173" } },
-        preview_resize: { operation: "resize", args: { mode: "fill" } },
-        preview_click: { operation: "click", args: { x: 1, y: 1 } },
-        preview_type: { operation: "type", args: { text: "Hi" } },
-        preview_hover: { operation: "hover", args: { x: 1, y: 1 } },
-        preview_select: { operation: "select", args: { locator: "#size", values: ["L"] } },
-        preview_drag: { operation: "drag", args: { source: "#card", target: "#lane" } },
-        preview_upload: { operation: "upload", args: { paths: ["/tmp/a.csv"] } },
-        preview_wait_for: { operation: "waitFor", args: { text: "Example" } },
-      } as const;
+      const timedTools = [
+        { name: "preview_navigate", operation: "navigate", args: { url: "localhost:5173" } },
+        { name: "preview_resize", operation: "resize", args: { mode: "fill" } },
+        { name: "preview_act", operation: "click", args: { action: "click", x: 1, y: 1 } },
+        { name: "preview_act", operation: "type", args: { action: "type", text: "Hi" } },
+        { name: "preview_act", operation: "hover", args: { action: "hover", x: 1, y: 1 } },
+        {
+          name: "preview_act",
+          operation: "select",
+          args: { action: "select", locator: "#size", values: ["L"] },
+        },
+        {
+          name: "preview_act",
+          operation: "drag",
+          args: { action: "drag", source: "#card", target: "#lane" },
+        },
+        {
+          name: "preview_act",
+          operation: "upload",
+          args: { action: "upload", paths: ["/tmp/a.csv"] },
+        },
+        { name: "preview_wait_for", operation: "waitFor", args: { text: "Example" } },
+      ] as const;
       const cases = [
         // Above the cap: the host and the broker both get 45 s.
         { timeoutMs: 60_000, host: PREVIEW_AUTOMATION_MAX_TIMEOUT_MS },
         { timeoutMs: 5_000, host: 5_000 },
       ];
-      for (const [name, tool] of Object.entries(timedTools)) {
+      for (const tool of timedTools) {
         for (const { timeoutMs, host } of cases) {
-          const request = yield* callTool(name, { ...tool.args, timeoutMs });
+          const request = yield* callTool(tool.name, { ...tool.args, timeoutMs });
           // The host waits on the input's timeoutMs; the broker on the request's.
-          expect(request, `${name} ${timeoutMs}`).toMatchObject({
+          expect(request, `${tool.operation} ${timeoutMs}`).toMatchObject({
             operation: tool.operation,
             timeoutMs: host,
             input: { timeoutMs: host },
@@ -119,7 +131,7 @@ it.effect("preview waits are capped inside the 60 s tool-call limit", () =>
       }
 
       // A tool with no host wait keeps the broker's own default and gets no timeoutMs.
-      const press = yield* callTool("preview_press", { key: "Enter" });
+      const press = yield* callTool("preview_act", { action: "press", key: "Enter" });
       expect(press).toMatchObject({ operation: "press", timeoutMs: 15_000 });
       expect(press!.input).not.toHaveProperty("timeoutMs");
     }),

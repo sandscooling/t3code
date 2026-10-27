@@ -1228,7 +1228,7 @@ it.effect("refuses a wake to a queue a provider failure held, leaving it held", 
       message: "Second.",
     });
     expect(refusal).toContain("queue-held");
-    expect(refusal).toContain("t3_queue_cancel");
+    expect(refusal).toContain("t3_queue action cancel");
     expect(yield* queueOf(threadId)).toEqual([
       [undefined, "failed", false],
       ["First.", "queued", true],
@@ -1443,7 +1443,7 @@ it.effect("tells the waker once when its queued wake is held behind a run that f
     yield* notices.handle(hold);
     yield* notices.handle(hold);
     expect(yield* noticesTo(orchestratorId)).toEqual([
-      "T3 Code: your session_wake to L-held (thread:held-behind) is held behind a run that failed, until the user resumes the queue in the app (t3_queue_cancel drops it): API Error: 500 Internal server error.",
+      "T3 Code: your session_wake to L-held (thread:held-behind) is held behind a run that failed, until the user resumes the queue in the app (t3_queue action cancel drops it): API Error: 500 Internal server error.",
     ]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
@@ -1488,7 +1488,7 @@ it.effect("tells the waker once when its queued wake waits behind a usage limit"
     // A Stop holding the same queued run later is the same wait.
     for (const hold of yield* holdQueue(target)) yield* notices.handle(hold);
     expect(yield* noticesTo(orchestratorId)).toEqual([
-      "T3 Code: your session_wake to L-limited (thread:limited) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue_cancel drops it): You've hit your usage limit.",
+      "T3 Code: your session_wake to L-limited (thread:limited) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue action cancel drops it): You've hit your usage limit.",
     ]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
@@ -1530,8 +1530,8 @@ it.effect("still tells a limited waker when the run after the limit fails and ho
     );
     yield* notices.handle(Option.getOrThrow(stored).event);
     expect(yield* noticesTo(orchestratorId)).toEqual([
-      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue_cancel drops it): You've hit your usage limit.",
-      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is held behind a run that failed, until the user resumes the queue in the app (t3_queue_cancel drops it): API Error: 500 Internal server error.",
+      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is waiting behind a usage limit that resets at 2026-10-25T12:00:00.000Z, until the user resumes it in the app (t3_queue action cancel drops it): You've hit your usage limit.",
+      "T3 Code: your session_wake to L-retry (thread:limit-then-fail) is held behind a run that failed, until the user resumes the queue in the app (t3_queue action cancel drops it): API Error: 500 Internal server error.",
     ]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
@@ -1732,6 +1732,9 @@ const turnStartWithMissingWorktree = (
           NodePathLayer.layer,
           Layer.mock(GitWorkflow.GitWorkflowService)({
             pruneWorktrees: () => Effect.void,
+            // Upstream recreates from the thread's branch when it still exists.
+            listLocalBranchNames: () =>
+              Effect.succeed(thread.branch === null ? [] : [thread.branch]),
             createWorktree: () =>
               Effect.sync(() => {
                 recreated = true;

@@ -154,7 +154,7 @@ const make = Effect.gen(function* () {
       autoResume && resetAt !== null
         ? "and should resume on its own after the reset"
         : "until the user resumes it in the app"
-    } (t3_queue_cancel drops it): ${describeFailure(failure)}`;
+    } (t3_queue action cancel drops it): ${describeFailure(failure)}`;
     for (const run of queued) {
       const senders = wakeSenders(
         messages.filter((message) => message.id === run.userMessageId),
@@ -192,7 +192,7 @@ const make = Effect.gen(function* () {
       key: `server:session-wake-held:${run.id}`,
       run,
       senders,
-      text: `T3 Code: your session_wake to ${records.thread.title} (${run.threadId}) is held behind a run that failed, until the user resumes the queue in the app (t3_queue_cancel drops it): ${describeFailure(failure)}`,
+      text: `T3 Code: your session_wake to ${records.thread.title} (${run.threadId}) is held behind a run that failed, until the user resumes the queue in the app (t3_queue action cancel drops it): ${describeFailure(failure)}`,
     });
   });
 
