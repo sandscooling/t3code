@@ -59,7 +59,6 @@ Always available to every agent session, with no setting to turn on:
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
-- The packaged desktop backend starts: `zod` is a direct dependency of the server, so the bundle finds `zod/v4` (upstream issue [#25840](https://github.com/pingdotgg/t3code/issues/25840)).
 
 ### Windows test suite
 
