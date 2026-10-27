@@ -39,6 +39,10 @@ import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as PreviewBrowser from "../preview/PreviewBrowser.ts";
+import { PeerForwarding } from "../peer/PeerForwarding.ts";
+import { PeerLinkRequests } from "../peer/PeerLinkRequests.ts";
+import { PeerLinks } from "../peer/PeerLinks.ts";
+import { RemoteDelegation } from "../peer/RemoteDelegation.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(Orchestrator.OrchestratorV2)({}),
@@ -63,6 +67,10 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadSearch.ThreadSearch)({}),
+  Layer.mock(PeerForwarding)({}),
+  Layer.mock(PeerLinkRequests)({}),
+  Layer.mock(PeerLinks)({}),
+  Layer.mock(RemoteDelegation)({}),
   // Fork: the session_* tools' service reads held queues and keeps idle
   // handoff settings.
   Layer.succeed(SqlClient.SqlClient, {} as never),
