@@ -149,6 +149,16 @@ its completion alert waits, until the command ends. **Don't wait** undoes this. 
 wait for a command they start. Wait covers only the commands the latest turn started, so a dev
 server left running by an earlier turn never keeps the thread working.
 
+### Group threads by project (beta)
+
+Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop to put active
+threads in a folder for each project. A project with no active threads has no folder until you
+pick it in the project filter. Click a folder to open or close it. A closed folder shows how
+many threads it holds, and a dot when one of them needs you. Use the pen button on a folder, or
+right-click it, to start a thread in that project. Pinned threads stay above the folders, and
+Snoozed and Settled stay below them. In this mode you cannot drag threads, and the Working section
+is off. Each device keeps its own choice.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list
