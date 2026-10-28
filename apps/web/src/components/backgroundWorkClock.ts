@@ -2,16 +2,6 @@ import type { OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
 import { backgroundWorkTaskHoldsThread } from "@t3tools/shared/crewSession";
 
 /**
- * Fork: when the background work banner's clock starts, or null for no clock.
- * The banner clocks the newest task: the one the agent last started waiting on.
- */
-export function backgroundWorkClockStartedAt(
-  tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
-): string | null {
-  return newestTask(tasks)?.startedAt ?? null;
-}
-
-/**
  * Fork: what a sidebar row reading Waiting waits on, or null when nothing holds it.
  * Only tasks that hold the thread count, so an unheld command started after a
  * subagent neither resets the clock nor changes the icon (in a crew session

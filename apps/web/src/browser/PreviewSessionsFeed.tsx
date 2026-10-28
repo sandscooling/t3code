@@ -49,12 +49,12 @@ function EnvironmentPreviewSessionsFeed(props: { readonly environmentId: Environ
   // session change would turn each event into a list request.
   const activeSessions = useActivePreviewSessions();
   const activeSessionsRef = useRef(activeSessions);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: mirror the latest sessions for the per-connection relist, without re-subscribing on every change.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fork: mirror the latest sessions for the per-connection relist, without re-subscribing on every change.
   useEffect(() => {
     activeSessionsRef.current = activeSessions;
   }, [activeSessions]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: own the preview events subscription for this connection and relist what it missed.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fork: own the preview events subscription for this connection and relist what it missed.
   useEffect(() => {
     const relist = (threadRef: Parameters<typeof relistPreviewThread>[0]) => {
       void relistPreviewThread(threadRef, listPreviews).catch(() => undefined);

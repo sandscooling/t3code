@@ -473,6 +473,7 @@ function ThreadToastVisibleAutoDismiss({
   toastId: ToastId;
   dismissAfterVisibleMs: number | undefined;
 }) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- dismiss timer that pauses on visibilitychange, focus and blur so it only counts visible time
   useEffect(() => {
     if (!dismissAfterVisibleMs || dismissAfterVisibleMs <= 0) return;
     if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -564,6 +565,7 @@ function Toasts({ position }: { position: ToastPosition }) {
   );
   const visibleToastLayout = buildVisibleToastLayout(visibleToasts);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- prunes the module-level remaining-time map of toasts the manager has dropped
   useEffect(() => {
     const activeToastIds = new Set(toasts.map((toast) => toast.id));
     for (const toastId of threadToastVisibleTimeoutRemainingMs.keys()) {
@@ -574,7 +576,7 @@ function Toasts({ position }: { position: ToastPosition }) {
   }, [toasts]);
 
   // Fork: opening a thread closes the toasts waiting on it.
-  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: close the toasts waiting on a thread once that thread is open.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fork: close the toasts waiting on a thread once that thread is open.
   useEffect(() => {
     for (const toastId of toastIdsToDismissForActiveThread(toasts, activeThreadRef)) {
       toastManager.close(toastId);

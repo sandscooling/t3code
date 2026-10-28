@@ -80,7 +80,7 @@ export function SettledPreviewReaper() {
   // request may still be outstanding.
   const inFlight = useRef(new Set<string>());
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: send the close request for each settled thread's previews, once per thread in flight.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fork: send the close request for each settled thread's previews, once per thread in flight.
   useEffect(() => {
     for (const threadKey of reapable) {
       if (inFlight.current.has(threadKey)) continue;

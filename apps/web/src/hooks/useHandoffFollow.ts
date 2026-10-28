@@ -45,7 +45,7 @@ export function useHandoffFollow(
   const navigate = useNavigate();
   const successorThreadId = threadShell?.successorThreadId;
   const baselineRef = useRef<HandoffFollowBaseline | null>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Fork: navigate to the successor thread when a handoff lands, once per baseline.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fork: navigate to the successor thread when a handoff lands, once per baseline.
   useEffect(() => {
     if (threadShell === null || threadKey === null) return;
     const { baseline, follow } = resolveHandoffFollow(

@@ -35,7 +35,8 @@ import {
   type ProviderAdapterV2TurnInput,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
-import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
+import { makeReplayServerConfig } from "../testkit/ProviderReplayHarness.ts";
+import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
 
 // Replay harness copied (trimmed) from CodexAdapterV2.test.ts.
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
