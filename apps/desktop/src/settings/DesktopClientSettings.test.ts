@@ -34,7 +34,6 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
-  composerCollapseOnScroll: true,
   sidebarGroupThreadsByProject: false, // Fork: sidebar project groups
   diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,
@@ -65,6 +64,7 @@ const clientSettings: ClientSettings = {
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   boringSidebarEnabled: false,
+  boringSidebarMultilineRows: false,
   legacySidebarEnabled: false,
   sidebarWorkingShelfEnabled: false,
   loadBalancingEnabled: false,

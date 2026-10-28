@@ -56,12 +56,16 @@ describe("buildTraitsTriggerDisplay", () => {
     // not spend horizontal space the way a deliberate style does.
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("default")])).toEqual({
       label: "High · 1M",
+      speedLabel: null,
+      otherLabels: ["1M"],
     });
   });
 
   it("shows the output style once it is set to something deliberate", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")])).toEqual({
       label: "High · 1M · Explanatory",
+      speedLabel: null,
+      otherLabels: ["1M", "Explanatory"],
     });
   });
 
@@ -74,7 +78,11 @@ describe("buildTraitsTriggerDisplay", () => {
     };
     expect(
       display([EFFORT, fastMode, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")]),
-    ).toEqual({ label: "High Fast · 1M · Explanatory" });
+    ).toEqual({
+      label: "High Fast · 1M · Explanatory",
+      speedLabel: "Fast",
+      otherLabels: ["1M", "Explanatory"],
+    });
   });
 
   it("omits an output style that resolves to its default without an explicit value", () => {
@@ -89,6 +97,6 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "Learning", label: "Learning" },
       ],
     };
-    expect(display([EFFORT, unset])).toEqual({ label: "High" });
+    expect(display([EFFORT, unset])).toEqual({ label: "High", speedLabel: null, otherLabels: [] });
   });
 });
