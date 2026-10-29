@@ -10,6 +10,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 // Fork: html renders show as panel cards.
 import { HtmlRenderPanelCard } from "./HtmlRenderFrame.fork";
 import { McpAppFrame } from "./McpAppFrame";
+import { checkpointFileTotals } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
 import { useProject, useThreadShell } from "../../state/entities";
@@ -350,6 +351,7 @@ function AssistantChangedFilesSectionInner({
     <ChangedFilesCard
       runId={turnSummary.runId}
       files={checkpointFiles}
+      totals={checkpointFileTotals(turnSummary)}
       allDirectoriesExpanded={allDirectoriesExpanded}
       resolvedTheme={resolvedTheme}
       onToggleAllDirectories={() =>
