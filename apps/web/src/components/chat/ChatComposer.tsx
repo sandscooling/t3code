@@ -210,7 +210,6 @@ import {
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
-import { NO_METER_PROVIDERS } from "./RateLimitMeter"; // Fork: plan usage pill
 import {
   buildAttachmentVideoPreview,
   buildExpandedImagePreview,
@@ -890,9 +889,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     lockedInstanceId:
       activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId,
   });
-  // Fork: plan usage follows the instance that will run the turn, so the pill and the
-  // model picker always describe the same account.
-  const activeUsageLimits = selectedProviderEntry?.snapshot.usageLimits ?? null;
   const noProviderAvailable =
     selectedProviderEntry === undefined && multipleModelSelections === null;
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
@@ -3458,10 +3454,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
-                    // Fork: the plan usage pill.
-                    activeUsageLimits={activeUsageLimits}
-                    providerStatuses={activeUsageLimits ? providerStatuses : NO_METER_PROVIDERS}
-                    activeThreadModelSelection={activeThreadModelSelection}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     canInterrupt={canInterrupt}

@@ -607,10 +607,6 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
             ? `Timed out after ${CAPABILITIES_PROBE_TIMEOUT_MS / 1_000}s while checking Claude account status.`
             : "Claude Agent CLI failed while checking account status."
           : "Could not verify Claude authentication status from initialization result.",
-        // Fork: a probe that never came back is a failed usage read, not an
-        // absent one. Marking it keeps the last published windows (see
-        // resolveUsageLimitsAfterProbe) instead of blanking the composer pill.
-        usageLimits: makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed" }),
       },
     });
   }

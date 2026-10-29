@@ -52,9 +52,6 @@ export type ServerProviderUsageLimits = typeof ServerProviderUsageLimits.Type;
 /** Partial updates merge windows by id; omitted windows remain unchanged. */
 export const ProviderUsageLimitsUpdate = Schema.Struct({
   windows: Schema.Array(ServerProviderUsageWindow),
-  // Fork: carried from pingdotgg/t3code#24128 until it lands. Marks an update carrying
-  // every window the provider reports, so it can stand in for a failed probe.
-  complete: Schema.optional(Schema.Boolean),
 });
 export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 

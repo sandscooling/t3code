@@ -3,8 +3,6 @@ import type {
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
-  ServerProvider, // Fork
-  ServerProviderUsageLimits, // Fork
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
@@ -20,7 +18,6 @@ import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { RateLimitMeter } from "./RateLimitMeter"; // Fork: plan usage pill
 import { runtimeModeConfig } from "./runtimeModeConfig";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -250,10 +247,6 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   activeContextWindow: ContextWindowSnapshot | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
-  // Fork: the plan usage pill.
-  activeUsageLimits: ServerProviderUsageLimits | null;
-  providerStatuses: ReadonlyArray<ServerProvider>;
-  activeThreadModelSelection: ModelSelection | null | undefined;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -290,14 +283,6 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
-      {/* Fork: the plan usage pill. */}
-      {props.activeUsageLimits ? (
-        <RateLimitMeter
-          limits={props.activeUsageLimits}
-          providers={props.providerStatuses}
-          selection={props.activeThreadModelSelection}
-        />
-      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

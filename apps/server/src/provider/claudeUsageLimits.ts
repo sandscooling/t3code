@@ -15,7 +15,6 @@ import {
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "@t3tools/provider-core/server/usageLimits";
-import { withClaudeUnifiedWindows } from "./claudeUnifiedWindows.ts"; // Fork
 
 const SESSION_MINS = 5 * 60;
 const WEEK_MINS = 7 * 24 * 60;
@@ -152,21 +151,8 @@ function makeWindow(
   };
 }
 
-// Fork: also reads the account-wide windows every event carries (claudeUnifiedWindows.ts).
-export function claudeRateLimitEventToUpdate(
-  info: SDKRateLimitInfo,
-  names: ClaudeScopedLimitNames,
-): ProviderUsageLimitsUpdate | undefined {
-  return withClaudeUnifiedWindows(
-    info,
-    (id, utilization, resetsAt) =>
-      id in WINDOWS ? makeWindow(id, utilization * 100, isoFromEpochSeconds(resetsAt)) : undefined,
-    claudeNamedRateLimitEventToUpdate(info, names),
-  );
-}
-
 /** Stream utilization is 0-1. Drop unnamed overage buckets until probed to avoid unreconcilable rows. */
-function claudeNamedRateLimitEventToUpdate(
+export function claudeRateLimitEventToUpdate(
   info: SDKRateLimitInfo,
   names: ClaudeScopedLimitNames,
 ): ProviderUsageLimitsUpdate | undefined {

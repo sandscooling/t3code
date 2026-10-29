@@ -27,7 +27,6 @@ Always available to every agent session, with no setting to turn on:
 
 - Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
-- A plan usage pill in the composer, showing how much of the current plan window is used.
 - The chat's scroll map marks only the messages you typed; messages from other agents, server notices and scheduled task runs get no tick.
 - An agent's HTML page shows as a card in the chat and opens in the right panel; a new page opens there by itself while you watch the thread. During a question round, a page titled with the question's header (like "Q2 ...") opens as that question comes up; such pages never open by themselves when published, so a round's pages load in the background. On a narrow window it stays inline.
 
@@ -53,8 +52,6 @@ Always available to every agent session, with no setting to turn on:
 - Database backups and `t3 service install` work on Windows (file flush fixes).
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
-- The Claude usage pill follows the account in use after you switch Claude logins, instead of keeping the old account's windows.
-- The Claude usage pill no longer blinks out once a minute while Claude cannot report usage: windows a turn streams in full now survive the next failed usage check. Carried from open upstream PR [#24128](https://github.com/pingdotgg/t3code/pull/24128), without its setup-token account changes.
 - A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
