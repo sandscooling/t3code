@@ -127,7 +127,7 @@ export type IdleHandoffWindow =
   | { readonly state: "busy" }
   | { readonly state: "idle"; readonly idleSinceMs: number; readonly dueMs: number };
 
-export const idleHandoffWindow = (
+const idleHandoffWindow = (
   shell: OrchestrationV2ThreadShell,
   setting: SessionIdleHandoffSetting,
   lastBusyAtMs: number | undefined,
@@ -159,7 +159,7 @@ export const idleHandoffWindow = (
  * shell hides (a queue the server held after a Stop or a restart), `below`
  * means the last turn ended under the token line.
  */
-export const idleHandoffLine = (
+const idleHandoffLine = (
   records: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "providerTurns">,
   setting: SessionIdleHandoffSetting,
 ):

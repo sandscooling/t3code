@@ -32,7 +32,7 @@ import { newMessageId, newThreadId } from "./utils";
  * session boots without inventing work for itself. Changing the wording here
  * without changing that instruction leaves the fleet guessing.
  */
-export function sessionStandbyMessage(index: number): string {
+function sessionStandbyMessage(index: number): string {
   return `Session ${index}`;
 }
 
@@ -67,7 +67,7 @@ export interface SpawnSessionsResult {
  * Sequential because in worktree mode each session cuts a checkout from the same repository,
  * and git does not tolerate that N ways at once.
  */
-export async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSessionsResult> {
+async function spawnSessions(input: SpawnSessionsInput): Promise<SpawnSessionsResult> {
   const useWorktree = input.envMode === "worktree" && input.baseBranch !== null;
   let started = 0;
   let failed = 0;

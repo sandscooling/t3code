@@ -113,6 +113,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server understands thread.background-work.hold. Absent on older servers,
       so clients hide the Wait control instead of sending it. */
   threadBackgroundWorkHold: Schema.optionalKey(Schema.Boolean),
+  threadProjectFromScratch: Schema.optionalKey(Schema.Boolean),
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),
   threadVisitedTracking: Schema.optionalKey(Schema.Boolean),
   threadPullRequestLinking: Schema.optionalKey(Schema.Boolean),

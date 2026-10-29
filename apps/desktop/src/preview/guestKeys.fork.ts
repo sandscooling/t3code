@@ -55,7 +55,7 @@ export class GuestKeyError extends Error {
 }
 
 /** Electron's name for a DOM `key` value; anything it cannot name is refused. */
-export const electronKeyCode = (key: string): string => {
+const electronKeyCode = (key: string): string => {
   if (key === " ") return "Space";
   if (/^Arrow(?:Up|Down|Left|Right)$/u.test(key)) return key.slice("Arrow".length);
   if (NAMED_KEYS.has(key) || /^F(?:[1-9]|1\d|2[0-4])$/u.test(key)) return key;
@@ -167,7 +167,7 @@ export const settleEvent = (
 };
 
 /** Past this the reply goes anyway: the keys reached the guest, only the wait is given up. */
-export const SETTLE_DEADLINE_MS = 1_000;
+const SETTLE_DEADLINE_MS = 1_000;
 
 /** Bounds a frame call that never answers, such as one behind a modal dialog. */
 const within = <A>(work: Promise<A>, fallback: A): Promise<A> => {

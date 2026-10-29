@@ -8,7 +8,7 @@
 import type * as NodeHttp from "node:http";
 
 /** Mirrors the `path` given to `McpServer.layerHttp` in `mcp/McpHttpServer.ts`. */
-export const MCP_HTTP_PATH = "/mcp";
+const MCP_HTTP_PATH = "/mcp";
 
 /**
  * True for the request URLs MCP clients send to the MCP endpoint. Like the

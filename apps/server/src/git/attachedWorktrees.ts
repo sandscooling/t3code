@@ -35,8 +35,6 @@ export class AttachedWorktreeMissingError extends Schema.TaggedError<AttachedWor
   }
 }
 
-export const isAttachedWorktreeMissingError = Schema.is(AttachedWorktreeMissingError);
-
 /**
  * The real path of `resolved`, or for a missing path its nearest existing ancestor's plus the
  * missing tail, so a gone worktree under a junction lands where its root does. Native realpath,
@@ -61,7 +59,7 @@ const realPathOfNearestAncestor = Effect.fnUntraced(function* (resolved: string)
  * without a trailing separator, and lowercased on Windows where paths are
  * case-insensitive.
  */
-export const comparablePath = Effect.fnUntraced(function* (target: string) {
+const comparablePath = Effect.fnUntraced(function* (target: string) {
   const path = yield* Path.Path;
   const real = yield* realPathOfNearestAncestor(path.resolve(target));
   const trimmed = path.normalize(real).replace(/[\\/]+$/, "");

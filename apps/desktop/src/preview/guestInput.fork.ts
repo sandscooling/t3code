@@ -10,7 +10,7 @@ import { guestKeyPackets, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fo
 
 export { trackFrameSessions } from "./frameKeys.fork.ts";
 
-export class GuestInputError extends Error {
+class GuestInputError extends Error {
   override readonly name = "GuestInputError";
 }
 
@@ -74,7 +74,7 @@ const inApp = (app: Electron.WebContents, expression: string) => {
 };
 
 /** Runs one pointer press with the app's focus put back where the user had it. */
-export const keepAppFocus = async <A>(
+const keepAppFocus = async <A>(
   guest: Electron.WebContents,
   press: () => Promise<A>,
 ): Promise<A> => {

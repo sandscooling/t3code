@@ -22,11 +22,7 @@ const idleHandoffDueAtom = createEnvironmentRpcQueryAtomFamily(connectionAtomRun
 });
 
 /** `Hands off at 12:44 PM if idle`, naming the day once it is not today. */
-export function idleHandoffLabel(
-  dueAt: string,
-  timestampFormat: TimestampFormat,
-  nowMs: number,
-): string {
+function idleHandoffLabel(dueAt: string, timestampFormat: TimestampFormat, nowMs: number): string {
   if (Date.parse(dueAt) <= nowMs) return "Hands off now if idle";
   const when = formatUpcomingTimestamp(dueAt, timestampFormat, nowMs);
   return when === formatShortTimestamp(dueAt, timestampFormat)

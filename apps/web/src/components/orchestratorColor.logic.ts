@@ -6,7 +6,7 @@ import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
  * `light-dark()` rather than `dark:` keeps one class's specificity, so a lifted row's `shadow-lg`
  * still wins. The bar is an inset shadow so it follows the rounded corners and moves nothing.
  */
-export const ORCHESTRATOR_COLORS: ReadonlyArray<{
+const ORCHESTRATOR_COLORS: ReadonlyArray<{
   readonly id: SidebarOrchestratorColor;
   readonly label: string;
   readonly className: string;

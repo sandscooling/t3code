@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  * every session is a real provider subprocess, and in worktree-backed
  * projects each one also pays for a checkout and a setup-script run.
  */
-export const SESSION_SPAWN_LIMIT = 20;
+const SESSION_SPAWN_LIMIT = 20;
 
 /**
  * Group value shared by every "New thread in..." project list. The trailing
