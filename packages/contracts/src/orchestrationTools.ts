@@ -284,7 +284,7 @@ export const SessionWakeInput = Schema.Struct({
   name: SessionRef,
   message: Schema.String.annotate({
     description:
-      "The message to send. On an idle session it starts a turn, opening its provider process if none is running; on a busy one it is delivered into the running turn, or queued behind it. On a session with a paused queue (after a Stop or a server restart) it resumes that queue and is queued behind the messages already there, even while a turn runs; after a provider failure it is refused instead.",
+      "The message to send. On an idle session it starts a turn, opening its provider process if none is running; on a busy one it is queued behind the running turn, never delivered into it. On a session with a paused queue (after a Stop or a server restart) it resumes that queue and is queued behind the messages already there, even while a turn runs; after a provider failure it is refused instead.",
   }),
 });
 export type SessionWakeInput = typeof SessionWakeInput.Type;

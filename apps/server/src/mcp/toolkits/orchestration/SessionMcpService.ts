@@ -808,9 +808,9 @@ const make = Effect.gen(function* () {
     yield* requireMessage(input.message);
     const { caller, sessions } = yield* loadScope(scope);
     const target = yield* resolveSession(sessions, caller, input.name);
-    // "auto" steers a running turn, else queues or starts one; an open question queues instead, since
-    // a steer strands its card (pingdotgg/t3code#15517). A held queue is resumed first, so this message
-    // joins its end. After a provider failure resuming would fail again, so that is refused;
+    // Always "queue": a steer cancels the target's in-flight tools and reads as the user stepping in.
+    // An idle session still starts at once. A held queue is resumed first, so this message joins its
+    // end. After a provider failure resuming would fail again, so that is refused;
     // latestExecutedRun skips a cancelled queued run that never started.
     const held = yield* hasHeldQueue(target.id);
     if (held) {
@@ -837,15 +837,15 @@ const make = Effect.gen(function* () {
         threadId: target.id,
         messageId: SessionWakeFailureNotice.sessionWakeMessageId(commandId),
         senderThreadId: caller.id,
-        text: input.message,
+        text: `[From session ${caller.title} (${caller.id}), another agent, not the user]\n\n${input.message}`,
         attachments: [],
-        mode: held || target.pendingRuntimeRequest !== null ? "queue" : "auto",
+        mode: "queue",
         createdBy: "agent",
         creationSource: "mcp",
       })
       .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
-    // Only mode "restart" restarts a turn, so "auto" and "queue" never report it.
-    const delivery = sent.delivery as Exclude<typeof sent.delivery, "restarted">;
+    // Mode "queue" only starts or queues a turn.
+    const delivery = sent.delivery as Exclude<typeof sent.delivery, "steered" | "restarted">;
     return { threadId: target.id, name: target.title, delivery };
   });
 

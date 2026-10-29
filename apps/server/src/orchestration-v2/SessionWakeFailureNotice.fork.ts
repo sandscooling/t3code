@@ -217,8 +217,8 @@ const make = Effect.gen(function* () {
           messageId: MessageId.make(commandId),
           text,
           attachments: [],
-          // An open question queues, as session_wake does: a steer strands its card.
-          mode: recipient.pendingRuntimeRequest !== null ? "queue" : "auto",
+          // Never steers, as session_wake does not: a steer cuts off the sender's running turn.
+          mode: "queue",
           createdBy: "system",
           creationSource: "server",
         })

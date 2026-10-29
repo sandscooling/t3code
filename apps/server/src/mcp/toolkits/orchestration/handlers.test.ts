@@ -566,6 +566,7 @@ const tempDir = (prefix: string) =>
 
 const orchestratorId = ThreadId.make("thread:orchestrator");
 const seedOrchestrator = seed({ id: orchestratorId, title: "Orchestrator" });
+const fromOrchestrator = `[From session Orchestrator (${orchestratorId}), another agent, not the user]\n\n`;
 
 it.effect("refuses every tool without the orchestration capability", () =>
   Effect.gen(function* () {
@@ -1013,11 +1014,11 @@ it.effect(
         name: remote,
         message: "Pause.",
       });
-      expect(reopened).toMatchObject({ threadId: remote, name: "fleet-lead" });
+      expect(reopened).toMatchObject({ threadId: remote, name: "fleet-lead", delivery: "started" });
       expect((yield* shellOf(remote)).settledOverride).toBeNull();
       const projection: OrchestrationV2ThreadProjection = yield* projectionOf(remote);
       expect(projection.messages.at(-1)).toMatchObject({
-        text: "Pause.",
+        text: `${fromOrchestrator}Pause.`,
         senderThreadId: orchestratorId,
         createdBy: "agent",
         creationSource: "mcp",
@@ -1037,9 +1038,9 @@ it.effect(
     }).pipe(Effect.provide(makeHarness([]))),
 );
 
-// A steer aborts the open question and the provider asks it again, leaving the
-// old card unanswerable (pingdotgg/t3code#15517).
-it.effect("wakes a session with a question open into its queue instead of steering", () =>
+// A steer cancels the target's in-flight tools and reads as the user stepping
+// in; with a question open it also strands the card (pingdotgg/t3code#15517).
+it.effect("wakes a running session into its queue, question open or not, never steering", () =>
   Effect.gen(function* () {
     yield* seedOrchestrator;
     const working = yield* seed({ id: "thread:working", title: "L5-dev" });
@@ -1048,27 +1049,25 @@ it.effect("wakes a session with a question open into its queue instead of steeri
     const askingRun = yield* runningTurn(asking, { question: true });
     expect((yield* shellOf(asking)).pendingRuntimeRequest).toMatchObject({ kind: "user_input" });
 
-    // Both turns are alike, and a queue behind one succeeds (below). Without a
-    // question the wake steers instead, which needs the turn's live provider
-    // session, and no provider process runs here, so the steer is refused.
-    const steered = yield* refused(orchestratorId, "session_wake", {
-      name: working,
-      message: "Also check the tests.",
-    });
-    expect(steered).toContain("dispatch-failed");
-    expect((yield* projectionOf(working)).runs.map((run) => run.id)).toEqual([workingRun]);
-
-    const queued = yield* ok(orchestratorId, "session_wake", {
-      name: asking,
-      message: "Also check the tests.",
-    });
-    expect(queued.delivery).toBe("queued");
-    const projection = yield* projectionOf(asking);
-    expect(projection.runs.map((run) => [run.id === askingRun, run.status])).toEqual([
-      [true, "running"],
-      [false, "queued"],
+    // No provider process runs here, so a steer would be refused; a queue succeeds.
+    for (const [target, targetRun] of [
+      [working, workingRun],
+      [asking, askingRun],
+    ] as const) {
+      const queued = yield* ok(orchestratorId, "session_wake", {
+        name: target,
+        message: "Also check the tests.",
+      });
+      expect(queued.delivery).toBe("queued");
+      const projection = yield* projectionOf(target);
+      expect(projection.runs.map((run) => [run.id === targetRun, run.status])).toEqual([
+        [true, "running"],
+        [false, "queued"],
+      ]);
+    }
+    expect((yield* projectionOf(asking)).runtimeRequests.map((request) => request.status)).toEqual([
+      "pending",
     ]);
-    expect(projection.runtimeRequests.map((request) => request.status)).toEqual(["pending"]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
 
@@ -1092,7 +1091,9 @@ const queueOf = (threadId: ThreadId) =>
   projectionOf(threadId).pipe(
     Effect.map((projection) =>
       projection.runs.map((run) => [
-        projection.messages.find((message) => message.id === run.userMessageId)?.text,
+        projection.messages
+          .find((message) => message.id === run.userMessageId)
+          ?.text.replace(fromOrchestrator, ""),
         run.status,
         run.queueHeld === true,
       ]),
