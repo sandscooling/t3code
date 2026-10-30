@@ -1,4 +1,4 @@
-// Fork-owned: an agent's HTML render as a card that opens the page in the right panel.
+// Fork-owned: an agent's HTML render shown inline, or as a card that opens it in the right panel.
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { AppWindowIcon } from "lucide-react";
@@ -13,12 +13,13 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
-import { htmlRenderAttachment } from "./htmlRenderPanel.fork";
+import { htmlRenderAttachment, isQuestionPageTitle } from "./htmlRenderPanel.fork";
 
 /**
- * A compact card for the page, marked while it is the panel's active tab.
- * Where the right panel only opens as a sheet over the chat, the page stays
- * inline as upstream shows it. "Inline" shows it in the chat on request.
+ * A page shows inline with Open and Collapse; a question page starts as the
+ * compact card, marked while it is the panel's active tab. Where the right
+ * panel only opens as a sheet over the chat, every page stays inline as
+ * upstream shows it.
  */
 export function HtmlRenderPanelCard(props: {
   readonly environmentId: EnvironmentId;
@@ -34,7 +35,8 @@ export function HtmlRenderPanelCard(props: {
     (state) => selectActiveRightPanelSurface(state.byThreadKey, props.threadRef)?.id === surfaceId,
   );
 
-  const [inline, setInline] = useState(false);
+  const [inline, setInline] = useState(() => !isQuestionPageTitle(props.htmlRender.title));
+  const open = () => props.onOpen(htmlRenderAttachment(props.htmlRender));
 
   const frame = (
     <HtmlRenderFrame
@@ -59,13 +61,20 @@ export function HtmlRenderPanelCard(props: {
           >
             Collapse
           </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            aria-label={`Open ${props.htmlRender.title} in panel`}
+            onClick={open}
+          >
+            Open
+          </Button>
         </div>
         {frame}
       </div>
     );
   }
 
-  const open = () => props.onOpen(htmlRenderAttachment(props.htmlRender));
   return (
     // The whole card reopens the page; the button is its keyboard target.
     <div

@@ -271,8 +271,8 @@ import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { useCitedHistory } from "./chat/citationProcedure";
 import type { MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
 import { ThreadTimeline } from "./chat/ThreadTimeline";
-// Fork: new html renders open in the right panel.
-import { useAutoOpenHtmlRenders } from "./chat/htmlRenderPanel.fork";
+// Fork: a question round's html page opens in the right panel.
+import { useAutoOpenQuestionHtmlRender } from "./chat/htmlRenderPanel.fork";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
@@ -1529,9 +1529,9 @@ export default function ChatView(props: ChatViewProps) {
       }) as const,
   );
   const timelineEntries = isServerThread ? serverTimelineEntries : draftTimelineEntries;
-  // Fork: a new html render in this thread opens in the right panel, unless it only opens as a sheet.
-  // During a question round, the page titled for the question on screen opens instead.
-  useAutoOpenHtmlRenders({
+  // Fork: during a question round, the page titled for the question on screen opens in the right
+  // panel, unless it only opens as a sheet.
+  useAutoOpenQuestionHtmlRender({
     threadKey: activeThreadKey,
     enabled: !shouldUsePlanSidebarSheet,
     turnItems: serverVisibleTurnItems,
