@@ -28,7 +28,6 @@ Always available to every agent session, with no setting to turn on:
 - Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
 - The chat's scroll map marks only the messages you typed; messages from other agents, server notices and scheduled task runs get no tick.
-- An agent's HTML page shows inline in the chat, with Open to move it to the right panel and Collapse to fold it into a card (whose Inline brings it back). A question round's page, titled with the question's header (like "Q2 ..."), starts as the card instead and opens in the panel as that question comes up. On a narrow window every page stays inline.
 
 ### Threads and sidebar
 

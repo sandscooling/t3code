@@ -7,8 +7,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { GitForkIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-// Fork: html renders show as panel cards.
-import { HtmlRenderPanelCard } from "./HtmlRenderFrame.fork";
+import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
 import { checkpointFileTotals } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -254,13 +253,11 @@ export function HtmlRenderTimelineRow({
   }
   return (
     <div className="min-w-0 px-1">
-      {/* Fork: a card that opens the page in the right panel. */}
-      <HtmlRenderPanelCard
+      <HtmlRenderFrame
         key={row.htmlRender.attachmentId}
         environmentId={ctx.activeThreadEnvironmentId}
-        threadRef={ctx.threadRef}
         htmlRender={row.htmlRender}
-        onOpen={ctx.onFileOpen}
+        threadRef={ctx.threadRef ?? undefined}
         onFullscreenChange={onFullscreenChange}
       />
     </div>
