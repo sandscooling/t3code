@@ -29,6 +29,7 @@ Always available to every agent session, with no setting to turn on:
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
 - The chat's scroll map marks only the messages you typed; messages from other agents, server notices and scheduled task runs get no tick.
 - An agent's HTML page shows as a card in the chat and opens in the right panel; a new page opens there by itself while you watch the thread. During a question round, a page titled with the question's header (like "Q2 ...") opens as that question comes up; such pages never open by themselves when published, so a round's pages load in the background. On a narrow window it stays inline.
+- A page card's Inline button shows the page in the chat itself instead of the panel, and Collapse turns it back into the card.
 
 ### Threads and sidebar
 

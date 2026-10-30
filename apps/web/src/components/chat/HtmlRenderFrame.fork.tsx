@@ -2,6 +2,7 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { AppWindowIcon } from "lucide-react";
+import { useState } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "~/rightPanelLayout";
@@ -17,7 +18,7 @@ import { htmlRenderAttachment } from "./htmlRenderPanel.fork";
 /**
  * A compact card for the page, marked while it is the panel's active tab.
  * Where the right panel only opens as a sheet over the chat, the page stays
- * inline as upstream shows it.
+ * inline as upstream shows it. "Inline" shows it in the chat on request.
  */
 export function HtmlRenderPanelCard(props: {
   readonly environmentId: EnvironmentId;
@@ -33,14 +34,34 @@ export function HtmlRenderPanelCard(props: {
     (state) => selectActiveRightPanelSurface(state.byThreadKey, props.threadRef)?.id === surfaceId,
   );
 
-  if (sheetLayout || props.threadRef === null) {
+  const [inline, setInline] = useState(false);
+
+  const frame = (
+    <HtmlRenderFrame
+      environmentId={props.environmentId}
+      htmlRender={props.htmlRender}
+      threadRef={props.threadRef ?? undefined}
+      onFullscreenChange={props.onFullscreenChange}
+    />
+  );
+  if (sheetLayout || props.threadRef === null) return frame;
+  if (inline) {
     return (
-      <HtmlRenderFrame
-        environmentId={props.environmentId}
-        htmlRender={props.htmlRender}
-        threadRef={props.threadRef ?? undefined}
-        onFullscreenChange={props.onFullscreenChange}
-      />
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2.5 px-1">
+          <AppWindowIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-sm">{props.htmlRender.title}</span>
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-label={`Collapse ${props.htmlRender.title}`}
+            onClick={() => setInline(false)}
+          >
+            Collapse
+          </Button>
+        </div>
+        {frame}
+      </div>
     );
   }
 
@@ -63,6 +84,17 @@ export function HtmlRenderPanelCard(props: {
           In panel
         </Badge>
       ) : null}
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-label={`Show ${props.htmlRender.title} inline`}
+        onClick={(event) => {
+          event.stopPropagation();
+          setInline(true);
+        }}
+      >
+        Inline
+      </Button>
       <Button
         size="xs"
         variant="outline"
