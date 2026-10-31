@@ -1311,7 +1311,7 @@ const noticesTo = (threadId: ThreadId) =>
   projectionOf(threadId).pipe(
     Effect.map((projection) =>
       projection.messages
-        .filter((message) => message.text.includes("session_wake to"))
+        .filter((message) => /session_wake to|you spawned/.test(message.text))
         .map((message) => message.text),
     ),
   );
@@ -1340,6 +1340,90 @@ it.effect("tells the waker once when the run its wake started fails, across proj
     yield* notices.handle(yield* endRun(orchestratorId, "failed"));
     expect(yield* noticesTo(orchestratorId)).toHaveLength(1);
     expect(yield* noticesTo(target)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("tells the spawner once when a spawned session's opening run fails", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const spawned = yield* ok(orchestratorId, "session_spawn", {
+      name: "L9-dev",
+      group: "L9",
+      message: "Go.",
+    });
+    const failed = yield* endRun(spawned.threadId, "failed");
+    yield* notices.handle(failed);
+    yield* notices.handle(failed);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      `T3 Code: the session you spawned, L9-dev (${spawned.threadId}), failed on its first run: API Error: 500 Internal server error.`,
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("tells a handing-off caller when its successor's opening run fails", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const successor = yield* ok(orchestratorId, "session_spawn", {
+      name: "Orchestrator-2",
+      group: "leads",
+      message: "Take over.",
+      handoff: true,
+    });
+    yield* notices.handle(yield* endRun(successor.threadId, "failed"));
+    const told = [
+      `T3 Code: the session you spawned, Orchestrator-2 (${successor.threadId}), failed on its first run: API Error: 500 Internal server error.`,
+    ];
+    expect(yield* noticesTo(orchestratorId)).toEqual(told);
+
+    // A later wake to the sender's own successor stays silent, as it was.
+    yield* ok(orchestratorId, "session_wake", { name: successor.threadId, message: "Retry." });
+    yield* notices.handle(yield* endRun(successor.threadId, "failed"));
+    expect(yield* noticesTo(orchestratorId)).toEqual(told);
+    expect(yield* noticesTo(successor.threadId)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("tells the spawner when a settled caller's handoff successor fails its first run", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const worker = yield* seed({
+      id: "thread:worker",
+      title: "L9-worker",
+      spawnedBy: orchestratorId,
+    });
+    const other = yield* seed({ id: "thread:other", title: "L9-other", spawnedBy: orchestratorId });
+    yield* ok(worker, "session_wake", { name: other, message: "Go." });
+    const successor = yield* ok(worker, "session_spawn", {
+      name: "L9-worker-2",
+      group: "L9",
+      message: "Take over.",
+      handoff: true,
+    });
+    yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: worker }));
+
+    yield* notices.handle(yield* endRun(successor.threadId, "failed"));
+    // A wake's settled sender still gets nothing and passes nothing on to the spawner.
+    yield* notices.handle(yield* endRun(other, "failed"));
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      `T3 Code: the session you spawned, L9-worker-2 (${successor.threadId}), failed on its first run: API Error: 500 Internal server error.`,
+    ]);
+    expect(yield* noticesTo(worker)).toEqual([]);
+
+    // A settled caller with no spawner above it leaves nobody to tell.
+    const root = yield* seed({ id: "thread:root", title: "Root" });
+    const orphan = yield* ok(root, "session_spawn", {
+      name: "Root-2",
+      group: "roots",
+      message: "Take over.",
+      handoff: true,
+    });
+    yield* dispatch((commandId) => ({ type: "thread.settle", commandId, threadId: root }));
+    yield* notices.handle(yield* endRun(orphan.threadId, "failed"));
+    expect(yield* noticesTo(root)).toEqual([]);
+    expect(yield* noticesTo(orchestratorId)).toHaveLength(1);
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

@@ -1,7 +1,8 @@
 /**
  * Fork-owned: when a run holding a session_wake message (one it started, queued, or was steered)
  * ends failed, or is held behind a run that failed, the waking session gets one notice instead of
- * waiting on a reply that never comes. A Stop or a restart sends none.
+ * waiting on a reply that never comes. A session_spawn's opening message counts as a wake. A Stop
+ * or a restart sends none.
  */
 import {
   CommandId,
@@ -29,9 +30,13 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 
 const WAKE_MESSAGE_PREFIX = "session-wake:";
 
-/** The message id session_wake sends with, which marks a run's message as a wake. */
+/** The message id session_wake and session_spawn send with, marking a run's message as a wake. */
 export const sessionWakeMessageId = (commandId: CommandId) =>
   MessageId.make(`${WAKE_MESSAGE_PREFIX}${commandId}`);
+
+/** session_spawn names the thread after the command that marks its opening message. */
+const opensSpawnedSession = (run: OrchestrationV2Run) =>
+  run.userMessageId === sessionWakeMessageId(CommandId.make(run.threadId));
 
 /** Handoffs a sender's successor link is followed through, a bound against a cycle. */
 const MAX_SUCCESSOR_HOPS = 8;
@@ -58,13 +63,21 @@ const make = Effect.gen(function* () {
   /**
    * Where the sender lives now: a handed-off session's successor holds its
    * place. A settled, archived, or deleted one is finished work, and waking it
-   * would reopen it for a run it no longer tracks, so it gets nothing.
+   * would reopen it for a run it no longer tracks, so it gets nothing. The
+   * walk never enters `stopBefore`.
    */
   const recipientFor = Effect.fn("SessionWakeFailureNotice.recipientFor")(function* (
     senderThreadId: ThreadId,
+    stopBefore: ThreadId | null,
   ) {
     let shell = yield* threads.getThreadShell(senderThreadId);
-    for (let hop = 0; hop < MAX_SUCCESSOR_HOPS && shell?.successorThreadId != null; hop += 1) {
+    for (
+      let hop = 0;
+      hop < MAX_SUCCESSOR_HOPS &&
+      shell?.successorThreadId != null &&
+      shell.successorThreadId !== stopBefore;
+      hop += 1
+    ) {
       shell = yield* threads.getThreadShell(shell.successorThreadId);
     }
     if (
@@ -76,6 +89,23 @@ const make = Effect.gen(function* () {
       return null;
     }
     return shell;
+  });
+
+  /**
+   * Who hears of a spawned session's failed first run. A handoff's successor is
+   * the failed thread, so the walk stops short of it at the caller, and a caller
+   * that settled after handing off leaves the failed thread's spawner to hear.
+   */
+  const spawnRecipientFor = Effect.fn("SessionWakeFailureNotice.spawnRecipientFor")(function* (
+    senderThreadId: ThreadId,
+    failedThreadId: ThreadId,
+  ) {
+    const recipient = yield* recipientFor(senderThreadId, failedThreadId);
+    if (recipient !== null) return recipient;
+    const failed = yield* threads.getThreadShell(failedThreadId);
+    return failed?.spawnedByThreadId == null
+      ? null
+      : yield* recipientFor(failed.spawnedByThreadId, failedThreadId);
   });
 
   /** The senders of the session_wake messages in `messages`, the target itself excepted. */
@@ -116,7 +146,9 @@ const make = Effect.gen(function* () {
         key: `server:session-wake-failure:${run.id}`,
         run,
         senders,
-        text: `T3 Code: your session_wake to ${records.thread.title} (${run.threadId}) failed: ${describeFailure(failure)}`,
+        text: opensSpawnedSession(run)
+          ? `T3 Code: the session you spawned, ${records.thread.title} (${run.threadId}), failed on its first run: ${describeFailure(failure)}`
+          : `T3 Code: your session_wake to ${records.thread.title} (${run.threadId}) failed: ${describeFailure(failure)}`,
       });
     }
     if (failure?.class === "usage_limit") {
@@ -207,7 +239,9 @@ const make = Effect.gen(function* () {
       // Keyed by the original sender, so a later run.updated or a handoff never repeats it.
       const commandId = CommandId.make(`${input.key}:${sender}`);
       if (yield* threads.hasReceipt(commandId)) continue;
-      const recipient = yield* recipientFor(sender);
+      const recipient = opensSpawnedSession(run)
+        ? yield* spawnRecipientFor(sender, run.threadId)
+        : yield* recipientFor(sender, null);
       if (recipient === null || recipient.id === run.threadId) continue;
       yield* threads
         .sendToThread({

@@ -218,6 +218,8 @@ export type ProjectionSettlementCandidate = Pick<
   | "pendingRuntimeRequest"
   | "pendingBackgroundTasks"
   | "pendingGuestMessageCount"
+  | "title" // Fork: crew commands hold
+  | "spawnedByThreadId" // Fork: crew commands hold
 > &
   Pick<OrchestrationV2AppThread, "lastSnoozeWakeAt"> & {
     readonly latestUserAuthoredMessageAt: DateTime.Utc | null;

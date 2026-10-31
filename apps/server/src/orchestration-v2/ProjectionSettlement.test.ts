@@ -243,6 +243,30 @@ it.effect(
           pendingBackgroundTasks: [{ taskId: "running-task", kind: "subagent" }],
         },
       });
+      // Fork: a running command holds a crew session but not a plain thread.
+      const { providerThreads } = yield* store.getThreadRecords(roster, ["providerThreads"]);
+      const createCommandThread = Effect.fn(function* (
+        name: string,
+        overrides: Partial<OrchestrationV2AppThread> = {},
+      ) {
+        const threadId = yield* createThread(name, overrides);
+        yield* createRun(threadId);
+        yield* store.apply({
+          id: EventId.make(`event:settlement:roster:${name}`),
+          type: "provider-thread.updated",
+          threadId,
+          occurredAt: old,
+          payload: {
+            ...providerThreads[0]!,
+            id: ProviderThreadId.make(`provider-thread:settlement:${name}`),
+            appThreadId: threadId,
+            pendingBackgroundTasks: [{ taskId: "running-task", kind: "command" }],
+          },
+        });
+        return threadId;
+      });
+      const leftRunning = yield* createCommandThread("command-left-running");
+      yield* createCommandThread("crew-command", { spawnedByThreadId: idle });
       const candidates = yield* store.getSettlementCandidates();
       const shell = yield* store.getShellSnapshot({ location: "active" });
       const eligible = candidates.filter((thread) =>
@@ -250,7 +274,8 @@ it.effect(
       );
       assert.deepEqual(
         new Set(eligible.map((thread) => thread.id)),
-        new Set([idle, completed, queued, woke, background, persistent, rolledBack]),
+        // Fork: leftRunning
+        new Set([idle, completed, queued, woke, background, persistent, rolledBack, leftRunning]),
       );
       assert.deepEqual(
         new Set(eligible.map((thread) => thread.id)),

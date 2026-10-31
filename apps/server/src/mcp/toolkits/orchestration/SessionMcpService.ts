@@ -8,7 +8,6 @@ import {
   ALL_PROJECTS,
   CommandId,
   isProviderAvailable,
-  MessageId,
   OrchestrationToolError,
   ThreadId,
   type ModelSelection,
@@ -595,7 +594,7 @@ const make = Effect.gen(function* () {
             ? { type: "root", ...(branch === null ? {} : { branch }) }
             : { type: "existing_worktree", worktreePath, ...(branch === null ? {} : { branch }) },
         initialMessage: {
-          messageId: MessageId.make(commandId),
+          messageId: SessionWakeFailureNotice.sessionWakeMessageId(commandId),
           senderThreadId: caller.id,
           text: input.message,
           attachments: [],

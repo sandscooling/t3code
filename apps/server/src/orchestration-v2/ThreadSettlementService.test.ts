@@ -143,6 +143,32 @@ describe("isAutoSettlementCandidate", () => {
     ).toBe(true);
   });
 
+  // Fork: crew commands hold
+  it("holds a crew session on any running command or monitor past the inactivity timer", () => {
+    const settlesAfterTimer = (overrides: Partial<SettlementShell>) =>
+      ThreadSettlementService.resolveAutoSettlementAt({
+        thread: shell(overrides),
+        pullRequest: null,
+        nowMs: NOW_MS,
+        autoSettleAfterDays: 7,
+        autoSettleOnMerge: false,
+      }) !== null;
+    const spawnedByThreadId = ThreadId.make("thread-orchestrator");
+    const command = { taskId: "tests", kind: "command", description: "vp test run" } as const;
+    const monitor = { taskId: "watch", kind: "monitor", description: "Watch CI" } as const;
+
+    for (const task of [command, monitor]) {
+      const crew = { spawnedByThreadId, pendingBackgroundTasks: [task] };
+      expect(ThreadSettlementService.isAutoSettlementCandidate(shell(crew), NOW_MS)).toBe(false);
+      expect(settlesAfterTimer(crew)).toBe(false);
+      // A retired orchestrator counts as crew; only the exact title is told apart.
+      expect(settlesAfterTimer({ ...crew, title: "Orchestrator-2026-10-31" })).toBe(false);
+      expect(settlesAfterTimer({ ...crew, title: "Orchestrator" })).toBe(true);
+      expect(settlesAfterTimer({ pendingBackgroundTasks: [task] })).toBe(true);
+    }
+    expect(settlesAfterTimer({ spawnedByThreadId, pendingBackgroundTasks: [] })).toBe(true);
+  });
+
   it("never settles, or keeps snoozed, a thread whose guest is waiting on the owner", () => {
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(
