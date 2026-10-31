@@ -4,7 +4,6 @@ import type {
   ProviderOptionDescriptor,
 } from "@t3tools/contracts";
 import {
-  applyClaudePromptEffortPrefix,
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
@@ -12,7 +11,6 @@ import {
 } from "@t3tools/shared/model";
 import { REASONING_EFFORT_OPTION_IDS } from "./state/threadExecution.ts";
 
-export const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 // Fork: Claude's output style trait.
 export const OUTPUT_STYLE_DESCRIPTOR_ID = "outputStyle";
 const DEFAULT_OUTPUT_STYLE_VALUE = "default";
@@ -54,10 +52,13 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
+// Prompt-injected levels such as Ultrathink still work when typed, but pickers do not offer them.
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
 ) {
-  return descriptor.options;
+  return descriptor.options.filter(
+    (option) => !descriptor.promptInjectedValues?.includes(option.id),
+  );
 }
 
 export function getPromptControlledTraits(
@@ -84,15 +85,7 @@ export function getTraitSelectChange(
   prompt: string,
   value: string,
 ) {
-  if (!value) return null;
-  if (descriptor.promptInjectedValues?.includes(value)) {
-    return {
-      prompt:
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink"),
-    };
-  }
+  if (!value || descriptor.promptInjectedValues?.includes(value)) return null;
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
   if (isPrimary && selected.ultrathinkInBodyText) return null;
   return {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ServerProviderModel } from "@t3tools/contracts";
 
-import { shouldRenderTraitsControls } from "../chat/TraitsPicker";
+import { getTraitsSectionVisibility } from "../chat/TraitsPicker";
 import { withoutOutputStyleTrait } from "./textGenerationTraits";
 
 const OUTPUT_STYLE = {
@@ -36,14 +36,14 @@ describe("withoutOutputStyleTrait", () => {
     const input = {
       provider: ProviderDriverKind.make("claudeAgent"),
       model: "styled-only",
-      prompt: "",
       modelOptions: undefined,
       planModeEnabled: false,
     };
-    expect(shouldRenderTraitsControls({ ...input, models })).toBe(true);
-    expect(shouldRenderTraitsControls({ ...input, models: withoutOutputStyleTrait(models) })).toBe(
-      false,
-    );
+    expect(getTraitsSectionVisibility({ ...input, models }).hasAnyControls).toBe(true);
+    expect(
+      getTraitsSectionVisibility({ ...input, models: withoutOutputStyleTrait(models) })
+        .hasAnyControls,
+    ).toBe(false);
   });
 
   it("keeps every other trait, and models without the style untouched", () => {

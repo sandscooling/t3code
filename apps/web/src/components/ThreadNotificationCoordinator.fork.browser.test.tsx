@@ -261,7 +261,7 @@ describe("thread notifications", () => {
     },
   );
 
-  // Fork: `previous` is wiped while disconnected, so first sight must clean up.
+  // Fork: the standing set outlives a disconnect, so the first live shell cleans up.
   it.each(["is answered", "disappears"] as const)(
     "closes the standing toast when its thread %s while disconnected",
     async (change) => {

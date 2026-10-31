@@ -909,6 +909,18 @@ it.effect("lists open sessions in one project, a named one, or all, with status 
       commandId,
       threadId: ThreadId.make("thread:archived"),
     }));
+    // A side chat lives inside its parent's view, so it is not a session.
+    yield* dispatch((commandId) => ({
+      type: "thread.fork",
+      commandId,
+      sourceThreadId: orchestratorId,
+      targetThreadId: ThreadId.make("thread:side-chat"),
+      sourcePoint: { type: "latest_stable" },
+      title: "side-chat",
+      sideChat: true,
+      createdBy: "user",
+      creationSource: "web",
+    }));
     const busy = yield* ok(orchestratorId, "session_spawn", {
       name: "L1-review",
       group: "L1",

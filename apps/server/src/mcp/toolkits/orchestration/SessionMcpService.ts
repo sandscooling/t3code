@@ -7,6 +7,7 @@
 import {
   ALL_PROJECTS,
   CommandId,
+  isListedThreadLineage,
   isProviderAvailable,
   OrchestrationToolError,
   ThreadId,
@@ -374,7 +375,7 @@ const make = Effect.gen(function* () {
         (thread) =>
           thread.archivedAt === null &&
           thread.deletedAt === null &&
-          thread.lineage.relationshipToParent !== "subagent",
+          isListedThreadLineage(thread.lineage),
       ),
       projects: yield* liveProjects,
     };

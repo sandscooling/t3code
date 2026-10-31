@@ -61,6 +61,7 @@ interface WatchedEnvironment {
   // Fork: threads with a standing answer toast open. Unlike `previous` it
   // survives a disconnect, so an answer that landed meanwhile still clears it.
   readonly standing: Set<ThreadId>;
+  reconnecting: boolean;
   readonly gate: ReturnType<typeof createThreadNotificationGate<ThreadId>>;
 }
 
@@ -133,8 +134,8 @@ export function startThreadNotifications(
       },
     });
   };
-  // Fork: first sight, on load or after a reconnect: a thread already waiting on
-  // an answer gets its standing toast back, quietly. The stable id refreshes it.
+  // Fork: first sight, such as after a restart: a thread already waiting on an
+  // answer gets its standing toast back, quietly. The stable id refreshes it.
   const restoreStandingToast = (
     environmentId: EnvironmentId,
     standing: Set<ThreadId>,
@@ -247,7 +248,11 @@ export function startThreadNotifications(
       }
       const prior = previous.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
-      if (prior?.raw === rawThread && prior.subagentRequest === subagentRequest) {
+      if (
+        !entry.reconnecting &&
+        prior?.raw === rawThread &&
+        prior.subagentRequest === subagentRequest
+      ) {
         next.set(rawThread.id, prior);
         if (prior.awaitsAnswer) awaiting.add(rawThread.id); // Fork
         continue;
@@ -285,6 +290,7 @@ export function startThreadNotifications(
       if (state.awaitsAnswer) awaiting.add(thread.id); // Fork
       changed.push([prior, state]);
     }
+    entry.reconnecting = false;
     entry.previous = next;
     // Fork: forgetting a thread while a held command runs re-arms its completion,
     // so a completion that already alerted alerts again when the command ends.
@@ -312,6 +318,7 @@ export function startThreadNotifications(
     const entry: WatchedEnvironment = {
       previous: new Map(),
       standing: new Set(), // Fork
+      reconnecting: false,
       unsubscribe: () => {},
       gate: createThreadNotificationGate<ThreadId>((threadId, kind) => {
         const state = entry.previous.get(threadId);
@@ -330,8 +337,8 @@ export function startThreadNotifications(
           observeThreads(environmentId, entry, threads);
           return;
         }
-        entry.gate.clear();
-        entry.previous = new Map();
+        entry.gate.cancelPending();
+        entry.reconnecting = true;
       },
       { immediate: true },
     );
