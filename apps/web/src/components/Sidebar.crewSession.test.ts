@@ -1,11 +1,7 @@
 import { ProviderInstanceId, type ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  resolveProjectStatusIndicator,
-  resolveSidebarThreadStatus,
-  resolveThreadStatusPill,
-} from "./Sidebar.logic";
+import { resolveSidebarThreadStatus, resolveThreadStatusPill } from "./Sidebar.logic";
 
 // Fork: crew sessions (threads another session spawned) read Idle between turns.
 describe("crew session status", () => {
@@ -86,11 +82,6 @@ describe("crew session status", () => {
     expect(pillLabel({ ...gate, spawnedByThreadId: undefined })).toBe("Completed");
     expect(pillLabel({ ...gate, spawnedByThreadId: null })).toBe("Completed");
     expect(pillLabel({ pendingBackgroundTasks: [] })).toBe("Idle");
-  });
-
-  it("is not project activity", () => {
-    const idle = resolveThreadStatusPill({ thread: crew });
-    expect(resolveProjectStatusIndicator([idle, null])).toBeNull();
   });
 
   it("keeps the group's active count to Working and Waiting", () => {

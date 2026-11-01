@@ -12,6 +12,7 @@ function messageRow(id: string, message: Partial<ChatMessage>): MessagesTimeline
     createdAt: "2026-10-25T00:00:00.000Z",
     durationStart: "2026-10-25T00:00:00.000Z",
     showAssistantMeta: false,
+    showAssistantTimestamp: false,
     showAssistantCopyButton: false,
     assistantCopyStreaming: false,
     message: {
