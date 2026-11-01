@@ -116,6 +116,8 @@ export function startThreadNotifications(
         leadingIcon:
           status === "approval" ? (
             <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+          ) : status === "limited" ? (
+            <CircleAlertIcon aria-hidden className="size-4 text-warning-foreground" />
           ) : status === "failed" ? (
             <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
           ) : (

@@ -57,7 +57,6 @@ describe("buildTraitsTriggerDisplay", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("default")])).toEqual({
       label: "High · 1M",
       speedLabel: null,
-      otherLabels: ["1M"],
     });
   });
 
@@ -65,7 +64,6 @@ describe("buildTraitsTriggerDisplay", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")])).toEqual({
       label: "High · 1M · Explanatory",
       speedLabel: null,
-      otherLabels: ["1M", "Explanatory"],
     });
   });
 
@@ -81,7 +79,6 @@ describe("buildTraitsTriggerDisplay", () => {
     ).toEqual({
       label: "High Fast · 1M · Explanatory",
       speedLabel: "Fast",
-      otherLabels: ["1M", "Explanatory"],
     });
   });
 
@@ -97,6 +94,6 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "Learning", label: "Learning" },
       ],
     };
-    expect(display([EFFORT, unset])).toEqual({ label: "High", speedLabel: null, otherLabels: [] });
+    expect(display([EFFORT, unset])).toEqual({ label: "High", speedLabel: null });
   });
 });
