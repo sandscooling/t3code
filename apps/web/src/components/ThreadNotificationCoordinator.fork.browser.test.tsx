@@ -1,5 +1,4 @@
 // Fork-owned tests for ThreadNotificationCoordinator.
-import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
 import type { AnyRouter } from "@tanstack/react-router";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
@@ -7,7 +6,7 @@ import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fakeTimers, stubGlobal } from "../../test/render";
+import { stubGlobal } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -139,6 +138,18 @@ vi.mock(import("../state/presentation"), async (original) => {
     },
   };
 });
+vi.mock(import("../state/threads"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentThreadShells: {
+      ...actual.environmentThreadShells,
+      get hiddenThreadKeysAtom() {
+        return hiddenKeysAtom as never;
+      },
+    },
+  };
+});
 vi.mock("../threadNotifications", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../threadNotifications")>()),
   playNotificationSound: state.sound,
@@ -153,6 +164,7 @@ import { startThreadNotifications } from "./ThreadNotificationCoordinator";
 
 const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
 const environmentIdsAtom = Atom.make<ReadonlyArray<string>>(["env-1"]);
+const hiddenKeysAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
 const shellValue = () => ({
   status: state.live ? "live" : "disconnected",
   snapshot: Option.some({ threads: state.gone ? [] : [threadShell()] }),
@@ -210,6 +222,7 @@ function setup() {
       started = true;
       stack.defer(startThreadNotifications(registry, router));
     },
+    hideThread: () => registry.set(hiddenKeysAtom, new Set(["env-1\u0000thread-1"])),
     [Symbol.asyncDispose]: () => stack.disposeAsync(),
   };
 }
@@ -350,16 +363,13 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
-    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [{ taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" }];
     await app.render();
     state.background = [];
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(1);
   });
 
@@ -367,10 +377,8 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
-    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     state.background = [
       { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
       { taskId: "bench", kind: "command", held: true },
@@ -379,7 +387,6 @@ describe("thread notifications", () => {
     expect(state.sound).toHaveBeenCalledTimes(1);
     state.background = [];
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledTimes(2);
   });
 
@@ -388,10 +395,8 @@ describe("thread notifications", () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
-    using _timers = fakeTimers();
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
@@ -402,13 +407,29 @@ describe("thread notifications", () => {
     state.mode = "notifications-and-sound";
     state.focused = false;
     await app.render();
-    using _timers = fakeTimers();
     state.stopRequested = true;
     state.completedAt = "2026-09-13T10:00:00.000Z";
     await app.render();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.sound).not.toHaveBeenCalled();
     expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  it("closes a standing toast when its thread becomes hidden", async () => {
+    await using app = setup();
+    await app.render();
+    state.input = true;
+    await app.render();
+    expect(state.add).toHaveBeenCalledTimes(1);
+    app.hideThread();
+    expect(state.close).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("does not restore a standing toast for a hidden thread", async () => {
+    await using app = setup();
+    app.hideThread();
+    state.input = true;
+    await app.render();
+    expect(state.add).not.toHaveBeenCalled();
   });
 
   it("lets a failure toast fall away on its own", async () => {

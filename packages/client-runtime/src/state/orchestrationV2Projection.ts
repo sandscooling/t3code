@@ -293,9 +293,10 @@ export function applyOrchestrationV2ProjectionEvent(
     case "thread.provider-switched":
     case "thread.guest-share-updated":
       return { ...base, thread: event.payload };
-    // Visited tracking and background-work holds are not activity: skip the
+    // Visited tracking, tags and background-work holds are not activity: skip the
     // updatedAt bump.
     case "thread.visited":
+    case "thread.tags-updated":
     case "thread.marked-unread":
     case "thread.background-work-held":
       return { ...projection, thread: event.payload };

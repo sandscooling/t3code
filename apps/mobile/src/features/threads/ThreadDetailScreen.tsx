@@ -1761,6 +1761,14 @@ function ThreadDetailBody(
                           reportedModelSelection,
                         )}
                         status={props.providerSubagentStatus ?? null}
+                        inspect={
+                          providerSubagentProvider?.driver === "antigravity"
+                            ? {
+                                environmentId: props.environmentId,
+                                threadId: props.selectedThread.id,
+                              }
+                            : null
+                        }
                         onOpenParent={
                           props.selectedThread.lineage.parentThreadId === null
                             ? null
