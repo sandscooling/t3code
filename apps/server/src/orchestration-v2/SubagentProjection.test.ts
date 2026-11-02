@@ -293,6 +293,55 @@ it("waits for nested work and retains the report across monitor acknowledgements
       state,
     );
   }
+  // Fork: a wait holds commands by id on the thread. Those ids outlive their commands, and Codex
+  // and Grok commands run as turn items, off the roster.
+  const bench = (status: "running" | "completed") => ({
+    id: TurnItemId.make("item:bench"),
+    threadId: parentThreadId,
+    runId: run.id,
+    nodeId: NodeId.make("root"),
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status,
+    title: "Run benchmarks",
+    startedAt: parentCreatedAt,
+    completedAt: null,
+    updatedAt: parentCreatedAt,
+    type: "command_execution" as const,
+    input: "cargo bench",
+    output: "",
+  });
+  for (const [heldTaskId, turnItems, state] of [
+    ["background-audit", [], "waiting_for_children"],
+    ["item:bench", [bench("running")], "waiting_for_children"],
+    ["item:bench", [bench("completed")], "result_available"],
+    ["audit-that-finished", [], "result_available"],
+  ] as const) {
+    assert.equal(
+      delegatedTaskProgress({
+        ...projection,
+        thread: { ...projection.thread, heldBackgroundTaskIds: [heldTaskId] },
+        turnItems,
+        providerThreads: [
+          { pendingBackgroundTasks: [{ taskId: "background-audit", kind: "command" }] },
+        ],
+      }).state,
+      state,
+    );
+  }
+  const rolledBack = { ...run, id: RunId.make("rolled-back"), ordinal: 2, status: "rolled_back" };
+  assert.equal(
+    delegatedTaskProgress({
+      ...projection,
+      thread: { ...projection.thread, heldBackgroundTaskIds: ["item:bench"] },
+      runs: [run, rolledBack as OrchestrationV2Run],
+      turnItems: [{ ...bench("running"), runId: rolledBack.id }],
+    }).state,
+    "result_available",
+  );
   const pending = {
     ...run,
     id: RunId.make("followup"),

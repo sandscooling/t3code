@@ -357,6 +357,72 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
   }),
 );
 
+// Fork: a hold's grace ends with this event, and a thread with no parent gets no other.
+it.effect("waitForThread wakes when a hold's grace ends", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:thread-management:wait-held");
+    const threadId = ThreadId.make("thread:thread-management:wait-held");
+    const runId = RunId.make("run:thread-management:wait-held");
+    const subscribed = yield* Deferred.make<void>();
+    const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+    const ended = DateTime.makeUnsafe(1_000);
+    const runs = [
+      { id: runId, ordinal: 1, status: "completed", startedAt: ended, completedAt: ended },
+    ] as unknown as ReadonlyArray<OrchestrationV2Run>;
+    let inGrace = true;
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+      Layer.provide(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadEventSequence: () => Effect.succeed(0),
+          restartContinuationPending: () => Effect.succeed(false),
+          delegatedTaskResultPending: () => Effect.sync(() => inGrace),
+          streamStoredEventsFrom: (input) =>
+            input?.eventType === "thread.background-work-held"
+              ? Stream.fromEffect(Deferred.succeed(subscribed, undefined)).pipe(
+                  Stream.drain,
+                  Stream.concat(Stream.fromQueue(events)),
+                )
+              : Stream.never,
+          getThreadRecords: () =>
+            Effect.succeed({
+              thread: { id: threadId, projectId, deletedAt: null },
+              runs,
+              messages: [],
+              subagents: [],
+              providerThreads: [],
+              turnItems: [],
+            } as unknown as OrchestrationV2ThreadProjection),
+        }),
+      ),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(layerReceiptsTest),
+    );
+    const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+      Effect.provide(layerTest),
+    );
+    const fiber = yield* service
+      .waitForThread({
+        projectId,
+        threadId,
+        runId,
+        timeoutMs: 60 * 60 * 1_000,
+        untilDelegatedWorkSettled: true,
+      })
+      .pipe(Effect.forkChild);
+    yield* Effect.raceFirst(Deferred.await(subscribed), Fiber.await(fiber));
+    expect(fiber.pollUnsafe()).toBeUndefined();
+    inGrace = false;
+    const event = { threadId, type: "thread.background-work-held", payload: {} };
+    yield* Queue.offer(events, { sequence: 1, event } as unknown as OrchestrationV2StoredEvent);
+
+    expect(yield* Fiber.join(fiber)).toMatchObject({
+      timedOut: false,
+      resultRun: { id: runId, status: "completed" },
+    });
+  }),
+);
+
 it.effect("waitForThread settles delegated work on a thread rolled back past its only run", () =>
   Effect.gen(function* () {
     const projectId = ProjectId.make("project:thread-management:wait-rolled-back");

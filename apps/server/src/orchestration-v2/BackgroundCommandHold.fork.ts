@@ -2,6 +2,7 @@ import type { ThreadId } from "@t3tools/contracts";
 import {
   backgroundCommandsToHold,
   collectBackgroundWork,
+  RUNNING_COMMAND_ITEMS,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -40,10 +41,7 @@ export const awaitBackgroundCommandToHold = Effect.fn("awaitBackgroundCommandToH
   // Taken before the first read, so an update between the two still replays.
   const afterSequence = yield* threads.getThreadEventSequence(threadId);
   const addsCommand = threads
-    .getThreadRecords(threadId, ["runs", "providerThreads", "turnItems"], {
-      turnItemTypes: ["command_execution"],
-      turnItemStatuses: ["pending", "running", "waiting"],
-    })
+    .getThreadRecords(threadId, ["runs", "providerThreads", "turnItems"], RUNNING_COMMAND_ITEMS)
     .pipe(
       Effect.map((projection) => {
         const { activeProviderThreadId } = projection.thread;

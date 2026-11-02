@@ -88,6 +88,7 @@ import {
   subagentResultForRun,
   delegatedTaskProgress,
 } from "@t3tools/provider-core/server/subagentProjection";
+import { RUNNING_COMMAND_ITEMS } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
 import {
   DispatchModeLimit,
   type DispatchModeRefusal,
@@ -1490,8 +1491,9 @@ const make = Effect.gen(function* () {
           "providerThreads",
           "runtimeRequests",
           "nodes",
+          "turnItems", // Fork: running commands, for delegatedTaskProgress
         ],
-        { messageRoles: ["user"], omitSettledLeafNodes: true },
+        { messageRoles: ["user"], omitSettledLeafNodes: true, ...RUNNING_COMMAND_ITEMS },
       )
       .pipe(Effect.mapError(threadManagementFailure));
     const childRun = delegatedTaskRun(childControls, task);

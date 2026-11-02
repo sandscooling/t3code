@@ -42,6 +42,7 @@ import {
   type TurnItemId,
 } from "@t3tools/contracts";
 import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
+import { RUNNING_COMMAND_ITEMS } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as Clock from "effect/Clock";
@@ -939,8 +940,8 @@ const make = Effect.gen(function* () {
     const delegatedWorkResult = Effect.gen(function* () {
       const records = yield* getProjectThreadRecords(
         input,
-        ["runs", "messages", "subagents", "providerThreads"],
-        { messageRoles: ["user"], monitorNotificationsOnly: true },
+        ["runs", "messages", "subagents", "providerThreads", "turnItems"],
+        { messageRoles: ["user"], monitorNotificationsOnly: true, ...RUNNING_COMMAND_ITEMS }, // Fork
       );
       const progress = delegatedTaskProgress(records);
       // A thread rolled back past all its work, with nothing left running, has no answer to wait for.
@@ -986,7 +987,11 @@ const make = Effect.gen(function* () {
             // What delegated work reads besides runs: tasks and their
             // deliveries, and a provider thread's background tasks.
             ...(untilDelegatedWorkSettled
-              ? (["subagent.updated", "provider-thread.updated"] as const)
+              ? ([
+                  "subagent.updated",
+                  "provider-thread.updated",
+                  "thread.background-work-held", // Fork: ends a hold's grace
+                ] as const)
               : []),
           ] as const
         ).map((eventType) =>

@@ -25,6 +25,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -41,6 +42,7 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import { HOLD_END_WAKE_GRACE } from "./DelegatedChildHold.fork.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
@@ -2213,6 +2215,19 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
   },
 );
 
+const lateSettleBlockers = [
+  "a background command",
+  "a nested subagent",
+  "a held command", // Fork: wait_for_background_commands
+  "a held item command",
+  "a released hold",
+  "a stopped hold",
+  "a hold stopped in its grace",
+  "a held command's wake",
+  "a run ending in its grace",
+  "a held item past a roster update",
+] as const;
+
 it.layer(layerTest)("delegated tasks across a server restart", (it) => {
   it.effect("queues a child result without creating a provider history handoff", () =>
     Effect.gen(function* () {
@@ -3027,14 +3042,14 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
     }),
   );
 
-  it.effect.each(["a background command", "a nested subagent"] as const)(
+  it.effect.each(lateSettleBlockers)(
     "finalizes a child whose run ended before %s settled",
     (blocker) =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const sink = yield* EventSink.EventSinkV2;
         const now = yield* DateTime.now;
-        const key = blocker === "a background command" ? "command" : "nested";
+        const key = blocker.replaceAll(" ", "-");
         const threadId = ThreadId.make(`late-settle-parent-${key}`);
         const runId = RunId.make(`late-settle-parent-run-${key}`);
         const rootNodeId = NodeId.make(`late-settle-parent-root-${key}`);
@@ -3052,13 +3067,22 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           Effect.gen(function* () {
             const taskId = NodeId.make(`node:late-settle-${key}-${name}`);
             const childThreadId = ThreadId.make(`thread:late-settle-${key}-${name}`);
-            const run = runEvent({
+            const seeded = runEvent({
               threadId: childThreadId,
               runId: RunId.make(`run:late-settle-${key}-${name}`),
               ordinal: 1,
               status: "running",
               now,
             });
+            // Stop records itself only on a run with a provider thread and a root node.
+            const run = {
+              ...seeded,
+              payload: {
+                ...seeded.payload,
+                providerThreadId: ProviderThreadId.make(`provider-thread:late-settle-child-${key}`),
+                rootNodeId: NodeId.make(`late-settle-child-root-${key}`),
+              },
+            };
             yield* sink.write({
               events: [
                 {
@@ -3144,6 +3168,7 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           );
         const blocked = yield* delegate("blocked");
         const barrier = yield* delegate("barrier");
+        const late = yield* delegate("late");
         const providerThread = {
           id: ProviderThreadId.make(`provider-thread:late-settle-child-${key}`),
           driver,
@@ -3224,9 +3249,170 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           }),
           payload: { ...child.run, status: "completed" as const, startedAt: now, completedAt: now },
         });
+        // Fork: a wait marks neither the roster nor the item; the thread names what it holds.
+        const roster = (...taskIds: ReadonlyArray<string>) =>
+          sink.write({
+            events: [
+              {
+                id: EventId.make(`event:late-settle-roster-${key}-${taskIds.join("-")}`),
+                type: "provider-thread.updated",
+                threadId: blocked.childThreadId,
+                driver,
+                providerInstanceId: modelSelection.instanceId,
+                occurredAt: now,
+                payload: {
+                  ...providerThread,
+                  pendingBackgroundTasks: taskIds.map((taskId) => ({
+                    taskId,
+                    kind: "command" as const,
+                    startedAt: DateTime.formatIso(now),
+                  })),
+                },
+              },
+            ],
+          });
+        const commandItem = (status: "running" | "completed") =>
+          DateTime.now.pipe(
+            Effect.flatMap((occurredAt) =>
+              sink.write({
+                events: [
+                  {
+                    id: EventId.make(`event:late-settle-item-${key}-${status}`),
+                    type: "turn-item.updated",
+                    threadId: blocked.childThreadId,
+                    runId: blocked.run.id,
+                    nodeId: NodeId.make(`late-settle-child-root-${key}`),
+                    driver,
+                    occurredAt,
+                    payload: {
+                      id: TurnItemId.make(`late-settle-item-${key}`),
+                      threadId: blocked.childThreadId,
+                      runId: blocked.run.id,
+                      nodeId: NodeId.make(`late-settle-child-root-${key}`),
+                      providerThreadId: null,
+                      providerTurnId: null,
+                      nativeItemRef: null,
+                      parentItemId: null,
+                      ordinal: 1,
+                      status,
+                      title: "Run benchmarks",
+                      startedAt: now,
+                      completedAt: status === "completed" ? occurredAt : null,
+                      updatedAt: occurredAt,
+                      type: "command_execution" as const,
+                      input: "cargo bench",
+                      output: "",
+                    },
+                  },
+                ],
+              }),
+            ),
+          );
+        const hold = (held: boolean) =>
+          orchestrator.dispatch({
+            type: "thread.background-work.hold",
+            commandId: CommandId.make(`command:late-settle-${key}-hold-${held}`),
+            threadId: blocked.childThreadId,
+            held,
+          });
+        const startBlocker = Effect.gen(function* () {
+          if (blocker === "a held item command" || blocker === "a held item past a roster update")
+            yield* commandItem("running");
+          else if (
+            blocker === "a run ending in its grace" ||
+            blocker === "a held command" ||
+            blocker === "a released hold" ||
+            blocker === "a stopped hold" ||
+            blocker === "a hold stopped in its grace" ||
+            blocker === "a held command's wake"
+          )
+            yield* roster("sleep-900");
+          else return yield* sink.write({ events: [blockerEvent(true)] });
+          yield* hold(true);
+          // Started after the wait, so held by nothing: it must not keep the child open.
+          if (blocker === "a held command") yield* roster("sleep-900", "dev-server");
+          if (blocker === "a run ending in its grace") yield* roster();
+          if (blocker === "a held item past a roster update") yield* roster("dev-server");
+        });
+        const stop = orchestrator.dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make(`command:late-settle-${key}-stop`),
+          threadId: blocked.childThreadId,
+          stopDelegatedTasks: false,
+        });
+        const endBlocker = Effect.gen(function* () {
+          if (blocker === "a held item command") yield* commandItem("completed");
+          else if (blocker === "a held command") yield* roster("dev-server");
+          else if (blocker === "a released hold") yield* hold(false);
+          else if (blocker === "a held command's wake") yield* roster();
+          else if (blocker === "a stopped hold") {
+            yield* stop;
+            yield* roster();
+          } else if (blocker === "a hold stopped in its grace") {
+            yield* roster();
+            yield* stop;
+          } else yield* sink.write({ events: [blockerEvent(false)] });
+        });
+        // The shape ProviderContinuationService dispatches when a background command ends.
+        const wakeRun = Effect.gen(function* () {
+          const messageId = MessageId.make(`message:late-settle-${key}-wake`);
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "agent",
+            creationSource: "provider",
+            commandId: CommandId.make(`command:late-settle-${key}-wake`),
+            threadId: blocked.childThreadId,
+            messageId,
+            text: "Background activity updated",
+            notification: {
+              source: { kind: "command" },
+              outcome: "completed",
+              summary: 'Command "sleep 900" finished',
+            },
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+          });
+          return (yield* orchestrator.getThreadProjection(blocked.childThreadId)).runs.find(
+            (row) => row.userMessageId === messageId,
+          )!;
+        });
+        const finishWakeRun = (run: OrchestrationV2Run) =>
+          sink.write({
+            events: [
+              {
+                id: EventId.make(`event:late-settle-${key}-answer`),
+                type: "message.updated",
+                threadId: blocked.childThreadId,
+                runId: run.id,
+                occurredAt: now,
+                payload: {
+                  id: MessageId.make(`message:late-settle-${key}-answer`),
+                  threadId: blocked.childThreadId,
+                  runId: run.id,
+                  nodeId: null,
+                  role: "assistant",
+                  text: "The benchmark finished cleanly.",
+                  attachments: [],
+                  streaming: false,
+                  createdBy: "agent",
+                  creationSource: "server",
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              },
+              {
+                id: EventId.make(`event:late-settle-${key}-answered`),
+                type: "run.updated",
+                threadId: blocked.childThreadId,
+                runId: run.id,
+                occurredAt: now,
+                payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+              },
+            ],
+          });
 
         const beforeEnd = yield* sink.latestSequence();
-        yield* sink.write({ events: [blockerEvent(true)] });
+        yield* startBlocker;
         yield* sink.write({ events: [ended(blocked)] });
         yield* sink.write({ events: [ended(barrier)] });
         // Run updates are handled in order, so the barrier settling means the blocked child's
@@ -3240,13 +3426,62 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         );
 
         const beforeSettle = yield* sink.latestSequence();
-        yield* sink.write({ events: [blockerEvent(false)] });
-        yield* settled(blocked.task.id, beforeSettle);
-        const finished = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
-          (task) => task.id === blocked.task.id,
+        yield* endBlocker;
+        // Fork: a provider-reported hold end waits for the run its wake may start. `settled` is
+        // the event a parent's task wait wakes on, and what a status read answers from.
+        const resultPending = orchestrator.delegatedTaskResultPending(blocked.childThreadId);
+        // Long enough for a finalize that skipped the grace to land before the next step.
+        const lateBarrier = Effect.gen(function* () {
+          const before = yield* sink.latestSequence();
+          yield* sink.write({ events: [ended(late)] });
+          yield* settled(late.task.id, before);
+        });
+        const taskStatus = Effect.map(
+          orchestrator.getThreadProjection(threadId),
+          ({ subagents }) => subagents.find((task) => task.id === blocked.task.id)?.status,
         );
+        if (blocker === "a held command's wake") {
+          assert.isTrue(yield* resultPending);
+          yield* lateBarrier;
+          const wake = yield* wakeRun;
+          assert.isUndefined(wake.delegatedTaskId);
+          assert.isTrue(yield* resultPending);
+          yield* TestClock.adjust(HOLD_END_WAKE_GRACE);
+          yield* finishWakeRun(wake);
+        } else if (blocker === "a held item past a roster update") {
+          // The roster update came 3 s before the hold ended, so it starts no grace of its own.
+          yield* TestClock.adjust("3 seconds");
+          yield* commandItem("completed");
+          yield* TestClock.adjust("2 seconds");
+          yield* lateBarrier;
+          assert.equal(yield* taskStatus, "running");
+          yield* TestClock.adjust(HOLD_END_WAKE_GRACE);
+        } else if (
+          blocker === "a held command" ||
+          blocker === "a held item command" ||
+          blocker === "a run ending in its grace"
+        ) {
+          assert.isTrue(yield* resultPending);
+          yield* TestClock.adjust(HOLD_END_WAKE_GRACE);
+        } else if (blocker !== "a background command" && blocker !== "a nested subagent") {
+          assert.isFalse(yield* resultPending);
+        }
+        yield* settled(blocked.task.id, beforeSettle);
+        assert.isFalse(yield* resultPending);
+        const parent = yield* orchestrator.getThreadProjection(threadId);
+        const finished = parent.subagents.find((task) => task.id === blocked.task.id);
         assert.equal(finished?.status, "completed");
         assert.notEqual(finished?.completionDelivery?.state, "disposed");
+        if (blocker === "a held command's wake") {
+          assert.equal(finished?.result, "The benchmark finished cleanly.");
+          assert.lengthOf(
+            parent.subagents.filter((task) => task.childThreadId === blocked.childThreadId),
+            1,
+          );
+          const cohort = parent.runs.find((run) => run.id === runId)?.delegatedCompletion;
+          assert.equal(cohort?.nextGeneration, 3);
+          assert.isTrue(cohort?.delivery?.taskIds.includes(blocked.task.id));
+        }
       }),
   );
 });

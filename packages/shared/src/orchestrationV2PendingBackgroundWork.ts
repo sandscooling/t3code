@@ -356,6 +356,35 @@ export function backgroundCommandsToHold(input: {
   return { held, added };
 }
 
+/** Fork: the turn items `runningHeldTaskIds` needs from a thread-records read. */
+export const RUNNING_COMMAND_ITEMS = {
+  turnItemTypes: ["command_execution"],
+  turnItemStatuses: ["pending", "running", "waiting"],
+} as const;
+
+/**
+ * Fork: the thread's held commands still running. A held id can outlive its command until its grace
+ * trims it, so the live roster and turn items decide. Neither carries `held`; only the shell does.
+ */
+export function runningHeldTaskIds(input: {
+  readonly thread: { readonly heldBackgroundTaskIds?: ReadonlyArray<string> | undefined };
+  readonly providerThreads: ReadonlyArray<
+    Pick<PendingBackgroundWorkProviderThread, "pendingBackgroundTasks">
+  >;
+  readonly turnItems: ReadonlyArray<PendingBackgroundWorkTurnItem>;
+  readonly runs: ReadonlyArray<PendingBackgroundWorkRun>;
+}): ReadonlyArray<string> {
+  const held = input.thread.heldBackgroundTaskIds ?? [];
+  if (held.length === 0) return held;
+  const running = new Set([
+    ...input.providerThreads.flatMap((thread) =>
+      (thread.pendingBackgroundTasks ?? []).map((task) => task.taskId),
+    ),
+    ...pendingBackgroundTurnItems(input).map(nativeTaskIdFromTurnItem),
+  ]);
+  return held.filter((taskId) => running.has(taskId));
+}
+
 /**
  * Derive one normalized pending-background-work list for post-settlement UI:
  * `collectBackgroundWork`, gated on latest root run settlement. Excludes the

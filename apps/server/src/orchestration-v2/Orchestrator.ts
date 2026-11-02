@@ -82,6 +82,7 @@ import {
   collectBackgroundWork,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
+  RUNNING_COMMAND_ITEMS, // Fork
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -188,6 +189,7 @@ import {
   isForkableSourceRunStatus,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
+import { makeChildHoldGrace } from "./DelegatedChildHold.fork.ts"; // Fork
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { settleSpawnedThreads } from "./spawnedSessions.ts"; // Fork: settle cascade
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -10437,10 +10439,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const projection = yield* loadProjectionForCommand(
         command,
         ["runs", "providerThreads", "turnItems"],
-        {
-          turnItemTypes: ["command_execution"],
-          turnItemStatuses: ["pending", "running", "waiting"],
-        },
+        RUNNING_COMMAND_ITEMS,
       );
       const { thread } = projection;
       if (thread.deletedAt !== null) {
@@ -12666,14 +12665,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  const holdGrace = yield* makeChildHoldGrace({
+    eventSink,
+    projectionStore,
+    threadDispatch,
+    writeSystemEvents,
+  }); // Fork
   const finalizeAppOwnedSubagent = Effect.fn("Orchestrator.finalizeAppOwnedSubagent")(function* (
     childThreadId: ThreadId,
     options?: { readonly settledContinuationOf?: RunId; readonly syncRunId?: RunId },
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
-      ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-      { messageRoles: ["user"] },
+      [
+        "runs",
+        "messages",
+        "subagents",
+        "providerThreads",
+        "providerTurns",
+        "attempts",
+        "turnItems",
+      ],
+      { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
     );
     const parentThreadId = childControls.thread.lineage.parentThreadId;
     if (
@@ -12682,7 +12695,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       childControls.thread.forkedFrom?.type !== "node"
     )
       return;
-    const progress = delegatedTaskProgress(childControls);
+    const progress = yield* holdGrace.gate(childControls, delegatedTaskProgress(childControls)); // Fork
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -13829,6 +13842,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   // A child whose run ends while its background tasks or its own subagents still run has no
   // result yet. When that work settles there is no run update to finalize it, so these events
   // do it. A background roster counts once it stops holding after it was seen holding.
+  yield* holdGrace.run(terminalEventsAfterSequence); // Fork
   const providerThreadsWithBackgroundWork = new Set<string>();
   const settlesChildWork = (stored: OrchestrationV2StoredEvent) => {
     const { event } = stored;
@@ -13849,6 +13863,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     eventSink.stream({ afterSequence: terminalEventsAfterSequence, eventType: "subagent.updated" }),
   ).pipe(
     Stream.filter(settlesChildWork),
+    Stream.merge(holdGrace.releases(terminalEventsAfterSequence)), // Fork: holds end off the roster
     Stream.runForEach((stored) =>
       Effect.gen(function* () {
         const childThreadId = stored.event.threadId;
@@ -13967,8 +13982,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     function* (childThreadId: ThreadId, taskId?: NodeId) {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "turnItems",
+        ],
+        { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
       );
       if (taskId !== undefined) {
         const runs = child.runs.filter((run) => run.delegatedTaskId === taskId);
@@ -13976,7 +13999,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (run === undefined || delegatedTaskTerminalStatus(run.status) === null) return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
-      const progress = delegatedTaskProgress(child);
+      const progress = yield* holdGrace.gate(child, delegatedTaskProgress(child)); // Fork
       if (progress.state !== "result_available") return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);
