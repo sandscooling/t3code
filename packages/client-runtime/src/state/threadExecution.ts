@@ -378,7 +378,7 @@ export interface PendingBackgroundWorkPresentation {
   readonly waiting: boolean;
   /**
    * What the Wait control offers: "release" while any command is held, so it
-   * matches a "Waiting on" title, else "wait" when the latest run started a
+   * matches a "Waiting" title, else "wait" when the latest run started a
    * command (the server holds only those). Null otherwise.
    */
   readonly commandHold: "wait" | "release" | null;
@@ -454,12 +454,10 @@ export function presentPendingBackgroundWork(
   if (items.length === 1 && only !== undefined) {
     const noun = BACKGROUND_WORK_KINDS[only.kind].singular;
     const named = only.label !== noun;
-    const title = waiting
-      ? named
-        ? `${only.kind === "monitor" ? "" : `Waiting on ${noun} `}${only.label}`
-        : `Waiting on a ${noun}`
-      : named
-        ? `Running: ${only.label}`
+    const title = named
+      ? `${waiting ? "Waiting" : "Running"} · ${only.label}`
+      : waiting
+        ? `Waiting on a ${noun}`
         : `Running a ${noun}`;
     return { title, items, waiting, commandHold };
   }

@@ -490,14 +490,14 @@ describe("presentPendingBackgroundWork command holds", () => {
       startedAt: "2026-10-18T11:00:00.000Z",
     };
     expect(presentPendingBackgroundWork([bench], latestRunStartedAt)).toMatchObject({
-      title: "Running: Run benchmarks",
+      title: "Running · Run benchmarks",
       waiting: false,
       commandHold: "wait",
     });
     expect(
       presentPendingBackgroundWork([{ ...bench, held: true }], latestRunStartedAt),
     ).toMatchObject({
-      title: "Waiting on command Run benchmarks",
+      title: "Waiting · Run benchmarks",
       waiting: true,
       commandHold: "release",
     });
@@ -518,7 +518,7 @@ describe("presentPendingBackgroundWork command holds", () => {
     };
     const latestRunStartedAt = DateTime.makeUnsafe("2026-10-18T12:00:00.000Z");
     expect(presentPendingBackgroundWork([dev], latestRunStartedAt)).toMatchObject({
-      title: "Running: vp run dev",
+      title: "Running · vp run dev",
       commandHold: null,
     });
     // Without the latest run's start the server's scope is unknown, so no Wait.
