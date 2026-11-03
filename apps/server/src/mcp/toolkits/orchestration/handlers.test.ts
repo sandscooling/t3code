@@ -270,35 +270,12 @@ function makeHarness(
     NodeServices.layer,
     NodeCrypto.layer,
   );
-  // The access gate refuses a caller with no live run, and these callers are
-  // idle threads, so the gate alone sees every caller mid-turn. The session
-  // service reads the real threads.
-  const liveCallers = Layer.effect(
-    ThreadManagement.ThreadManagementService,
-    Effect.gen(function* () {
-      const threads = yield* ThreadManagement.ThreadManagementService;
-      return ThreadManagement.ThreadManagementService.of({
-        ...threads,
-        getThreadShell: (threadId) =>
-          threads
-            .getThreadShell(threadId)
-            .pipe(
-              Effect.map((shell) =>
-                shell === null || shell.activeRunId !== null
-                  ? shell
-                  : { ...shell, activeRunId: RunId.make(`run:${threadId}:mid-turn`) },
-              ),
-            ),
-      });
-    }),
-  ).pipe(Layer.provide(threadManagement));
   return McpHttpServer.toolkitRegistration(
     OrchestrationToolkit,
     OrchestrationToolkitHandlersLive,
   ).pipe(
     Layer.provide(SessionMcpService.layer.pipe(Layer.provide(services))),
-    Layer.provide(liveCallers),
-    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provideMerge(services),
   );
 }
@@ -324,7 +301,24 @@ const callTool = (
 ) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    // The access gate refuses a caller with no live run, and these callers are idle threads, so
+    // the gate alone sees every caller mid-turn. Request services outrank the registration's.
+    const liveCallers = ThreadManagement.ThreadManagementService.of({
+      ...threads,
+      getThreadShell: (threadId) =>
+        threads
+          .getThreadShell(threadId)
+          .pipe(
+            Effect.map((shell) =>
+              shell === null || shell.activeRunId !== null
+                ? shell
+                : { ...shell, activeRunId: RunId.make(`run:${threadId}:mid-turn`) },
+            ),
+          ),
+    });
     return yield* server.callTool({ name, arguments: args }).pipe(
+      Effect.provideService(ThreadManagement.ThreadManagementService, liveCallers),
       Effect.provideService(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment-session-tools"),
         requestNamespace: "provider-session-session-tools",
@@ -674,7 +668,7 @@ it.effect("refuses a name an open or settled session holds, an empty message, an
       group: "L2",
       message: "Go.",
     }).pipe(Effect.flip);
-    expect(badName._tag).toBe("InvalidParams");
+    expect(badName).toBeInstanceOf(McpSchema.InvalidParams);
 
     // The same name is free in another project, checked against that project.
     const elsewhere = yield* ok(orchestratorId, "session_spawn", {

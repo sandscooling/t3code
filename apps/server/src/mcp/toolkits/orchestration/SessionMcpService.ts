@@ -46,7 +46,7 @@ import {
 } from "@t3tools/shared/model";
 import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -287,7 +287,7 @@ const make = Effect.gen(function* () {
   const git = yield* GitWorkflow.GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const sql = yield* SqlClient.SqlClient;
   const idleHandoffs = yield* SessionIdleHandoff.SessionIdleHandoffService;
 
@@ -317,7 +317,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
     );
 
-  const newCommandId = crypto.randomUUIDv4().pipe(
+  const newCommandId = random.uuidV4().pipe(
     Effect.orDie,
     Effect.map((uuid) => CommandId.make(`mcp:session:${uuid}`)),
   );

@@ -62,7 +62,7 @@ it.effect("tells the agent what to do when its wait finds nothing to hold", () =
   }).pipe(
     Effect.provide(
       McpHttpServer.layerThreadToolkit.pipe(
-        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(NodeCrypto.layer),
         Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
         Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),

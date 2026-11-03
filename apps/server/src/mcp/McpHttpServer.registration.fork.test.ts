@@ -4,6 +4,7 @@ import * as DeviceService from "../device/DeviceService.ts";
 import * as ServerConfig from "../config.ts";
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -184,6 +185,7 @@ it.effect("production mcp layer lists the session tools beside upstream's over h
           Layer.provide(NodeServices.layer),
         ),
         NodeServices.layer,
+        NodeCrypto.layer,
       ),
     ),
   ),
