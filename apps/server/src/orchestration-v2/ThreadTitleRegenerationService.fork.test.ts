@@ -1,5 +1,6 @@
 // Fork tests for ThreadTitleRegenerationService.test.ts.
 import { assert, describe, it, vi } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   MessageId,
@@ -92,6 +93,7 @@ function makeHarness(options: { readonly generateThreadTitles?: boolean } = {}) 
         projectedProjects,
         Layer.mock(TextGeneration.TextGeneration)({ generateThreadTitle }),
         serverSettings,
+        NodeServices.layer,
       ),
     ),
   );
