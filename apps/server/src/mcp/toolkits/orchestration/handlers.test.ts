@@ -57,6 +57,7 @@ import * as RunExecutionService from "../../../orchestration-v2/RunExecutionServ
 import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
+import * as SessionWakeSteering from "../../../orchestration-v2/SessionWakeSteering.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -433,7 +434,14 @@ const projectionOf = (threadId: string) =>
  * Puts a steerable turn on an idle thread, as a provider mid-turn leaves it,
  * and optionally a question it is waiting on. Returns the run.
  */
-const runningTurn = (threadId: ThreadId, options: { readonly question?: boolean } = {}) =>
+const runningTurn = (
+  threadId: ThreadId,
+  options: {
+    readonly question?: boolean;
+    readonly driver?: string;
+    readonly model?: string;
+  } = {},
+) =>
   Effect.gen(function* () {
     const sink = yield* EventSink.EventSinkV2;
     const now = yield* DateTime.now;
@@ -450,7 +458,7 @@ const runningTurn = (threadId: ThreadId, options: { readonly question?: boolean 
         occurredAt: now,
         payload: {
           id: providerThreadId,
-          driver: ProviderDriverKind.make(claude),
+          driver: ProviderDriverKind.make(options.driver ?? claude),
           providerInstanceId: claude,
           providerSessionId: null,
           appThreadId: threadId,
@@ -476,7 +484,7 @@ const runningTurn = (threadId: ThreadId, options: { readonly question?: boolean 
           threadId,
           ordinal: 1,
           providerInstanceId: claude,
-          modelSelection: callerModel,
+          modelSelection: { ...callerModel, model: options.model ?? callerModel.model },
           providerThreadId,
           userMessageId: MessageId.make(`message:${threadId}`),
           rootNodeId: nodeId,
@@ -1044,36 +1052,100 @@ it.effect(
     }).pipe(Effect.provide(makeHarness([]))),
 );
 
-// A steer cancels the target's in-flight tools and reads as the user stepping
-// in; with a question open it also strands the card (pingdotgg/t3code#15517).
-it.effect("wakes a running session into its queue, question open or not, never steering", () =>
+const wakeModeOf = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    return yield* SessionWakeSteering.agentMessageMode(threads, yield* shellOf(threadId));
+  });
+
+// A wake joins a running turn only where the provider's steer waits for the
+// running tool instead of cancelling it (pingdotgg/t3code#15517).
+it.effect.each([
+  { driver: "claudeAgent", mode: "auto" },
+  { driver: "codex", mode: "auto" },
+  { driver: "kiro", mode: "auto" },
+  { driver: "cursor", mode: "queue" },
+  { driver: "acp", mode: "queue" },
+  { driver: "pi", mode: "queue" },
+  { driver: "opencode", mode: "queue" },
+  { driver: "muse", mode: "queue" },
+] as const)("wakes a running $driver session in mode $mode", ({ driver, mode }) =>
+  Effect.gen(function* () {
+    const target = yield* seed({ id: `thread:${driver}`, title: `${driver}-dev` });
+    yield* runningTurn(target, { driver });
+    expect(yield* wakeModeOf(target)).toBe(mode);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("queues a wake while a question is open, a message waits, or a Stop is landing", () =>
   Effect.gen(function* () {
     yield* seedOrchestrator;
-    const working = yield* seed({ id: "thread:working", title: "L5-dev" });
-    const asking = yield* seed({ id: "thread:asking", title: "L5-review" });
-    const workingRun = yield* runningTurn(working);
-    const askingRun = yield* runningTurn(asking, { question: true });
-    expect((yield* shellOf(asking)).pendingRuntimeRequest).toMatchObject({ kind: "user_input" });
+    const idle = yield* seed({ id: "thread:idle", title: "L5-idle" });
+    expect(yield* wakeModeOf(idle)).toBe("queue");
 
-    // No provider process runs here, so a steer would be refused; a queue succeeds.
-    for (const [target, targetRun] of [
-      [working, workingRun],
-      [asking, askingRun],
-    ] as const) {
-      const queued = yield* ok(orchestratorId, "session_wake", {
-        name: target,
-        message: "Also check the tests.",
-      });
-      expect(queued.delivery).toBe("queued");
-      const projection = yield* projectionOf(target);
-      expect(projection.runs.map((run) => [run.id === targetRun, run.status])).toEqual([
-        [true, "running"],
-        [false, "queued"],
-      ]);
-    }
-    expect((yield* projectionOf(asking)).runtimeRequests.map((request) => request.status)).toEqual([
-      "pending",
+    const asking = yield* seed({ id: "thread:asking", title: "L5-review" });
+    yield* runningTurn(asking, { question: true });
+    expect(yield* wakeModeOf(asking)).toBe("queue");
+
+    // No provider process runs here, so the steer is refused and the wake falls back to the
+    // queue; that queued message then keeps a later wake from overtaking it.
+    const working = yield* seed({ id: "thread:working", title: "L5-dev" });
+    const workingRun = yield* runningTurn(working);
+    expect(yield* wakeModeOf(working)).toBe("auto");
+    const queued = yield* ok(orchestratorId, "session_wake", {
+      name: working,
+      message: "Also check the tests.",
+    });
+    expect(queued.delivery).toBe("queued");
+    const projection = yield* projectionOf(working);
+    expect(projection.runs.map((run) => [run.id === workingRun, run.status])).toEqual([
+      [true, "running"],
+      [false, "queued"],
     ]);
+    expect(projection.messages.at(-1)).toMatchObject({
+      text: `${fromOrchestrator}Also check the tests.`,
+      senderThreadId: orchestratorId,
+    });
+    expect(yield* wakeModeOf(working)).toBe("queue");
+
+    // The thread moved to another model since the turn started: a steer would restart the turn.
+    const switched = yield* seed({ id: "thread:switched", title: "L5-switched" });
+    yield* runningTurn(switched, { model: "claude-sonnet-5" });
+    expect(yield* wakeModeOf(switched)).toBe("queue");
+
+    const stopping = yield* seed({ id: "thread:stopping", title: "L5-stopping" });
+    const stoppingRun = yield* runningTurn(stopping);
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    yield* sink.write({
+      events: [
+        {
+          id: EventId.make(`${stopping}:stop`),
+          type: "turn-item.updated",
+          threadId: stopping,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`stop:${stopping}`),
+            threadId: stopping,
+            runId: stoppingRun,
+            nodeId: NodeId.make(`node:${stopping}`),
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            type: "run_interrupt_request",
+            message: "Stop requested.",
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+          },
+        },
+      ],
+    });
+    expect(yield* wakeModeOf(stopping)).toBe("queue");
   }).pipe(Effect.provide(makeHarness([]))),
 );
 
@@ -1346,6 +1418,182 @@ it.effect("tells the waker once when the run its wake started fails, across proj
     yield* notices.handle(yield* endRun(orchestratorId, "failed"));
     expect(yield* noticesTo(orchestratorId)).toHaveLength(1);
     expect(yield* noticesTo(target)).toEqual([]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+/** Puts a session_wake from the orchestrator into run `runId` as a steer, as a delivered one is. */
+const steeredWake = (threadId: ThreadId, runId: RunId) =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const messageId = SessionWakeFailureNotice.sessionWakeMessageId(
+      CommandId.make(`steer:${threadId}`),
+    );
+    const text = `${fromOrchestrator}Also check the tests.`;
+    const nodeId = NodeId.make(`node:${threadId}`);
+    yield* sink.write({
+      events: [
+        {
+          id: EventId.make(`${threadId}:steered-wake`),
+          type: "message.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: messageId,
+            threadId,
+            runId,
+            nodeId,
+            role: "user",
+            text,
+            attachments: [],
+            streaming: false,
+            createdBy: "agent",
+            creationSource: "mcp",
+            senderThreadId: orchestratorId,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: EventId.make(`${threadId}:steered-wake-item`),
+          type: "turn-item.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`steer:${threadId}`),
+            threadId,
+            runId,
+            nodeId,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 2,
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "user_message",
+            createdBy: "agent",
+            creationSource: "mcp",
+            senderThreadId: orchestratorId,
+            messageId,
+            inputIntent: "steer",
+            text,
+            attachments: [],
+          },
+        },
+      ],
+    });
+  });
+
+it.effect("tells the waker once when a turn its wake was steered into is stopped", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    // A wake that started its own run is held by a Stop, not dropped, so it hears nothing.
+    const started = yield* seed({ id: "thread:started", title: "L5-started" });
+    expect(
+      (yield* ok(orchestratorId, "session_wake", { name: started, message: "Go." })).delivery,
+    ).toBe("started");
+    yield* notices.handle(yield* endRun(started, "interrupted"));
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
+
+    // Archiving a thread cancels its run; the sender is not told to resend to an archived thread.
+    const archived = yield* seed({ id: "thread:archived", title: "L5-archived" });
+    yield* steeredWake(archived, yield* runningTurn(archived));
+    const run = (yield* projectionOf(archived)).runs[0]!;
+    yield* notices.handle({
+      id: EventId.make(`${run.id}:cancelled`),
+      type: "run.updated",
+      threadId: archived,
+      runId: run.id,
+      occurredAt: yield* DateTime.now,
+      payload: { ...run, status: "cancelled" },
+    });
+    expect(yield* noticesTo(orchestratorId)).toEqual([]);
+
+    const stopped = yield* seed({ id: "thread:stopped", title: "L5-dev" });
+    yield* steeredWake(stopped, yield* runningTurn(stopped));
+    const ended = yield* endRun(stopped, "interrupted");
+    yield* notices.handle(ended);
+    yield* notices.handle(ended);
+    expect(yield* noticesTo(orchestratorId)).toEqual([
+      "T3 Code: your session_wake to L5-dev (thread:stopped) joined its running turn, which was then stopped; if the session had not read your message yet, it was dropped, so send it again if it still matters.",
+    ]);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+// A steer onto another provider instance restarts the turn as a new attempt of the same run, so
+// no run ends; the cut attempt is what tells the waker.
+it.effect("tells the waker once when a steering restart cuts the turn its wake joined", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const target = yield* seed({ id: "thread:restarted", title: "L5-dev" });
+    yield* steeredWake(target, yield* runningTurn(target));
+    const before = yield* projectionOf(target);
+    const attempt = before.attempts[0]!;
+    const superseded: OrchestrationV2DomainEvent = {
+      id: EventId.make(`${attempt.id}:superseded`),
+      type: "run-attempt.updated",
+      threadId: target,
+      runId: attempt.runId,
+      occurredAt: yield* DateTime.now,
+      payload: { ...attempt, status: "superseded" },
+    };
+    yield* notices.handle(superseded);
+    yield* notices.handle(superseded);
+    const told = [
+      "T3 Code: your session_wake to L5-dev (thread:restarted) joined its running turn, which was then restarted to take a message that needed a fresh turn; if the session had not read your message yet, it was dropped, so send it again if it still matters.",
+    ];
+    expect(yield* noticesTo(orchestratorId)).toEqual(told);
+
+    // A later Stop of the restarted attempt names only the wakes steered into that attempt.
+    const run = before.runs[0]!;
+    yield* notices.handle({
+      id: EventId.make(`${run.id}:interrupted`),
+      type: "run.updated",
+      threadId: target,
+      runId: run.id,
+      occurredAt: yield* DateTime.now,
+      payload: {
+        ...run,
+        status: "interrupted",
+        activeAttemptId: RunAttemptId.make("attempt:restarted:2"),
+        rootNodeId: NodeId.make("node:restarted:2"),
+      },
+    });
+    expect(yield* noticesTo(orchestratorId)).toEqual(told);
+  }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("steers a failure notice into a busy sender, queueing it when the steer is refused", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const busy = yield* runningTurn(orchestratorId);
+    const target = yield* seed({ id: "thread:target", title: "L5-dev" });
+    yield* ok(orchestratorId, "session_wake", { name: target, message: "Go." });
+    expect(yield* wakeModeOf(orchestratorId)).toBe("auto");
+
+    // No provider process runs here, so the steer is refused and the notice queues under its
+    // own retry id; the refused id's receipt keeps a repeat from sending it twice.
+    const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
+    const failed = yield* endRun(target, "failed");
+    yield* notices.handle(failed);
+    yield* notices.handle(failed);
+    const projection = yield* projectionOf(orchestratorId);
+    const notice = projection.messages.filter((message) => /session_wake to/.test(message.text));
+    expect(notice.map((message) => message.id)).toEqual([
+      `server:session-wake-failure:${failed.payload.id}:${orchestratorId}:queued`,
+    ]);
+    expect(projection.runs.map((run) => [run.id === busy, run.status])).toEqual([
+      [true, "running"],
+      [false, "queued"],
+    ]);
   }).pipe(Effect.provide(makeHarness([]))),
 );
 

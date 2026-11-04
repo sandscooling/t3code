@@ -57,6 +57,7 @@ import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attache
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
+import * as SessionWakeSteering from "../../../orchestration-v2/SessionWakeSteering.fork.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -808,10 +809,10 @@ const make = Effect.gen(function* () {
     yield* requireMessage(input.message);
     const { caller, sessions } = yield* loadScope(scope);
     const target = yield* resolveSession(sessions, caller, input.name);
-    // Always "queue": a steer cancels the target's in-flight tools and reads as the user stepping in.
-    // An idle session still starts at once. A held queue is resumed first, so this message joins its
-    // end. After a provider failure resuming would fail again, so that is refused;
-    // latestExecutedRun skips a cancelled queued run that never started.
+    // A busy target takes the message inside its running turn only where its provider steers without
+    // cancelling tools (SessionWakeSteering); otherwise it queues. A held queue is resumed first, so
+    // this message joins its end. After a provider failure resuming would fail again, so that is
+    // refused; latestExecutedRun skips a cancelled queued run that never started.
     const held = yield* hasHeldQueue(target.id);
     if (held) {
       const { runs } = yield* threads
@@ -829,9 +830,9 @@ const make = Effect.gen(function* () {
         threadId: target.id,
       });
     }
-    const commandId = yield* newCommandId;
-    const sent = yield* threads
-      .sendToThread({
+    const message = Effect.fnUntraced(function* (send: { readonly mode: "auto" | "queue" }) {
+      const commandId = yield* newCommandId;
+      return {
         projectId: target.projectId,
         commandId,
         threadId: target.id,
@@ -839,13 +840,18 @@ const make = Effect.gen(function* () {
         senderThreadId: caller.id,
         text: `[From session ${caller.title} (${caller.id}), another agent, not the user]\n\n${input.message}`,
         attachments: [],
-        mode: "queue",
+        mode: send.mode,
         createdBy: "agent",
         creationSource: "mcp",
-      })
-      .pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
-    // Mode "queue" only starts or queues a turn.
-    const delivery = sent.delivery as Exclude<typeof sent.delivery, "steered" | "restarted">;
+      } satisfies ThreadManagement.ThreadManagementSendInput;
+    });
+    const sent = yield* (
+      held
+        ? message({ mode: "queue" }).pipe(Effect.flatMap(threads.sendToThread))
+        : SessionWakeSteering.sendAgentMessage(threads, target, message)
+    ).pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
+    // Only mode "restart" restarts a turn, so "auto" and "queue" never report it.
+    const delivery = sent.delivery as Exclude<typeof sent.delivery, "restarted">;
     return { threadId: target.id, name: target.title, delivery };
   });
 

@@ -498,6 +498,8 @@ export interface ProviderAdapterV2SteerInput {
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly providerTurnId: ProviderTurnId;
   readonly message: ProviderAdapterV2TurnMessage;
+  // Fork: the user promoted this queued message to Steer, so it cuts in like one they typed.
+  readonly cutsIn?: boolean;
 }
 
 export interface ProviderAdapterV2InterruptInput {

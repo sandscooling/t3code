@@ -1,8 +1,7 @@
 /**
- * Fork-owned: when a run holding a session_wake message (one it started, queued, or was steered)
- * ends failed, or is held behind a run that failed, the waking session gets one notice instead of
- * waiting on a reply that never comes. A session_spawn's opening message counts as a wake. A Stop
- * or a restart sends none.
+ * Fork-owned: a session_wake sender hears once when the run holding its wake fails, is held behind
+ * a failed run, or (for a wake steered into it) is stopped or restarted, maybe before the agent
+ * read it. A session_spawn's opening message counts as a wake.
  */
 import {
   CommandId,
@@ -26,6 +25,7 @@ import * as Stream from "effect/Stream";
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import * as SessionWakeSteering from "./SessionWakeSteering.fork.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 const WAKE_MESSAGE_PREFIX = "session-wake:";
@@ -157,6 +157,51 @@ const make = Effect.gen(function* () {
   });
 
   /**
+   * A Stop, or a steering restart that supersedes the attempt, withdraws the steers the agent has
+   * not read yet. Each attempt is told once, of the wakes steered into its own root node; the run
+   * does not say which were read, so the notice says "may".
+   */
+  const notifyDropped = Effect.fn("SessionWakeFailureNotice.notifyDropped")(function* (input: {
+    readonly run: OrchestrationV2Run;
+    readonly attemptId: string;
+    readonly rootNodeId: string;
+    readonly ended: "stopped" | "restarted";
+  }) {
+    const { run } = input;
+    const records = yield* threads.getThreadRecords(run.threadId, ["messages", "turnItems"], {
+      messageRunIds: [run.id],
+      messageRoles: ["user"],
+      turnItemRunIds: [run.id],
+      turnItemTypes: ["user_message"],
+    });
+    const steered = new Set(
+      records.turnItems.flatMap((item) =>
+        item.type === "user_message" &&
+        item.nodeId === input.rootNodeId &&
+        item.messageId !== run.userMessageId &&
+        (item.inputIntent === "steer" || item.inputIntent === "promoted_queued_to_steer")
+          ? [item.messageId]
+          : [],
+      ),
+    );
+    const senders = wakeSenders(
+      records.messages.filter((message) => steered.has(message.id)),
+      run.threadId,
+    );
+    if (senders.size === 0) return;
+    const how =
+      input.ended === "stopped"
+        ? "which was then stopped"
+        : "which was then restarted to take a message that needed a fresh turn";
+    yield* deliver({
+      key: `server:session-wake-dropped:${input.attemptId}`,
+      run,
+      senders,
+      text: `T3 Code: your session_wake to ${records.thread.title} (${run.threadId}) joined its running turn, ${how}; if the session had not read your message yet, it was dropped, so send it again if it still matters.`,
+    });
+  });
+
+  /**
    * A usage limit leaves the queue behind it waiting, neither held nor failed, so
    * its wakes hear of it here. A run an earlier Stop held is skipped: it will not
    * resume on its own.
@@ -243,37 +288,60 @@ const make = Effect.gen(function* () {
         ? yield* spawnRecipientFor(sender, run.threadId)
         : yield* recipientFor(sender, null);
       if (recipient === null || recipient.id === run.threadId) continue;
-      yield* threads
-        .sendToThread({
+      // Steers into a busy sender only as session_wake would, where that cancels no tools.
+      yield* SessionWakeSteering.sendAgentMessage(threads, recipient, ({ mode, retry }) => {
+        const sendId = retry ? CommandId.make(`${commandId}:queued`) : commandId;
+        return Effect.succeed({
           projectId: recipient.projectId,
-          commandId,
+          commandId: sendId,
           threadId: recipient.id,
-          messageId: MessageId.make(commandId),
+          messageId: MessageId.make(sendId),
           text,
           attachments: [],
-          // Never steers, as session_wake does not: a steer cuts off the sender's running turn.
-          mode: "queue",
-          createdBy: "system",
-          creationSource: "server",
-        })
-        .pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Could not tell a session_wake sender its run failed", {
-              runId: run.id,
-              senderThreadId: sender,
-              cause,
-            }),
-          ),
-        );
+          mode,
+          createdBy: "system" as const,
+          creationSource: "server" as const,
+        });
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not tell a session_wake sender its run failed", {
+            runId: run.id,
+            senderThreadId: sender,
+            cause,
+          }),
+        ),
+      );
     }
   });
 
   // Runs for every domain event; all but a failed or held run return at once.
   const handle: SessionWakeFailureNotice["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
+      if (event.type === "run-attempt.updated" && event.payload.status === "superseded") {
+        const attempt = event.payload;
+        const { runs } = yield* threads.getThreadRecords(event.threadId, ["runs"], {
+          runIds: [attempt.runId],
+        });
+        const run = runs.find((candidate) => candidate.id === attempt.runId);
+        if (run === undefined) return;
+        yield* notifyDropped({
+          run,
+          attemptId: attempt.id,
+          rootNodeId: attempt.rootNodeId,
+          ended: "restarted",
+        });
+        return;
+      }
       if (event.type !== "run.updated") return;
       if (event.payload.status === "failed") {
         yield* notifyFailed(event.payload);
+      } else if (event.payload.status === "interrupted" && event.payload.rootNodeId !== null) {
+        yield* notifyDropped({
+          run: event.payload,
+          attemptId: event.payload.activeAttemptId ?? event.payload.id,
+          rootNodeId: event.payload.rootNodeId,
+          ended: "stopped",
+        });
       } else if (event.payload.status === "queued" && event.payload.queueHeld === true) {
         yield* notifyHeld(event.payload);
       }

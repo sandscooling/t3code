@@ -1,6 +1,6 @@
 // The fork's tests for ClaudeAdapterV2.test.ts.
 
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   TaskCreateInput,
   TaskCreateOutput,
@@ -31,6 +31,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -233,6 +234,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     });
     const terminalReceipts =
       yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "turn.terminal" }>>();
+    const offeredMessages: Array<SDKUserMessage> = [];
+    const continuations: Array<unknown> = [];
+    const interrupts: Array<"plain" | ReadonlyArray<string>> = [];
     const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
       random: yield* SecureRandom.SecureRandom,
@@ -242,7 +246,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       fileSystem,
       path: yield* Path.Path,
       idAllocator,
-      continuationRequests: { offer: () => Effect.void },
+      continuationRequests: {
+        offer: (request) => Effect.sync(() => void continuations.push(request)),
+      },
       queryRunner: {
         allocateSessionId: Effect.succeed(WAKE_NATIVE_SESSION),
         open: () =>
@@ -264,7 +270,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 ),
               ),
             ),
-            offer: () => Effect.void,
+            offer: (message) => Effect.sync(() => void offeredMessages.push(message)),
             setModel: () => Effect.void,
             applyFlagSettings: () => Effect.void,
             setPermissionMode: () => Effect.void,
@@ -274,8 +280,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             readMcpResource: () => Effect.die("unexpected MCP resource read"),
             callMcpTool: () => Effect.die("unexpected MCP tool call"),
             listPermissionRules: Effect.die("unexpected permission rules read"),
-            interrupt: Effect.void,
-            close: Effect.void,
+            interrupt: Effect.sync(() => void interrupts.push("plain")),
+            interruptCancellingQueued: (uuids) => Effect.sync(() => void interrupts.push(uuids)),
+            // Closing ends the stream, as the CLI exiting does.
+            close: Queue.shutdown(sdkMessages),
           })),
         forkSession: () => Effect.die("unused forkSession"),
         subagentLaunchToolUseId: () => Effect.succeed(null),
@@ -320,6 +328,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       events,
       terminalReceipts,
       terminalEvents,
+      offeredMessages,
+      interrupts,
+      continuations,
     };
   });
 
@@ -913,4 +924,189 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       ),
     ),
   );
+
+  // Fork: a steer from another agent waits for the running tool at priority "next" and stays in
+  // the same T3 turn; only a person cuts in at "now" (pingdotgg/t3code#15517).
+  describe("agent steers", () => {
+    const makeSteerHarness = Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const attemptId = RunAttemptId.make("attempt-claude-agent-steer");
+      const input = makeClaudeTestTurnInput({
+        threadId: harness.threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId,
+        text: "Run the long audit.",
+        attachments: [],
+      });
+      yield* harness.runtime.startTurn(input);
+      const providerTurnId = idAllocator.derive.providerTurn({
+        driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+        nativeTurnId: `turn:${attemptId}`,
+      });
+      let steers = 0;
+      const steer = (createdBy: "user" | "agent", options: { readonly cutsIn?: true } = {}) =>
+        harness.runtime.steerTurn({
+          threadId: harness.threadId,
+          runId: input.runId,
+          providerThread: harness.providerThread,
+          providerTurnId,
+          ...options,
+          message: {
+            createdBy,
+            creationSource: createdBy === "user" ? "web" : "mcp",
+            messageId: MessageId.make(`message-claude-agent-steer-${++steers}`),
+            text: createdBy === "user" ? "Stop and look at this." : "Also check the tests.",
+            attachments: [],
+            ...(createdBy === "agent" ? { senderThreadId: ThreadId.make("thread-sender") } : {}),
+          },
+        });
+      const uuidOf = (index: number) => {
+        const uuid = harness.offeredMessages[index]?.uuid;
+        assert.isString(uuid);
+        return uuid!;
+      };
+      let sequence = 950;
+      const result = (answeredFor: ReadonlyArray<string>, text: string) =>
+        claudeSdkFrame({
+          ...makeResultFrame({
+            uuid: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
+            result: text,
+          }),
+          user_message_uuids: answeredFor,
+        });
+      return { ...harness, providerTurnId, steer, uuidOf, result };
+    });
+
+    const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      );
+
+    it.effect("sends an agent's steer at next under its own uuid and a person's at now", () =>
+      provide(
+        Effect.gen(function* () {
+          const harness = yield* makeSteerHarness;
+          yield* harness.steer("agent");
+          yield* harness.steer("user");
+          // An agent's queued message the user promoted to Steer.
+          yield* harness.steer("agent", { cutsIn: true });
+          const [, agent, user, promoted] = harness.offeredMessages;
+          assert.equal(agent?.priority, "next");
+          assert.notEqual(harness.uuidOf(1), harness.uuidOf(0));
+          assert.equal(user?.priority, "now");
+          assert.equal(promoted?.priority, "now");
+        }),
+      ),
+    );
+
+    it.effect("ends the turn once when the CLI folds the steer in at a tool boundary", () =>
+      provide(
+        Effect.gen(function* () {
+          const harness = yield* makeSteerHarness;
+          yield* harness.steer("agent");
+          yield* harness.offerAndWait(
+            harness.result([harness.uuidOf(0), harness.uuidOf(1)], "Audit and tests done."),
+          );
+          assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
+          assert.lengthOf(harness.terminalEvents(), 1);
+        }),
+      ),
+    );
+
+    it.effect("keeps the turn open through the CLI turn that runs an unfolded steer", () =>
+      provide(
+        Effect.gen(function* () {
+          const harness = yield* makeSteerHarness;
+          yield* harness.steer("agent");
+          yield* harness.offerAndWait(harness.result([harness.uuidOf(0)], "Audit done."));
+          yield* harness.offerAndWait(harness.result([harness.uuidOf(1)], "Tests checked."));
+          assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
+          assert.lengthOf(harness.terminalEvents(), 1);
+          // Both CLI turns bill the one T3 turn; a turn ended by the first would show 1.
+          const usage = harness.events.findLast((event) => event.type === "provider_turn.updated");
+          assert.equal(
+            usage?.type === "provider_turn.updated"
+              ? usage.providerTurn.turnTokenUsage?.outputTokens
+              : undefined,
+            2,
+          );
+        }),
+      ),
+    );
+
+    it.effect("ends the turn failed when a result fails with a steer still pending", () =>
+      provide(
+        Effect.gen(function* () {
+          const harness = yield* makeSteerHarness;
+          yield* harness.steer("agent");
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              ...harness.result([harness.uuidOf(0)], "boom"),
+              subtype: "error_during_execution",
+              is_error: true,
+              errors: ["boom"],
+              terminal_reason: "model_error",
+            }),
+          );
+          assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "failed");
+          // The CLI then runs the steer on its own; with no turn waiting it is a wake, not lost.
+          yield* harness.offerAndWait(harness.result([harness.uuidOf(1)], "Tests checked."));
+          assert.lengthOf(harness.terminalEvents(), 1);
+          assert.lengthOf(harness.continuations, 1);
+        }),
+      ),
+    );
+
+    // Live, a Stop sent while the steer was still on its way to the CLI missed it, and the CLI
+    // ran it after the interrupt; the Stop now waits for the CLI's ack of the steer first.
+    it.effect("withdraws a queued steer with the Stop once the CLI holds it", () =>
+      provide(
+        Effect.gen(function* () {
+          const harness = yield* makeSteerHarness;
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "system",
+              subtype: "init",
+              capabilities: ["msg_lifecycle_v1", "interrupt_cancel_queued_v1"],
+              uuid: "00000000-0000-4000-8000-000000000940",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          yield* harness.steer("agent");
+          yield* harness.offerAndWait(harness.result([harness.uuidOf(0)], "Audit done."));
+          const stop = yield* harness.runtime
+            .interruptTurn({
+              providerThread: harness.providerThread,
+              providerTurnId: harness.providerTurnId,
+            })
+            .pipe(Effect.forkScoped);
+          yield* TestClock.adjust("1 second");
+          assert.deepEqual(harness.interrupts, []);
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "command_lifecycle",
+              command_uuid: harness.uuidOf(1),
+              state: "queued",
+              uuid: "00000000-0000-4000-8000-000000000941",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          yield* Fiber.join(stop);
+          assert.deepEqual(harness.interrupts, [[harness.uuidOf(1)]]);
+          assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "interrupted");
+          assert.lengthOf(harness.terminalEvents(), 1);
+        }),
+      ),
+    );
+  });
 });

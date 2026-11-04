@@ -129,6 +129,8 @@ const deliveries = [
   "scheduled message",
   "user steering",
   "promoted queued message",
+  // Fork: another agent's queued message, promoted to Steer, cuts in like the user's own.
+  "promoted agent message",
 ] as const;
 
 it.effect.each(deliveries)(
@@ -378,8 +380,13 @@ it.effect.each(deliveries)(
               text: "Change direction now.",
               attachments: [],
               dispatchMode: { type: "queue_after_active" },
-              createdBy: "user",
-              creationSource: "web",
+              ...(delivery === "promoted agent message"
+                ? {
+                    createdBy: "agent" as const,
+                    creationSource: "mcp" as const,
+                    senderThreadId: ThreadId.make("thread-sender"),
+                  }
+                : { createdBy: "user" as const, creationSource: "web" as const }),
             });
             const queuedRun = (yield* orchestrator.getThreadProjection(threadId)).runs[1]!;
             yield* orchestrator.dispatch({
@@ -403,7 +410,9 @@ it.effect.each(deliveries)(
           }
           yield* worker.drain();
           const explicitSteer =
-            delivery === "user steering" || delivery === "promoted queued message";
+            delivery === "user steering" ||
+            delivery === "promoted queued message" ||
+            delivery === "promoted agent message";
           assert.equal(batchAbort.signal.aborted, explicitSteer);
           assert.equal(offers.length, explicitSteer ? 2 : 1);
           const finished = yield* watch(
