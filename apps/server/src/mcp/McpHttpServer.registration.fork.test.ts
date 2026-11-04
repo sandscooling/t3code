@@ -38,6 +38,7 @@ import * as PreviewManager from "../preview/Manager.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
+import { AssetSigner } from "../assets/AssetSigner.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as PreviewBrowser from "../preview/PreviewBrowser.ts";
@@ -186,6 +187,7 @@ it.effect("production mcp layer lists the session tools beside upstream's over h
         ),
         NodeServices.layer,
         NodeCrypto.layer,
+        Layer.mock(AssetSigner)({}),
       ),
     ),
   ),
