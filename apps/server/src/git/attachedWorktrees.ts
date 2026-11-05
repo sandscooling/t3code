@@ -45,7 +45,9 @@ const realPathOfNearestAncestor = Effect.fnUntraced(function* (resolved: string)
   const missing: Array<string> = [];
   let current = resolved;
   for (;;) {
-    const real = yield* Effect.tryPromise(() => NodeFSP.realpath(current)).pipe(Effect.option);
+    const real = yield* Effect.promise(() =>
+      NodeFSP.realpath(current).then(Option.some, () => Option.none<string>()),
+    );
     if (Option.isSome(real)) return path.join(real.value, ...missing.toReversed());
     const parent = path.dirname(current);
     if (parent === current) return resolved;

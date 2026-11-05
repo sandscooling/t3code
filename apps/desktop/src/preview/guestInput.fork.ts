@@ -10,6 +10,7 @@ import { guestKeyPackets, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fo
 
 export { trackFrameSessions } from "./frameKeys.fork.ts";
 
+// @effect-diagnostics-next-line extendsNativeError:off - thrown back to Electron's debugger relay, outside Effect.
 class GuestInputError extends Error {
   override readonly name = "GuestInputError";
 }

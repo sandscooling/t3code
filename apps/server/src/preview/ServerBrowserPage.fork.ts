@@ -11,6 +11,7 @@ import type { PreviewAutomationSnapshot } from "@t3tools/contracts";
 export const CAPTURE_DEADLINE_MS = 5_000;
 
 /** Named `TimeoutError` so `toOperationError` reports it as a timeout. */
+// @effect-diagnostics-next-line extendsNativeError:off - a Playwright-style rejection that toOperationError reads by name.
 class DeadlineError extends Error {
   override readonly name = "TimeoutError";
 }

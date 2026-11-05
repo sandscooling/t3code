@@ -50,6 +50,7 @@ const NAMED_KEYS = new Set([
   "PrintScreen",
 ]);
 
+// @effect-diagnostics-next-line extendsNativeError:off - thrown back to Electron's debugger relay, outside Effect.
 export class GuestKeyError extends Error {
   override readonly name = "GuestKeyError";
 }
