@@ -28,6 +28,7 @@ Always available to every agent session, with no setting to turn on:
 - Images an agent generates or views (a Codex generated image, a Read of a png) get their own work log row, show without expanding it, and stay out of the "+N tool calls" fold. From closed upstream PR [#5114](https://github.com/pingdotgg/t3code/pull/5114).
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
 - The chat's scroll map marks only the messages you typed; messages from other agents, server notices and scheduled task runs get no tick.
+- `t3 thread start` and `t3 thread send` take `--image <file>` (repeatable, up to 8 PNG, JPEG, WebP or GIF images of 10 MiB each) to send images as attachments, or `--image -` to read one image from stdin. A `send` with images is delivered into a busy thread's running turn, while a text-only `send` waits for its next turn.
 
 ### Threads and sidebar
 

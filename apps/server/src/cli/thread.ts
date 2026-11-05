@@ -2,7 +2,6 @@ import {
   OrchestratorMcpFailure,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
-  OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitResult,
   ProjectId,
   RunId,
@@ -31,6 +30,14 @@ import * as ServerConfig from "../config.ts";
 import { mcpToolSession, type McpToolSession } from "../mcp/AcpMcpStdioBridge.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+// Fork: --image on thread start and send.
+import {
+  callWithImages,
+  imageFlag,
+  readCliImages,
+  sendThreadMessage,
+  ThreadImageError,
+} from "./threadAttachments.fork.ts";
 
 /**
  * Short enough that a run which stops to ask the user something is noticed
@@ -122,6 +129,7 @@ const ThreadCliError = Schema.Union([
   ThreadProjectNotFoundError,
   ThreadNeedsInputError,
   ThreadRunEndedError,
+  ThreadImageError, // Fork: --image errors print as one line.
 ]);
 const isThreadCliError = Schema.is(ThreadCliError);
 
@@ -204,7 +212,8 @@ export type ThreadTools = ReturnType<typeof makeThreadTools>;
  */
 const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E, R>(
   flags: { readonly baseDir: Option.Option<string> },
-  run: (tools: ThreadTools) => Effect.Effect<A, E, R>,
+  // Fork: origin is for --image uploads.
+  run: (tools: ThreadTools, origin: string) => Effect.Effect<A, E, R>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
@@ -232,7 +241,7 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
       authorization: `Bearer ${issued.token}`,
       clientName: "t3-thread-cli",
     }).pipe(Effect.mapError((cause) => new ThreadServerUnreachableError({ origin, cause })));
-    return yield* run(makeThreadTools(session, origin));
+    return yield* run(makeThreadTools(session, origin), origin);
   }).pipe(
     Effect.scoped,
     Effect.provide(
@@ -623,12 +632,14 @@ const threadStartCommand = Command.make("start", {
     Flag.withDescription("Branch name for the new worktree."),
     Flag.optional,
   ),
+  image: imageFlag, // Fork
   wait: waitFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Start a thread in a project and print its id."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      const images = yield* readCliImages(flags.image, flags.message); // Fork
       const message = yield* readMessageArgument(flags.message);
       const workspaceStrategy = yield* launchWorkspaceStrategy(flags);
       if (Option.isSome(flags.provider) !== Option.isSome(flags.model)) {
@@ -639,9 +650,13 @@ const threadStartCommand = Command.make("start", {
       ).pipe(Effect.mapError(() => new ThreadUsageError({ detail: "The title is empty." })));
       yield* withThreadTools(
         flags,
-        Effect.fn("cli.thread.start")(function* (tools) {
+        // Fork: origin and callWithImages carry --image.
+        Effect.fn("cli.thread.start")(function* (tools, origin) {
           const project = yield* resolveProject(tools, flags.project);
-          const launched = yield* tools.call(
+          const launched = yield* callWithImages(
+            tools,
+            origin,
+            images,
             "t3_thread_launch",
             {
               projectId: project.id,
@@ -678,6 +693,7 @@ const threadSendCommand = Command.make("send", {
   ...projectLocationFlags,
   thread: threadArgument,
   message: messageArgument,
+  image: imageFlag, // Fork
   wait: waitFlag,
   json: jsonFlag,
 }).pipe(
@@ -687,15 +703,13 @@ const threadSendCommand = Command.make("send", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const threadId = yield* decodeThreadId(flags.thread);
+      const images = yield* readCliImages(flags.image, flags.message); // Fork
       const message = yield* readMessageArgument(flags.message);
       yield* withThreadTools(
         flags,
-        Effect.fn("cli.thread.send")(function* (tools) {
-          const sent = yield* tools.call(
-            "t3_thread_send",
-            { threadId, message, mode: "queue" },
-            OrchestratorMcpThreadSendResult,
-          );
+        // Fork: origin and sendThreadMessage carry --image.
+        Effect.fn("cli.thread.send")(function* (tools, origin) {
+          const sent = yield* sendThreadMessage(tools, origin, { threadId, message, images });
           if (flags.wait) {
             return yield* finishRun(tools, { threadId, runId: sent.runId, json: flags.json });
           }
