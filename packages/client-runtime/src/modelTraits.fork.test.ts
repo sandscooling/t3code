@@ -57,6 +57,7 @@ describe("buildTraitsTriggerDisplay", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("default")])).toEqual({
       label: "High · 1M",
       speedLabel: null,
+      ultracode: false,
     });
   });
 
@@ -64,6 +65,7 @@ describe("buildTraitsTriggerDisplay", () => {
     expect(display([EFFORT, CONTEXT_WINDOW, outputStyleDescriptor("Explanatory")])).toEqual({
       label: "High · 1M · Explanatory",
       speedLabel: null,
+      ultracode: false,
     });
   });
 
@@ -79,6 +81,7 @@ describe("buildTraitsTriggerDisplay", () => {
     ).toEqual({
       label: "High Fast · 1M · Explanatory",
       speedLabel: "Fast",
+      ultracode: false,
     });
   });
 
@@ -94,6 +97,10 @@ describe("buildTraitsTriggerDisplay", () => {
         { id: "Learning", label: "Learning" },
       ],
     };
-    expect(display([EFFORT, unset])).toEqual({ label: "High", speedLabel: null });
+    expect(display([EFFORT, unset])).toEqual({
+      label: "High",
+      speedLabel: null,
+      ultracode: false,
+    });
   });
 });

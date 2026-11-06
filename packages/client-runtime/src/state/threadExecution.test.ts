@@ -14,6 +14,7 @@ import {
   type OrchestrationV2RunStatus,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import { createModelCapabilities, createModelSelection } from "@t3tools/shared/model";
 import { usageLimitBlockedRun } from "@t3tools/shared/orchestrationV2ThreadError";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -26,6 +27,7 @@ import {
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveThreadRuntime,
+  formatModelSelectionEffort,
   isBackgroundWorkStopPending,
   presentPendingBackgroundWork,
   presentProviderGoal,
@@ -525,6 +527,39 @@ describe("presentPendingBackgroundWork command holds", () => {
     expect(
       presentPendingBackgroundWork([{ ...dev, startedAt: "2026-10-18T12:01:00.000Z" }]),
     ).toMatchObject({ commandHold: null });
+  });
+});
+
+describe("formatModelSelectionEffort", () => {
+  it("labels an old Ultracode effort by the effort it runs at", () => {
+    const models = [
+      {
+        slug: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        isCustom: false,
+        capabilities: createModelCapabilities({
+          optionDescriptors: [
+            {
+              id: "effort",
+              label: "Reasoning",
+              type: "select",
+              options: [
+                { id: "high", label: "High", isDefault: true },
+                { id: "xhigh", label: "Extra High" },
+              ],
+            },
+            { id: "ultracode", label: "Ultracode", type: "boolean" },
+          ],
+        }),
+      },
+    ];
+    const selection = createModelSelection(
+      ProviderInstanceId.make("claudeAgent"),
+      "claude-opus-5-5",
+      [{ id: "effort", value: "ultracode" }],
+    );
+
+    expect(formatModelSelectionEffort(selection, models)).toBe("Extra High");
   });
 });
 
