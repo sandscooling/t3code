@@ -58,7 +58,6 @@ Always available to every agent session, with no setting to turn on:
 - A background-work notice gives each command its own outcome, so a stopped command and a later one with the same description that finished no longer both read as stopped; same-named commands carry their task id.
 - A preview locator that matches several elements says how many matched and how to narrow it, instead of calling the locator invalid.
 - In the desktop app, a hidden browser tab resized to fill takes the panel's size, not the phone width of an earlier preset.
-- The desktop window keeps its size and position across every restart on scaled Windows displays, instead of falling back to the default size when Windows nudged it a few pixels past the screen edge.
 
 ### Windows test suite
 

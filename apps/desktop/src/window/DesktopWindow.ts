@@ -38,8 +38,6 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
-// Fork: keep the window size on scaled displays.
-import { clampBoundsIntoMostOverlappedDisplay, MAIN_WINDOW_MIN_SIZE } from "./mainWindowBounds.ts";
 
 const TITLEBAR_HEIGHT = 40;
 
@@ -150,15 +148,19 @@ function getInitialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
 
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
 
+// A window snapped to a display edge can be reported 1px past that edge.
+const SAVED_BOUNDS_EDGE_TOLERANCE_PX = 1;
+
 function windowFitsWithinDisplay(
   windowBounds: DesktopAppSettings.DesktopWindowBounds,
   displayBounds: DisplayBounds,
 ): boolean {
+  const tolerance = SAVED_BOUNDS_EDGE_TOLERANCE_PX;
   return (
-    windowBounds.x >= displayBounds.x &&
-    windowBounds.y >= displayBounds.y &&
-    windowBounds.x + windowBounds.width <= displayBounds.x + displayBounds.width &&
-    windowBounds.y + windowBounds.height <= displayBounds.y + displayBounds.height
+    windowBounds.x >= displayBounds.x - tolerance &&
+    windowBounds.y >= displayBounds.y - tolerance &&
+    windowBounds.x + windowBounds.width <= displayBounds.x + displayBounds.width + tolerance &&
+    windowBounds.y + windowBounds.height <= displayBounds.y + displayBounds.height + tolerance
   );
 }
 
@@ -184,12 +186,7 @@ export function resolveInitialMainWindowBounds(
   ) {
     return persistedBounds;
   }
-  // Fork: clamp bounds Windows grew past a display edge instead of using the default.
-  return (
-    (persistedBounds !== null &&
-      clampBoundsIntoMostOverlappedDisplay(persistedBounds, displays, MAIN_WINDOW_MIN_SIZE)) ||
-    DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE
-  );
+  return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
 }
 
 function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
@@ -399,9 +396,7 @@ export const make = Effect.gen(function* () {
             cause: displayBoundsResult.cause,
           }).pipe(Effect.as<readonly Electron.Rectangle[]>([]));
     const initialBounds = resolveInitialMainWindowBounds(persistedBounds, displayBounds);
-    // Fork: clamped bounds are a new object, so "restored" means "not the default".
-    const restoredPersistedBounds =
-      persistedBounds !== null && initialBounds !== DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+    const restoredPersistedBounds = persistedBounds !== null && initialBounds === persistedBounds;
     if (persistedBounds !== null && initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE) {
       yield* logWindowWarning("saved main window bounds could not be restored; using defaults");
     }
@@ -426,6 +421,7 @@ export const make = Effect.gen(function* () {
         sandbox: true,
         webviewTag: true,
         // Guest fullscreen propagates to the embedder; both must opt out to keep it inside the webview.
+        // The app's own fullscreen elements reach OS fullscreen through syncHtmlFullscreen.
         disableHtmlFullscreenWindowResize: true,
       },
     });
