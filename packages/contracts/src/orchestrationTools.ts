@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, NonNegativeInt, PositiveInt, ThreadId } from "./baseSchemas.ts";
+import { OrchestrationV2PendingRuntimeRequestSummary } from "./orchestrationV2.ts";
 
 /**
  * Contracts for the `session_*` MCP tools that start, list, wake, settle, and release sessions in
@@ -257,6 +258,17 @@ export type SessionListInput = typeof SessionListInput.Type;
 export const SessionStatus = Schema.Literals(["running", "held", "monitoring", "ready"]);
 export type SessionStatus = typeof SessionStatus.Type;
 
+/**
+ * A question or approval the session has open for the user. `preview` is a short snippet of the
+ * question, or of what an approval asks for; null when the request carries no text.
+ */
+export const SessionPendingQuestion = Schema.Struct({
+  askedAt: IsoDateTime,
+  kind: OrchestrationV2PendingRuntimeRequestSummary.fields.kind,
+  preview: Schema.NullOr(Schema.String),
+});
+export type SessionPendingQuestion = typeof SessionPendingQuestion.Type;
+
 export const SessionSummary = Schema.Struct({
   threadId: Schema.String,
   name: Schema.String,
@@ -272,6 +284,8 @@ export const SessionSummary = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   /** The idle handoff set on the session (session_idle_handoff), null when none is. */
   idleHandoff: Schema.NullOr(SessionIdleHandoffSetting),
+  /** The question or approval it waits on the user for; wakes queue behind it. */
+  pendingQuestion: Schema.NullOr(SessionPendingQuestion),
 });
 export type SessionSummary = typeof SessionSummary.Type;
 
@@ -294,6 +308,13 @@ export const SessionWakeResult = Schema.Struct({
   name: Schema.String,
   /** `started` a new turn, was `steered` into the running turn, or was `queued` behind it. */
   delivery: Schema.Literals(["started", "steered", "queued"]),
+  /** Set when it queued behind a question or approval the session has open for the user. */
+  behindQuestion: Schema.optional(
+    Schema.Struct({
+      askedAt: SessionPendingQuestion.fields.askedAt,
+      preview: SessionPendingQuestion.fields.preview,
+    }),
+  ),
 });
 export type SessionWakeResult = typeof SessionWakeResult.Type;
 

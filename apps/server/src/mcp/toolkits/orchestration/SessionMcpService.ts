@@ -13,6 +13,7 @@ import {
   ThreadId,
   type ModelSelection,
   type OrchestrationV2ThreadShell,
+  type OrchestrationV2TurnItem,
   type Project,
   type ProviderOptionDescriptor,
   type ServerProvider,
@@ -24,6 +25,7 @@ import {
   type SessionModelOption,
   type SessionModelsInput,
   type SessionModelsResult,
+  type SessionPendingQuestion,
   type SessionProjectsInput,
   type SessionProjectsResult,
   type SessionReleaseInput,
@@ -47,6 +49,7 @@ import {
 import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -133,6 +136,29 @@ const sessionStatus = (thread: OrchestrationV2ThreadShell, held: boolean): Sessi
       : (thread.pendingBackgroundTasks ?? []).length > 0
         ? "monitoring"
         : "ready";
+
+const PREVIEW_LIMIT = 160;
+
+const snippet = (text: string | undefined) => {
+  const flat = text?.replace(/\s+/g, " ").trim() ?? "";
+  if (flat.length === 0) return null;
+  const characters = Array.from(flat);
+  return characters.length <= PREVIEW_LIMIT
+    ? flat
+    : `${characters
+        .slice(0, PREVIEW_LIMIT - 1)
+        .join("")
+        .trimEnd()}\u2026`;
+};
+
+/** The first question's text for a user-input request, the prompt or reason for an approval. */
+const requestPreview = (item: OrchestrationV2TurnItem | undefined) => {
+  if (item?.type === "approval_request") return snippet(item.prompt ?? item.reason);
+  if (item?.type !== "user_input_request") return null;
+  const [first, ...rest] = item.questions;
+  const text = snippet(first?.question);
+  return text === null || rest.length === 0 ? text : `${text} (+${rest.length} more)`;
+};
 
 /** Finds a project by the projectId, name, or path session_projects reports. */
 const resolveProject = Effect.fn("SessionMcpService.resolveProject")(function* (
@@ -317,6 +343,35 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => rows.length > 0),
       Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
     );
+  /** Reads the one request's turn item; a preview it cannot read is null, never a failed call. */
+  const pendingQuestion = Effect.fn("SessionMcpService.pendingQuestion")(function* (
+    threadId: ThreadId,
+    request: NonNullable<OrchestrationV2ThreadShell["pendingRuntimeRequest"]>,
+  ) {
+    const preview = yield* threads
+      .getThreadRecords(threadId, ["turnItems"], { turnItemRequestIds: [request.id] })
+      .pipe(
+        Effect.map(({ turnItems }) =>
+          requestPreview(
+            turnItems.find(
+              (item) =>
+                (item.type === "user_input_request" || item.type === "approval_request") &&
+                item.requestId === request.id,
+            ),
+          ),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not read a pending question's text", { cause }).pipe(
+            Effect.as(null),
+          ),
+        ),
+      );
+    return {
+      askedAt: DateTime.formatIso(request.createdAt),
+      kind: request.kind,
+      preview,
+    } satisfies SessionPendingQuestion;
+  });
 
   const newCommandId = random.uuidV4().pipe(
     Effect.orDie,
@@ -779,26 +834,42 @@ const make = Effect.gen(function* () {
         }).pipe(Effect.as(new Map<string, SessionIdleHandoffSetting>())),
       ),
     );
+    const listed = sessions
+      .filter((thread) => projectId === null || thread.projectId === projectId)
+      // A settled session is finished work; listing it beside the open ones
+      // reads as "still running". The caller's own row stays regardless,
+      // since it is the only place a session reads its own threadId.
+      .filter((thread) => thread.id === caller.id || thread.settledOverride !== "settled")
+      .filter((thread) => input.group === undefined || thread.group === input.group);
+    const questions = new Map(
+      yield* Effect.forEach(
+        listed.flatMap((thread) =>
+          thread.pendingRuntimeRequest === null
+            ? []
+            : [[thread.id, thread.pendingRuntimeRequest] as const],
+        ),
+        ([threadId, request]) =>
+          Effect.map(
+            pendingQuestion(threadId, request),
+            (question) => [threadId, question] as const,
+          ),
+        { concurrency: "unbounded" },
+      ),
+    );
     return {
-      sessions: sessions
-        .filter((thread) => projectId === null || thread.projectId === projectId)
-        // A settled session is finished work; listing it beside the open ones
-        // reads as "still running". The caller's own row stays regardless,
-        // since it is the only place a session reads its own threadId.
-        .filter((thread) => thread.id === caller.id || thread.settledOverride !== "settled")
-        .filter((thread) => input.group === undefined || thread.group === input.group)
-        .map((thread) => ({
-          threadId: thread.id,
-          name: thread.title,
-          group: thread.group ?? null,
-          projectId: thread.projectId,
-          project: projectNames.get(thread.projectId) ?? thread.projectId,
-          status: sessionStatus(thread, held.has(thread.id)),
-          self: thread.id === caller.id,
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
-          idleHandoff: idleHandoffSettings.get(thread.id) ?? null,
-        })),
+      sessions: listed.map((thread) => ({
+        threadId: thread.id,
+        name: thread.title,
+        group: thread.group ?? null,
+        projectId: thread.projectId,
+        project: projectNames.get(thread.projectId) ?? thread.projectId,
+        status: sessionStatus(thread, held.has(thread.id)),
+        self: thread.id === caller.id,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+        idleHandoff: idleHandoffSettings.get(thread.id) ?? null,
+        pendingQuestion: questions.get(thread.id) ?? null,
+      })),
     };
   });
 
@@ -852,7 +923,16 @@ const make = Effect.gen(function* () {
     ).pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
     // Only mode "restart" restarts a turn, so "auto" and "queue" never report it.
     const delivery = sent.delivery as Exclude<typeof sent.delivery, "restarted">;
-    return { threadId: target.id, name: target.title, delivery };
+    const request = target.pendingRuntimeRequest;
+    if (delivery !== "queued" || request === null)
+      return { threadId: target.id, name: target.title, delivery };
+    const { askedAt, preview } = yield* pendingQuestion(target.id, request);
+    return {
+      threadId: target.id,
+      name: target.title,
+      delivery,
+      behindQuestion: { askedAt, preview },
+    };
   });
 
   const settle = Effect.fn("SessionMcpService.settle")(function* (

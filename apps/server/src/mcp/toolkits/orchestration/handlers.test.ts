@@ -432,12 +432,13 @@ const projectionOf = (threadId: string) =>
 
 /**
  * Puts a steerable turn on an idle thread, as a provider mid-turn leaves it,
- * and optionally a question it is waiting on. Returns the run.
+ * and optionally a question, or a command approval, it is waiting on. Returns the run.
  */
 const runningTurn = (
   threadId: ThreadId,
   options: {
     readonly question?: boolean;
+    readonly approval?: { readonly prompt?: string; readonly reason?: string };
     readonly driver?: string;
     readonly model?: string;
   } = {},
@@ -534,7 +535,8 @@ const runningTurn = (
         },
       },
     ];
-    if (options.question === true) {
+    const approval = options.approval;
+    if (options.question === true || approval !== undefined) {
       events.push({
         id: EventId.make(`${threadId}:question`),
         type: "runtime-request.updated",
@@ -545,7 +547,7 @@ const runningTurn = (
           nodeId: NodeId.make(`question-node:${threadId}`),
           providerTurnId,
           nativeRequestRef: null,
-          kind: "user_input",
+          kind: approval === undefined ? "user_input" : "command",
           status: "pending",
           responseCapability: {
             type: "live",
@@ -553,6 +555,53 @@ const runningTurn = (
           },
           createdAt: now,
           resolvedAt: null,
+        },
+      });
+      events.push({
+        id: EventId.make(`${threadId}:question-item`),
+        type: "turn-item.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make(`question-item:${threadId}`),
+          threadId,
+          runId,
+          nodeId: NodeId.make(`question-node:${threadId}`),
+          providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "waiting",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          ...(approval === undefined
+            ? {
+                type: "user_input_request" as const,
+                requestId: RuntimeRequestId.make(`question:${threadId}`),
+                questions: [
+                  {
+                    id: "scope",
+                    header: "Scope",
+                    question: "  Should the fix\n  also cover mobile?  ",
+                    options: [{ label: "Yes", description: "Cover mobile too." }],
+                  },
+                  {
+                    id: "tests",
+                    header: "Tests",
+                    question: "Add a browser test?",
+                    options: [{ label: "No", description: "Skip it." }],
+                  },
+                ],
+              }
+            : {
+                type: "approval_request" as const,
+                requestId: RuntimeRequestId.make(`question:${threadId}`),
+                requestKind: "command" as const,
+                ...approval,
+              }),
         },
       });
     }
@@ -941,6 +990,7 @@ it.effect("lists open sessions in one project, a named one, or all, with status 
       status: "ready",
       branch: lane.branch,
       worktreePath: lane.path,
+      pendingQuestion: null,
     });
     expect(rows["L1-review"]).toMatchObject({ threadId: busy.threadId, status: "running" });
 
@@ -1086,6 +1136,37 @@ it.effect("queues a wake while a question is open, a message waits, or a Stop is
     const asking = yield* seed({ id: "thread:asking", title: "L5-review" });
     yield* runningTurn(asking, { question: true });
     expect(yield* wakeModeOf(asking)).toBe("queue");
+    const prompting = yield* seed({ id: "thread:prompting", title: "L5-approve" });
+    yield* runningTurn(prompting, { approval: { prompt: "Run vp test run?", reason: "Tests." } });
+    const reasoning = yield* seed({ id: "thread:reasoning", title: "L5-approve-why" });
+    yield* runningTurn(reasoning, { approval: { reason: "Needs network access." } });
+    const askedAt = DateTime.formatIso(yield* DateTime.now);
+    const preview = "Should the fix also cover mobile? (+1 more)";
+    const rows = (yield* ok(orchestratorId, "session_list", {})).sessions;
+    expect(
+      [prompting, reasoning].map(
+        (threadId) =>
+          rows.find((row: Record<string, unknown>) => row.threadId === threadId).pendingQuestion,
+      ),
+    ).toEqual([
+      { askedAt, kind: "command", preview: "Run vp test run?" },
+      { askedAt, kind: "command", preview: "Needs network access." },
+    ]);
+    expect(rows.find((row: Record<string, unknown>) => row.threadId === asking)).toMatchObject({
+      status: "running",
+      pendingQuestion: { askedAt, kind: "user_input", preview },
+    });
+    expect(
+      rows.find((row: Record<string, unknown>) => row.threadId === idle).pendingQuestion,
+    ).toBeNull();
+    expect(yield* ok(orchestratorId, "session_wake", { name: asking, message: "Status?" })).toEqual(
+      {
+        threadId: asking,
+        name: "L5-review",
+        delivery: "queued",
+        behindQuestion: { askedAt, preview },
+      },
+    );
 
     // No provider process runs here, so the steer is refused and the wake falls back to the
     // queue; that queued message then keeps a later wake from overtaking it.
@@ -1097,6 +1178,7 @@ it.effect("queues a wake while a question is open, a message waits, or a Stop is
       message: "Also check the tests.",
     });
     expect(queued.delivery).toBe("queued");
+    expect(queued).not.toHaveProperty("behindQuestion");
     const projection = yield* projectionOf(working);
     expect(projection.runs.map((run) => [run.id === workingRun, run.status])).toEqual([
       [true, "running"],
