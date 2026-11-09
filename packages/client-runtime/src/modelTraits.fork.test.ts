@@ -1,6 +1,6 @@
 // Fork-owned tests for modelTraits.ts.
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
+import type { ProviderOptionDescriptor } from "@t3tools/contracts";
 import { buildTraitsTriggerDisplay } from "./modelTraits.ts";
 
 function selectDescriptor(
@@ -39,11 +39,8 @@ function outputStyleDescriptor(currentValue: string) {
   );
 }
 
-const CODEX = ProviderDriverKind.make("codex");
-
 function display(descriptors: ReadonlyArray<ProviderOptionDescriptor>) {
   return buildTraitsTriggerDisplay({
-    provider: CODEX,
     descriptors,
     primarySelectDescriptorId: "reasoningEffort",
     ultrathinkPromptControlled: false,
