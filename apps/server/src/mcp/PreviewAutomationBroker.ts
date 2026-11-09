@@ -289,10 +289,24 @@ const classifyResponseError = (
         error.detail !== null &&
         "staleRef" in error.detail &&
         error.detail.staleRef === true;
+      // Fork: pass a strict-mode ambiguity through, with its match count when the host had one.
+      const ambiguous =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        "ambiguous" in error.detail &&
+        error.detail.ambiguous === true;
+      const matches =
+        ambiguous && "matches" in error.detail && typeof error.detail.matches === "number"
+          ? error.detail.matches
+          : undefined;
       return new PreviewAutomationInvalidSelectorError({
         ...context,
         ...remoteDiagnostics,
         ...(staleRef ? { staleRef } : {}),
+        ...(ambiguous ? { ambiguous } : {}),
+        ...(matches !== undefined && Number.isInteger(matches) && matches >= 0
+          ? { matchCount: matches }
+          : {}),
       });
     }
     case "PreviewAutomationTargetNotEditableError": {

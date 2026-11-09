@@ -372,6 +372,40 @@ it.effect("names the click target that matched nothing when the server browser t
   ),
 );
 
+it.effect("tells an ambiguous locator from an invalid one", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const clientId = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
+      const requests = requestsFrom(yield* broker.connect(makeHost({ clientId })));
+      yield* Stream.runForEach(requests, (request) =>
+        broker.respond({
+          clientId,
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: false,
+          error: {
+            _tag: "PreviewAutomationInvalidSelectorError",
+            message: "strict mode violation: locator('text=Cancel') resolved to 3 elements:",
+            detail: { ambiguous: true, matches: 3 },
+          },
+        }),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const error = yield* broker
+        .invoke<void>({ scope, operation: "click", input: { locator: "text=Cancel" } })
+        .pipe(Effect.flip);
+
+      expect(error._tag).toBe("PreviewAutomationInvalidSelectorError");
+      expect(error).toMatchObject({ ambiguous: true, matchCount: 3 });
+      expect(error.message).toBe(
+        "Preview automation click locator matched 3 elements; narrow it with an exact name, a `>>` scope, or nth=.",
+      );
+    }),
+  ),
+);
+
 it.effect("distinguishes malformed remote failures", () =>
   Effect.scoped(
     Effect.gen(function* () {

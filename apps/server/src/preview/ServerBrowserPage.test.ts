@@ -89,12 +89,13 @@ describe("server browser element refs", () => {
 
   it("rejects ambiguous CSS controls without clicking any row", async () => {
     await page.setContent(repeatedRows);
-    await expect(
-      ServerBrowserPage.click(page, {
-        selector: 'button[data-testid="delete-row"]',
-        timeoutMs: 1_000,
-      }),
-    ).rejects.toThrow(/strict mode violation/);
+    const error = await ServerBrowserPage.click(page, {
+      selector: 'button[data-testid="delete-row"]',
+      timeoutMs: 1_000,
+    }).then(() => expect.unreachable(), ServerBrowserPage.toOperationError);
+    expect(error.tag).toBe("PreviewAutomationInvalidSelectorError");
+    expect(error.message).toMatch(/strict mode violation/);
+    expect(error.detail).toEqual({ ambiguous: true, matches: 5 });
     expect(await page.locator("li").count()).toBe(5);
   });
 

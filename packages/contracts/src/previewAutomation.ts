@@ -849,11 +849,16 @@ export class PreviewAutomationInvalidSelectorError extends Schema.TaggedError<Pr
     selectorKind: Schema.optional(Schema.Literals(["locator", "selector"])),
     selectorLength: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
     staleRef: Schema.optional(Schema.Boolean),
+    // Fork: a valid locator that matched several elements (Playwright strict mode).
+    ambiguous: Schema.optional(Schema.Boolean),
+    matchCount: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   },
 ) {
   override get message(): string {
     if (this.staleRef)
       return "This element ref is stale. Navigation, dialogs, and new snapshots replace refs; take a fresh snapshot and use its refs.";
+    if (this.ambiguous)
+      return `Preview automation ${this.operation} ${this.selectorKind ?? "locator"} matched ${this.matchCount ?? "several"} elements; narrow it with an exact name, a \`>>\` scope, or nth=.`;
     if (this.selectorKind !== undefined && this.selectorLength !== undefined) {
       const guidance =
         this.selectorKind === "locator"
