@@ -22,6 +22,7 @@ import {
   RunAttemptId,
   RunId,
   RuntimeRequestId,
+  ScheduledTaskError,
   ThreadId,
   TurnItemId,
   type OrchestrationV2DomainEvent,
@@ -39,6 +40,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../../../config.ts";
@@ -48,7 +50,9 @@ import * as CommandReceiptStore from "../../../orchestration-v2/CommandReceiptSt
 import * as ContextHandoffService from "../../../orchestration-v2/ContextHandoffService.ts";
 import * as EventSink from "../../../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
+import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderSessionManager from "../../../orchestration-v2/ProviderSessionManager.ts";
@@ -66,7 +70,10 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
+import * as ManagedPolicy from "../../../policy/ManagedPolicy.ts";
+import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as Scheduler from "../../../scheduling/Scheduler.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as WorktreeSetupTracker from "../../../project/WorktreeSetupTracker.ts";
 import * as ProviderAuthService from "../../../provider/ProviderAuthService.ts";
 import * as ProviderRegistryMock from "../../../provider/testUtils/providerRegistryMock.ts";
@@ -154,16 +161,40 @@ const providers = [
   provider("cursor", [{ slug: "auto" }], false),
 ];
 
+/** How a re-save of an existing scheduled task with that title goes wrong. */
+type TaskSaveFault = "fail" | "die" | "deleted";
+
+type ThreadDispatch = ThreadManagement.ThreadManagementService["Service"]["dispatch"];
+
+/** A dispatch hook returns what to run instead of the command, or undefined to run it. */
+interface SessionThreadFaults {
+  readonly dispatch?: (
+    command: OrchestrationV2ServerCommand,
+    real: ThreadDispatch,
+  ) => ReturnType<ThreadDispatch> | undefined;
+  readonly refuseSend?: (input: ThreadManagement.ThreadManagementSendInput) => boolean;
+}
+
+const refusal = (command: OrchestrationV2ServerCommand) =>
+  Effect.fail(
+    new Orchestrator.OrchestratorDispatchError({
+      commandId: command.commandId,
+      commandType: command.type,
+      cause: "refused by the test",
+    }),
+  );
+
 /**
- * `worktrees` is what `git worktree list` reports for the project, as listRefs
- * carries it. `setupRuns` collects the directory of every setup-script run.
- * A launch titled with a name in `failLaunchOnce` creates its thread and then
- * fails, once, as a launch can after its thread exists.
+ * `worktrees` is what listRefs reports; `setupRuns` collects setup-script directories. A launch
+ * titled in `failLaunchOnce` fails once after its thread exists, a task re-save titled in
+ * `taskSaveFaults` goes wrong that way, and `sessionFaults` intercepts the session tools' commands.
  */
 function makeHarness(
   worktrees: ReadonlyArray<{ readonly branch: string; readonly path: string }>,
   setupRuns: Array<string> = [],
   failLaunchOnce: Set<string> = new Set(),
+  taskSaveFaults: ReadonlyMap<string, TaskSaveFault> = new Map(),
+  sessionFaults: SessionThreadFaults = {},
 ) {
   const database = SqlitePersistence.layerMemory;
   const orchestrator = ProviderReplayHarness.layerWithRegistry(
@@ -217,6 +248,7 @@ function makeHarness(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
       folderForThread: () => Effect.succeedNone,
+      isScratchProject: () => Effect.succeed(false),
     }),
   );
   const realLaunch = ThreadLaunch.layer.pipe(
@@ -257,6 +289,41 @@ function makeHarness(
       ),
     ),
   );
+  // Real, so a handoff's task moves pass the service's own destination checks. Nothing runs here.
+  const realScheduledTasks = ScheduledTaskService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        threadManagement,
+        launch,
+        external,
+        database,
+        NodeCrypto.layer,
+        ManagedPolicy.layerTest(),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+      ),
+    ),
+  );
+  const scheduledTasks = Layer.effect(
+    ScheduledTaskService.ScheduledTaskService,
+    Effect.gen(function* () {
+      const real = yield* ScheduledTaskService.ScheduledTaskService;
+      return ScheduledTaskService.ScheduledTaskService.of({
+        ...real,
+        upsert: (input) => {
+          const fault = input.id === undefined ? undefined : taskSaveFaults.get(input.title);
+          if (fault === "fail") {
+            return Effect.fail(new ScheduledTaskError({ message: "refused by the test" }));
+          }
+          if (fault === "die") return Effect.die("crashed in the test");
+          if (fault === "deleted" && input.id !== undefined) {
+            return real.delete({ id: input.id }).pipe(Effect.andThen(real.upsert(input)));
+          }
+          return real.upsert(input);
+        },
+      });
+    }),
+  ).pipe(Layer.provide(realScheduledTasks));
   // The database is the orchestrator's own (layers memoize), so the session
   // service's held-queue query reads the runs the orchestrator writes.
   const services = Layer.mergeAll(
@@ -265,17 +332,40 @@ function makeHarness(
     external,
     database,
     idleHandoffs,
+    scheduledTasks,
     SessionWakeFailureNotice.layer.pipe(
       Layer.provide(Layer.merge(threadManagement, serverSettings)),
     ),
     NodeServices.layer,
     NodeCrypto.layer,
   );
+  // Only the session tools' own calls are intercepted, so seeding and the other services still work.
+  const sessionThreads = Layer.effect(
+    ThreadManagement.ThreadManagementService,
+    Effect.gen(function* () {
+      const real = yield* ThreadManagement.ThreadManagementService;
+      return ThreadManagement.ThreadManagementService.of({
+        ...real,
+        dispatch: (command) =>
+          sessionFaults.dispatch?.(command, real.dispatch) ?? real.dispatch(command),
+        sendToThread: (input) =>
+          sessionFaults.refuseSend?.(input) === true
+            ? Effect.fail(
+                new ThreadManagement.ThreadManagementThreadArchivedError({
+                  threadId: input.threadId,
+                }),
+              )
+            : real.sendToThread(input),
+      });
+    }),
+  ).pipe(Layer.provide(threadManagement));
   return McpHttpServer.toolkitRegistration(
     OrchestrationToolkit,
     OrchestrationToolkitHandlersLive,
   ).pipe(
-    Layer.provide(SessionMcpService.layer.pipe(Layer.provide(services))),
+    Layer.provide(
+      SessionMcpService.layer.pipe(Layer.provide(sessionThreads), Layer.provide(services)),
+    ),
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provideMerge(services),
   );
@@ -709,6 +799,7 @@ it.effect("refuses a name an open or settled session holds, an empty message, an
       message: "Again.",
     });
     expect(open).toContain("already-exists");
+    expect(open).toContain("an open session named L2-dev (thread:open) already exists");
     expect(open).toContain("use session_wake");
     const settled = yield* refused(orchestratorId, "session_spawn", {
       name: "L2-review",
@@ -923,6 +1014,19 @@ it.effect(
           branch: lane.branch,
           worktreePath: lane.path,
         });
+        expect(successor.successorLinkError).toBeUndefined();
+
+        // A wake to the replaced lead reaches its successor; the successor questioning its
+        // predecessor still reaches the predecessor.
+        expect(yield* ok(root, "session_wake", { name: caller, message: "Status?" })).toMatchObject(
+          { threadId: successor.threadId, name: "Lead-2", forwardedFrom: caller },
+        );
+        const asked = yield* ok(ThreadId.make(successor.threadId), "session_wake", {
+          name: caller,
+          message: "Where did L5 stop?",
+        });
+        expect(asked).toMatchObject({ threadId: caller, name: "Lead" });
+        expect(asked.forwardedFrom).toBeUndefined();
         const next = yield* shellOf(successor.threadId);
         expect(next).toMatchObject({
           spawnedByThreadId: root,
@@ -941,10 +1045,304 @@ it.effect(
           group: "L5",
           message: "Go.",
         });
-        expect(plain).toMatchObject({ branch: null, worktreePath: null });
+        expect(plain).toMatchObject({ branch: null, worktreePath: null, movedScheduledTasks: [] });
         expect((yield* shellOf(plain.threadId)).pinnedAt == null).toBe(true);
       }).pipe(Effect.provide(makeHarness([lane])));
     }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "hands off the caller's scheduled tasks and their waiting runs, reporting what will not move",
+  () =>
+    Effect.gen(function* () {
+      const lead = yield* seed({ id: "thread:lead", title: "Lead" });
+      const other = yield* seed({ id: "thread:other", title: "Other" });
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const save = (
+        title: string,
+        threadId: ThreadId,
+        extra: Partial<Parameters<typeof tasks.upsert>[0]> = {},
+      ) =>
+        tasks
+          .upsert({
+            title,
+            prompt: `${title}.`,
+            enabled: true,
+            schedule: { type: "interval", everyMs: 60_000 },
+            projectId,
+            threadId,
+            workspaceStrategy: { type: "root" },
+            modelSelection: callerModel,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            ...extra,
+          })
+          .pipe(Effect.map(({ task }) => task.id));
+      const checkIn = yield* save("Check in", lead, {
+        workspaceStrategy: { type: "worktree", baseRef: "main" },
+      });
+      const paused = yield* save("Paused sweep", lead, { enabled: false });
+      const fresh = yield* save("Fresh sweep", lead, { threadMode: "fresh_session" });
+      const hook = yield* save("Hook sweep", lead, {
+        schedule: {
+          type: "webhook",
+          signature: { header: "x-hub-signature-256", encoding: "hex", prefix: "", secret: "s" },
+        },
+      });
+      const refusedTask = yield* save("Refused sweep", lead);
+      const crashing = yield* save("Crashing sweep", lead);
+      const deleted = yield* save("Deleted sweep", lead);
+      const elsewhere = yield* save("Other sweep", other);
+      // Runs that fire while the lead's handoff turn runs wait in its queue.
+      yield* runningTurn(lead);
+      for (const id of [checkIn, fresh, refusedTask]) yield* tasks.runNow({ id });
+      const byId = Effect.map(tasks.list(), ({ tasks: listed }) =>
+        Object.fromEntries(listed.map((task) => [task.id, task] as const)),
+      );
+      const before = yield* byId;
+      const waitingIn = (threadId: string) =>
+        Effect.map(projectionOf(threadId), (projection) =>
+          queuedRunsInDeliveryOrder(projection).flatMap((run) => {
+            const message = projection.messages.find((item) => item.id === run.userMessageId);
+            return message?.scheduledTaskId === undefined
+              ? []
+              : [
+                  {
+                    task: message.scheduledTaskId,
+                    createdBy: message.createdBy,
+                    creationSource: message.creationSource,
+                    run,
+                  },
+                ];
+          }),
+        );
+      expect((yield* waitingIn(lead)).map(({ task }) => task)).toEqual([
+        checkIn,
+        fresh,
+        refusedTask,
+      ]);
+
+      const successor = yield* ok(lead, "session_spawn", {
+        name: "Lead-2",
+        group: "leads",
+        message: "Take over.",
+        handoff: true,
+      });
+      expect(successor.movedScheduledTasks.toSorted()).toEqual(
+        [checkIn, paused, fresh, hook].toSorted(),
+      );
+      expect(successor.requeuedScheduledRuns).toEqual([checkIn, fresh]);
+      expect(successor.scheduledTaskMoveError).toContain(
+        `Refused sweep (${refusedTask}) still runs in your thread: refused by the test`,
+      );
+      expect(successor.scheduledTaskMoveError).toContain(
+        `Crashing sweep (${crashing}) still runs in your thread`,
+      );
+      expect(successor.scheduledTaskMoveError).toContain(
+        `Deleted sweep (${deleted}) was deleted before it could move`,
+      );
+      expect(successor.scheduledTaskMoveError).not.toContain(
+        `Deleted sweep (${deleted}) still runs`,
+      );
+
+      const after = yield* byId;
+      expect(after[checkIn]).toMatchObject({
+        threadId: successor.threadId,
+        workspaceStrategy: { type: "worktree", baseRef: "main" },
+        nextRunAt: before[checkIn]?.nextRunAt,
+      });
+      expect(after[paused]).toMatchObject({ threadId: successor.threadId, enabled: false });
+      expect(after[fresh]).toMatchObject({
+        threadId: successor.threadId,
+        threadMode: "fresh_session",
+      });
+      expect(after[hook]).toMatchObject({
+        threadId: successor.threadId,
+        schedule: { type: "webhook" },
+        webhook: { path: before[hook]?.webhook?.path, hasSecret: true },
+      });
+      expect(after[refusedTask]?.threadId).toBe(lead);
+      expect(after[crashing]?.threadId).toBe(lead);
+      expect(after[deleted]).toBeUndefined();
+      expect(after[elsewhere]?.threadId).toBe(other);
+      // The refused task's run stays; the moved ones run in the successor, as the task posts them.
+      expect((yield* waitingIn(lead)).map(({ task }) => task)).toEqual([refusedTask]);
+      const moved = yield* waitingIn(successor.threadId);
+      expect(
+        moved.map(({ task, createdBy, creationSource }) => [task, createdBy, creationSource]),
+      ).toEqual([
+        [checkIn, "user", "web"],
+        [fresh, "user", "web"],
+      ]);
+      expect(moved.map(({ run }) => run.freshContext === true)).toEqual([false, true]);
+      expect((yield* projectionOf(lead)).runs.find((run) => run.status === "running")?.id).toBe(
+        RunId.make(`run:${lead}`),
+      );
+
+      // Into another project, a task's worktree stays behind and it runs on the main checkout.
+      const third = yield* ok(ThreadId.make(successor.threadId), "session_spawn", {
+        name: "Lead-3",
+        group: "leads",
+        message: "Over to fleet.",
+        handoff: true,
+        project: "fleet",
+      });
+      expect(third.movedScheduledTasks).toContain(checkIn);
+      expect((yield* byId)[checkIn]).toMatchObject({
+        projectId: otherProjectId,
+        threadId: third.threadId,
+        workspaceStrategy: { type: "root" },
+      });
+    }).pipe(
+      Effect.provide(
+        makeHarness(
+          [],
+          [],
+          new Set(),
+          new Map([
+            ["Refused sweep", "fail"],
+            ["Crashing sweep", "die"],
+            ["Deleted sweep", "deleted"],
+          ]),
+        ),
+      ),
+    ),
+);
+
+/**
+ * Cancels arrive in delivery order: the first is refused, the second loses a race to another
+ * cancel, the third lands, and then its send to the successor is refused.
+ */
+const cancelFaults = (): SessionThreadFaults => {
+  let seen = 0;
+  return {
+    dispatch: (command, real) => {
+      if (command.type !== "queued-run.cancel") return undefined;
+      seen += 1;
+      if (seen === 1) return refusal(command);
+      if (seen === 2) return real(command).pipe(Effect.andThen(refusal(command)));
+      return undefined;
+    },
+    refuseSend: (input) => input.text === "Dropped sweep.",
+  };
+};
+
+it.effect("says why a waiting scheduled run did not move to a handoff successor", () =>
+  Effect.gen(function* () {
+    const lead = yield* seed({ id: "thread:lead", title: "Lead" });
+    const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+    const save = (title: string) =>
+      tasks
+        .upsert({
+          title,
+          prompt: `${title}.`,
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId,
+          threadId: lead,
+          workspaceStrategy: { type: "root" },
+          modelSelection: callerModel,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        })
+        .pipe(Effect.map(({ task }) => task.id));
+    const stuck = yield* save("Stuck sweep");
+    const raced = yield* save("Raced sweep");
+    const dropped = yield* save("Dropped sweep");
+    yield* runningTurn(lead);
+    for (const id of [stuck, raced, dropped]) yield* tasks.runNow({ id });
+
+    const successor = yield* ok(lead, "session_spawn", {
+      name: "Lead-2",
+      group: "leads",
+      message: "Take over.",
+      handoff: true,
+    });
+    expect(successor.movedScheduledTasks.toSorted()).toEqual([stuck, raced, dropped].toSorted());
+    expect(successor.requeuedScheduledRuns).toEqual([]);
+    expect(successor.scheduledTaskMoveError).toContain(
+      `the queued run of ${stuck} still waits in your queue: dispatch-failed`,
+    );
+    expect(successor.scheduledTaskMoveError).toContain(
+      `the run of ${raced} was no longer queued in your thread (it is cancelled), so it was not moved`,
+    );
+    expect(successor.scheduledTaskMoveError).toContain(
+      `the queued run of ${dropped} was cancelled in your queue but not sent to the new session, so this firing is lost (run_scheduled_task_now ${dropped} fires it again)`,
+    );
+    const queue = yield* projectionOf(lead);
+    expect(
+      queuedRunsInDeliveryOrder(queue).map(
+        (run) => queue.messages.find((message) => message.id === run.userMessageId)?.text,
+      ),
+    ).toEqual(["Stuck sweep."]);
+  }).pipe(Effect.provide(makeHarness([], [], new Set(), new Map(), cancelFaults()))),
+);
+
+it.effect("links the successor before adoption, and reports a link that could not be written", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const lead = yield* seed({ id: "thread:lead", title: "Lead" });
+    yield* seed({ id: "thread:adoptee", title: "L8-dev", spawnedBy: lead, group: "L8" });
+    const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+    const { task } = yield* tasks.upsert({
+      title: "Check in",
+      prompt: "Check in.",
+      enabled: true,
+      schedule: { type: "interval", everyMs: 60_000 },
+      projectId,
+      threadId: lead,
+      workspaceStrategy: { type: "root" },
+      modelSelection: callerModel,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    const failed = yield* refused(lead, "session_spawn", {
+      name: "Lead-2",
+      group: "leads",
+      message: "Take over.",
+      handoff: true,
+    });
+    expect(failed).toContain("failed on L8-dev");
+    expect(failed).toContain(
+      "Lead-2 already runs and receives your wakes and your scheduled tasks, so do not hand off again",
+    );
+    expect(failed).toContain(`moved scheduled tasks: ${task.id}`);
+    const successor = (yield* ok(lead, "session_list", {})).sessions.find(
+      (row: { readonly name: string }) => row.name === "Lead-2",
+    );
+    expect((yield* shellOf(lead)).successorThreadId).toBe(successor.threadId);
+    expect(yield* ok(orchestratorId, "session_wake", { name: lead, message: "?" })).toMatchObject({
+      threadId: successor.threadId,
+      forwardedFrom: lead,
+    });
+
+    // A link the server refuses leaves wakes with the caller, and says so.
+    const unlinked = yield* seed({ id: "thread:unlinked", title: "Unlinked" });
+    const spawned = yield* ok(unlinked, "session_spawn", {
+      name: "Unlinked-2",
+      group: "leads",
+      message: "Take over.",
+      handoff: true,
+    });
+    expect(spawned.successorLinkError).toContain(
+      `your thread does not name Unlinked-2 (${spawned.threadId}) as its successor`,
+    );
+    const stays = yield* ok(orchestratorId, "session_wake", { name: unlinked, message: "?" });
+    expect(stays).toMatchObject({ threadId: unlinked });
+    expect(stays.forwardedFrom).toBeUndefined();
+  }).pipe(
+    Effect.provide(
+      makeHarness([], [], new Set(), new Map(), {
+        dispatch: (command) =>
+          command.type === "thread.metadata.update" &&
+          (command.threadId === ThreadId.make("thread:adoptee") ||
+            (command.threadId === ThreadId.make("thread:unlinked") &&
+              command.successorThreadId != null))
+            ? refusal(command)
+            : undefined,
+      }),
+    ),
+  ),
 );
 
 it.effect("lists open sessions in one project, a named one, or all, with status and self", () =>
@@ -1100,6 +1498,94 @@ it.effect(
       });
       expect(queued.delivery).toBe("queued");
     }).pipe(Effect.provide(makeHarness([]))),
+);
+
+it.effect("forwards a wake along handoffs, except to a caller on the chain or a reopened one", () =>
+  Effect.gen(function* () {
+    yield* seedOrchestrator;
+    const handOff = (from: ThreadId, to: ThreadId) =>
+      dispatch((commandId) => ({
+        type: "thread.metadata.update",
+        commandId,
+        threadId: from,
+        successorThreadId: to,
+      }));
+    const first = yield* seed({ id: "thread:lead-1", title: "Lead-1" });
+    yield* TestClock.adjust("1 second");
+    const second = yield* seed({ id: "thread:lead-2", title: "Lead-2" });
+    yield* TestClock.adjust("1 second");
+    const third = yield* seed({ id: "thread:lead-3", title: "Lead-3" });
+    yield* handOff(first, second);
+    yield* handOff(second, third);
+
+    expect(
+      yield* ok(orchestratorId, "session_wake", { name: "Lead-1", message: "Status?" }),
+    ).toEqual({ threadId: third, name: "Lead-3", delivery: "started", forwardedFrom: first });
+    expect((yield* projectionOf(third)).messages.at(-1)?.text).toBe(
+      `[From session Orchestrator (${orchestratorId}), another agent, not the user]\n[Addressed to Lead-1 (${first}), forwarded to you after its handoff]\n\nStatus?`,
+    );
+    // Anywhere on the chain, the caller reaches the session it named.
+    const fromSuccessor = yield* ok(third, "session_wake", { name: first, message: "Why?" });
+    expect(fromSuccessor).toEqual({ threadId: first, name: "Lead-1", delivery: "started" });
+
+    // A task made in the app posts as the user, but that is not the user reopening Lead-2.
+    yield* TestClock.adjust("1 second");
+    const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+    const { task } = yield* tasks.upsert({
+      title: "Sweep",
+      prompt: "Sweep.",
+      enabled: true,
+      schedule: { type: "interval", everyMs: 60_000 },
+      projectId,
+      threadId: second,
+      workspaceStrategy: { type: "root" },
+      modelSelection: callerModel,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    yield* tasks.runNow({ id: task.id });
+    expect((yield* shellOf(second)).latestUserAuthoredMessageAt).not.toBeNull();
+    expect(
+      yield* ok(orchestratorId, "session_wake", { name: "Lead-1", message: "Still there?" }),
+    ).toMatchObject({ threadId: third, forwardedFrom: first });
+
+    // The user writing in Lead-2 after Lead-3 took over reopens it: wakes stop there.
+    yield* TestClock.adjust("1 second");
+    yield* dispatch((commandId) => ({
+      type: "message.dispatch",
+      commandId,
+      threadId: second,
+      messageId: MessageId.make("message:user-reopens"),
+      text: "Back to you for a moment.",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    }));
+    const reopened = yield* ok(orchestratorId, "session_wake", { name: second, message: "Hi." });
+    expect(reopened).toMatchObject({ threadId: second, name: "Lead-2" });
+    expect(reopened.forwardedFrom).toBeUndefined();
+    expect(
+      yield* ok(orchestratorId, "session_wake", { name: "Lead-1", message: "Again?" }),
+    ).toMatchObject({ threadId: second, forwardedFrom: first });
+
+    // A link to an archived session, or back into the chain, ends at the last session reached.
+    const stranded = yield* seed({ id: "thread:stranded", title: "Stranded" });
+    const gone = yield* seed({ id: "thread:gone", title: "Gone" });
+    yield* handOff(stranded, gone);
+    yield* dispatch((commandId) => ({ type: "thread.archive", commandId, threadId: gone }));
+    const toStranded = yield* ok(orchestratorId, "session_wake", { name: stranded, message: "?" });
+    expect(toStranded).toMatchObject({ threadId: stranded });
+    expect(toStranded.forwardedFrom).toBeUndefined();
+    const loopA = yield* seed({ id: "thread:loop-a", title: "Loop-A" });
+    const loopB = yield* seed({ id: "thread:loop-b", title: "Loop-B" });
+    yield* handOff(loopA, loopB);
+    yield* handOff(loopB, loopA);
+    expect(yield* ok(orchestratorId, "session_wake", { name: loopA, message: "?" })).toMatchObject({
+      threadId: loopB,
+      forwardedFrom: loopA,
+    });
+  }).pipe(Effect.provide(makeHarness([]))),
 );
 
 const wakeModeOf = (threadId: ThreadId) =>
@@ -2107,6 +2593,12 @@ it.effect("renames by name, by threadId across projects, and itself, keeping nam
     ).toMatchObject({ previousName: "fleet-dev" });
     expect((yield* shellOf(remote)).title).toBe("fleet-dev-2");
 
+    expect(
+      yield* refused(orchestratorId, "session_rename", {
+        session: "Orchestrator",
+        name: "L6-dev-2",
+      }),
+    ).toContain("an open session named L6-dev-2 (thread:dev) already exists");
     const clash = yield* refused(orchestratorId, "session_rename", {
       session: "Orchestrator",
       name: "Orchestrator-old",

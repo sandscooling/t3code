@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { isLoopbackHost } from "@t3tools/shared/preview";
 
+import { useHandedOffThreadIds } from "./handoffPortAttribution";
 import { previewEnvironment } from "./state/preview";
 import { useEnvironmentQuery } from "./state/query";
 
@@ -71,10 +72,14 @@ export function useThreadDiscoveredPorts(input: {
   readonly threadId: ThreadId | null;
 }): ReadonlyArray<DiscoveredLocalServer> {
   const ports = useDiscoveredPorts(input.environmentId);
+  // Fork: a handoff successor also lists the servers its predecessors' agents started.
+  const handedOff = useHandedOffThreadIds(input.environmentId, input.threadId);
   return input.threadId
     ? ports.filter(
         (port) =>
-          port.terminal?.threadId === input.threadId || port.agent?.threadId === input.threadId,
+          port.terminal?.threadId === input.threadId ||
+          port.agent?.threadId === input.threadId ||
+          handedOff.has(port.agent?.threadId ?? ""),
       )
     : EMPTY_PORTS;
 }

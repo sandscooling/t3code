@@ -6,6 +6,7 @@
 import {
   CommandId,
   MessageId,
+  SESSION_SUCCESSOR_MAX_HOPS,
   ThreadId,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
@@ -38,8 +39,6 @@ export const sessionWakeMessageId = (commandId: CommandId) =>
 const opensSpawnedSession = (run: OrchestrationV2Run) =>
   run.userMessageId === sessionWakeMessageId(CommandId.make(run.threadId));
 
-/** Handoffs a sender's successor link is followed through, a bound against a cycle. */
-const MAX_SUCCESSOR_HOPS = 8;
 const MAX_SUMMARY_LENGTH = 300;
 
 export class SessionWakeFailureNotice extends Context.Service<
@@ -73,7 +72,7 @@ const make = Effect.gen(function* () {
     let shell = yield* threads.getThreadShell(senderThreadId);
     for (
       let hop = 0;
-      hop < MAX_SUCCESSOR_HOPS &&
+      hop < SESSION_SUCCESSOR_MAX_HOPS &&
       shell?.successorThreadId != null &&
       shell.successorThreadId !== stopBefore;
       hop += 1

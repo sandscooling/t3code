@@ -19,6 +19,9 @@ const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const SessionName = Schema.String.check(Schema.isPattern(SESSION_NAME_PATTERN));
 
+/** How far anything follows a handoff's successorThreadId links, so a cycle cannot spin. */
+export const SESSION_SUCCESSOR_MAX_HOPS = 8;
+
 /**
  * Session names only reach the caller's own project; a threadId reaches any
  * project. v2 threadIds carry colons, so this is not held to the name pattern.
@@ -158,6 +161,14 @@ export const SessionSpawnResult = Schema.Struct({
   options: Schema.Array(SessionModelOptionSelection),
   /** Names of the sessions a handoff moved to the new session; empty otherwise. */
   adopted: Schema.Array(Schema.String),
+  /** Ids of the scheduled tasks a handoff rebound from the caller's thread to the new session. */
+  movedScheduledTasks: Schema.Array(Schema.String),
+  /** Task ids of the runs waiting in the caller's queue that a handoff moved to the new session. */
+  requeuedScheduledRuns: Schema.Array(Schema.String),
+  /** Set when a handoff could not move some scheduled task or run; the handoff itself still ran. */
+  scheduledTaskMoveError: Schema.optional(Schema.String),
+  /** Set when a handoff could not link the caller to the new session, so wakes are not forwarded. */
+  successorLinkError: Schema.optional(Schema.String),
   /** The worktree the session runs in; both null on the project's main checkout. */
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
@@ -308,6 +319,8 @@ export const SessionWakeResult = Schema.Struct({
   name: Schema.String,
   /** `started` a new turn, was `steered` into the running turn, or was `queued` behind it. */
   delivery: Schema.Literals(["started", "steered", "queued"]),
+  /** The threadId the wake named, when it went to that session's handoff successor instead. */
+  forwardedFrom: Schema.optional(Schema.String),
   /** Set when it queued behind a question or approval the session has open for the user. */
   behindQuestion: Schema.optional(
     Schema.Struct({

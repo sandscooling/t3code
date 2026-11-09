@@ -9,9 +9,13 @@ import {
   CommandId,
   isListedThreadLineage,
   isProviderAvailable,
+  MessageId,
   OrchestrationToolError,
+  scheduledTaskThreadMode,
+  SESSION_SUCCESSOR_MAX_HOPS,
   ThreadId,
   type ModelSelection,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
   type Project,
@@ -47,6 +51,7 @@ import {
   resolveSelectableModel,
 } from "@t3tools/shared/model";
 import { latestExecutedRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
@@ -58,6 +63,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { checkAttachedWorktree, type ListedWorktree } from "../../../git/attachedWorktrees.ts";
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
+import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
 import * as SessionWakeSteering from "../../../orchestration-v2/SessionWakeSteering.fork.ts";
@@ -65,6 +71,7 @@ import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import { ProviderRegistry } from "../../../provider/ProviderRegistry.ts";
+import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import type { McpInvocationScope } from "../../McpInvocationContext.ts";
 
 type Result<A> = Effect.Effect<A, OrchestrationToolError>;
@@ -216,6 +223,50 @@ const resolveSession = Effect.fn("SessionMcpService.resolveSession")(function* (
   return target;
 });
 
+/** A message the user typed: not a wake, a scheduled task's post, or an idle compaction. */
+const typedByUser = (message: OrchestrationV2ConversationMessage) =>
+  message.role === "user" &&
+  message.createdBy === "user" &&
+  message.scheduledTaskId === undefined &&
+  message.idleCompaction === undefined;
+
+/**
+ * Who reads a wake to a session that handed off: the live end of its successor links. The caller
+ * on that chain (a successor questioning its predecessor) reaches the session it named, and a
+ * session the user wrote in after its successor started keeps its wakes. A link to an archived,
+ * deleted or missing session, or back into the chain, ends at the last session reached.
+ */
+const wakeDestination = Effect.fn("SessionMcpService.wakeDestination")(function* (
+  sessions: ReadonlyArray<OrchestrationV2ThreadShell>,
+  caller: OrchestrationV2ThreadShell,
+  target: OrchestrationV2ThreadShell,
+  userTypedSince: (threadId: ThreadId, since: DateTime.Utc) => Result<boolean>,
+) {
+  const chain = [target];
+  for (let hop = 0; hop < SESSION_SUCCESSOR_MAX_HOPS; hop += 1) {
+    const linked = chain[chain.length - 1]?.successorThreadId;
+    const next = linked == null ? undefined : sessions.find((thread) => thread.id === linked);
+    if (next === undefined || chain.includes(next)) break;
+    chain.push(next);
+  }
+  if (chain.some((thread) => thread.id === caller.id)) return target;
+  for (const [index, thread] of chain.entries()) {
+    const successor = chain[index + 1];
+    if (successor === undefined) return thread;
+    // The shell's mark counts a web-made task's posts as the user's, so only a hop it flags is
+    // read. A queued run starting keeps its message's createdAt, so that is what is compared.
+    const marked = thread.latestUserAuthoredMessageAt;
+    if (
+      marked != null &&
+      DateTime.isGreaterThan(marked, successor.createdAt) &&
+      (yield* userTypedSince(thread.id, successor.createdAt))
+    ) {
+      return thread;
+    }
+  }
+  return target;
+});
+
 const describeOption = (descriptor: ProviderOptionDescriptor): SessionModelOption => {
   const fallback = getProviderOptionCurrentValue(descriptor);
   return {
@@ -317,6 +368,7 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const sql = yield* SqlClient.SqlClient;
   const idleHandoffs = yield* SessionIdleHandoff.SessionIdleHandoffService;
+  const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
 
   /**
    * Threads with a held queued run. Upstream holds a thread's queue after a
@@ -558,6 +610,148 @@ const make = Effect.gen(function* () {
           Effect.orElseSucceed(() => null),
         );
 
+  /**
+   * Rebinds every scheduled task bound to a replaced session onto its successor, through the
+   * service so its destination checks run, and moves those tasks' runs still waiting in the
+   * replaced session's queue, which would otherwise start a second orchestrator there. Anything
+   * that will not move is reported, never failing a handoff whose successor already runs.
+   */
+  const moveScheduledTasks = Effect.fn("SessionMcpService.moveScheduledTasks")(function* (
+    from: ThreadId,
+    to: ThreadId,
+    projectId: Project["id"],
+  ) {
+    const moved: Array<string> = [];
+    const requeued: Array<string> = [];
+    const failures: Array<string> = [];
+    const failed = (what: string) => (cause: Cause.Cause<unknown>) => {
+      failures.push(`${what}: ${describe(Cause.squash(cause))}`);
+    };
+    const tasks = yield* scheduledTasks.list().pipe(
+      Effect.map((listed) => listed.tasks.filter((task) => task.threadId === from)),
+      Effect.catchCause((cause) => {
+        failed("could not list scheduled tasks")(cause);
+        return Effect.succeed([]);
+      }),
+    );
+    for (const task of tasks) {
+      yield* scheduledTasks
+        .upsert({
+          id: task.id,
+          // A task deleted since the list stays deleted.
+          requireExisting: true,
+          title: task.title,
+          prompt: task.prompt,
+          enabled: task.enabled,
+          schedule: task.schedule,
+          projectId,
+          threadId: to,
+          threadMode: scheduledTaskThreadMode(task),
+          // A worktree belongs to one repository, so it never follows a task into another project.
+          workspaceStrategy:
+            task.projectId === projectId ? task.workspaceStrategy : { type: "root" },
+          modelSelection: task.modelSelection,
+          runtimeMode: task.runtimeMode,
+          interactionMode: task.interactionMode,
+          createdBy: task.createdBy,
+          creationSource: task.creationSource,
+        })
+        .pipe(
+          Effect.matchCauseEffect({
+            onSuccess: () => Effect.sync(() => moved.push(task.id)),
+            // Read again, so a task deleted since the list is not reported as still running.
+            onFailure: (cause) =>
+              scheduledTasks.list().pipe(
+                Effect.map((listed) => listed.tasks.every((item) => item.id !== task.id)),
+                Effect.orElseSucceed(() => false),
+                Effect.map((gone) =>
+                  gone
+                    ? failures.push(`${task.title} (${task.id}) was deleted before it could move`)
+                    : failed(`${task.title} (${task.id}) still runs in your thread`)(cause),
+                ),
+              ),
+          }),
+        );
+    }
+
+    // A run that already started is the caller's own turn and stays.
+    const waiting = new Set<string>(moved);
+    const queued =
+      waiting.size === 0
+        ? []
+        : yield* threads
+            .getThreadRecords(from, ["runs", "messages"], { messageRoles: ["user"] })
+            .pipe(
+              Effect.map((records) =>
+                queuedRunsInDeliveryOrder(records).flatMap((run) => {
+                  const message = records.messages.find((item) => item.id === run.userMessageId);
+                  return message?.scheduledTaskId !== undefined &&
+                    waiting.has(message.scheduledTaskId)
+                    ? [{ run, message, scheduledTaskId: message.scheduledTaskId }]
+                    : [];
+                }),
+              ),
+              Effect.catchCause((cause) => {
+                failed("could not read your queue for scheduled runs to move")(cause);
+                return Effect.succeed([]);
+              }),
+            );
+    for (const { run, message, scheduledTaskId } of queued) {
+      // Cancelled first: a run sent twice would start the old session as a second orchestrator.
+      const cancelled = yield* dispatch({
+        type: "queued-run.cancel",
+        commandId: yield* newCommandId,
+        threadId: from,
+        runId: run.id,
+      }).pipe(Effect.exit);
+      if (cancelled._tag === "Failure") {
+        // Worded by where the run is now: it may have started or been cancelled meanwhile.
+        const status = yield* threads.getThreadRecords(from, ["runs"], { runIds: [run.id] }).pipe(
+          Effect.map(({ runs }) => runs.find((candidate) => candidate.id === run.id)?.status),
+          Effect.orElseSucceed(() => undefined),
+        );
+        if (status === undefined || status === "queued") {
+          failed(`the queued run of ${scheduledTaskId} still waits in your queue`)(cancelled.cause);
+        } else {
+          failures.push(
+            `the run of ${scheduledTaskId} was no longer queued in your thread (it is ${status}), so it was not moved`,
+          );
+        }
+        continue;
+      }
+      const commandId = yield* newCommandId;
+      yield* threads
+        .sendToThread({
+          projectId,
+          commandId,
+          threadId: to,
+          messageId: MessageId.make(`${message.id}:handoff:${commandId}`),
+          scheduledTaskId,
+          text: message.text,
+          attachments: message.attachments,
+          mode: "queue",
+          ...(run.freshContext === true ? { freshContext: true } : {}),
+          createdBy: message.createdBy,
+          creationSource: message.creationSource,
+        })
+        .pipe(
+          Effect.matchCause({
+            onSuccess: () => {
+              requeued.push(scheduledTaskId);
+            },
+            onFailure: failed(
+              `the queued run of ${scheduledTaskId} was cancelled in your queue but not sent to the new session, so this firing is lost (run_scheduled_task_now ${scheduledTaskId} fires it again)`,
+            ),
+          }),
+        );
+    }
+    return {
+      movedScheduledTasks: moved,
+      requeuedScheduledRuns: requeued,
+      ...(failures.length === 0 ? {} : { scheduledTaskMoveError: failures.join("; ") }),
+    };
+  });
+
   const spawn = Effect.fn("SessionMcpService.spawn")(function* (
     scope: McpInvocationScope,
     input: SessionSpawnInput,
@@ -585,7 +779,7 @@ const make = Effect.gen(function* () {
         "already-exists",
         clash.settledOverride === "settled"
           ? `a settled session named ${input.name} still holds that name; session_wake reopens it, or archive it to free the name`
-          : `an open session named ${input.name} already exists; use session_wake`,
+          : `an open session named ${input.name} (${clash.id}) already exists; use session_wake`,
       );
     }
     const modelSelection = yield* resolveSpawnModel(
@@ -675,6 +869,24 @@ const make = Effect.gen(function* () {
       ),
     );
 
+    // The successor link forwards wakes to the new session and is what a client reading the
+    // replaced thread follows, so it is written as soon as the successor exists, before
+    // adoption can fail the spawn. A failure is reported, not fatal: the successor already runs.
+    const successorLinkError = handoff
+      ? yield* dispatch({
+          type: "thread.metadata.update",
+          commandId: yield* newCommandId,
+          threadId: caller.id,
+          successorThreadId: threadId,
+        }).pipe(
+          Effect.matchCause({
+            onSuccess: () => undefined,
+            onFailure: (cause) =>
+              `your thread does not name ${input.name} (${threadId}) as its successor, so wakes to you are not forwarded: ${describe(Cause.squash(cause))}`,
+          }),
+        )
+      : undefined;
+
     // A handoff successor takes over the caller's idle handoff, with any
     // field the spawn names changed, and the replaced caller stops getting
     // reminders. Done before adoption, which can fail the spawn, and never
@@ -698,6 +910,30 @@ const make = Effect.gen(function* () {
     if (handoff) {
       yield* idleHandoffs.set(caller.id, null).pipe(Effect.ignoreCause({ log: true }));
     }
+    // Before adoption too, since that can fail the spawn.
+    const taskMoves: {
+      readonly movedScheduledTasks: ReadonlyArray<string>;
+      readonly requeuedScheduledRuns: ReadonlyArray<string>;
+      readonly scheduledTaskMoveError?: string;
+    } = handoff
+      ? yield* moveScheduledTasks(caller.id, threadId, project.id)
+      : { movedScheduledTasks: [], requeuedScheduledRuns: [] };
+    const taskMoveSummary = [
+      `moved scheduled tasks: ${taskMoves.movedScheduledTasks.join(", ") || "none"}`,
+      `moved queued scheduled runs: ${taskMoves.requeuedScheduledRuns.join(", ") || "none"}`,
+      ...(taskMoves.scheduledTaskMoveError === undefined
+        ? []
+        : [`scheduled task problems: ${taskMoves.scheduledTaskMoveError}`]),
+      ...(successorLinkError === undefined ? [] : [successorLinkError]),
+    ].join("; ");
+    const holds = [
+      ...(successorLinkError === undefined ? ["your wakes"] : []),
+      ...(taskMoves.movedScheduledTasks.length === 0 ? [] : ["your scheduled tasks"]),
+    ];
+    // A retry to yet another session would leave these stranded on the first successor.
+    const doNotRetry = `${input.name} already runs${
+      holds.length === 0 ? "" : ` and receives ${holds.join(" and ")}`
+    }, so do not hand off again`;
 
     // Only after the successor exists: a roster moved onto a thread that
     // never started would settle with nothing. A failure partway keeps the
@@ -716,7 +952,7 @@ const make = Effect.gen(function* () {
         Effect.mapError((error) =>
           toolError(
             "dispatch-failed",
-            `handed off to ${input.name} (${threadId}), which moved ${moved.join(", ") || "no sessions"} but failed on ${child.title}: ${error.detail ?? error.reason}; the rest still name you as their spawner`,
+            `handed off to ${input.name} (${threadId}), which moved ${moved.join(", ") || "no sessions"} but failed on ${child.title}: ${error.detail ?? error.reason}; the rest still name you as their spawner; ${doNotRetry}; ${taskMoveSummary}`,
           ),
         ),
       );
@@ -725,9 +961,8 @@ const make = Effect.gen(function* () {
 
     if (handoff) {
       // A successor is pinned the way the user pins the one it replaces,
-      // taking that one's slot when it had one. The successor link on the
-      // replaced thread is what a client reading it follows. Both are
-      // cosmetic, so neither fails a handoff that already ran.
+      // taking that one's slot when it had one. That is cosmetic, so it
+      // never fails a handoff that already ran.
       yield* dispatch({
         type: "thread.pin",
         commandId: yield* newCommandId,
@@ -735,12 +970,6 @@ const make = Effect.gen(function* () {
         ...(caller.pinnedAt != null && caller.pinOrderKey != null
           ? { orderKey: caller.pinOrderKey }
           : {}),
-      }).pipe(Effect.ignoreCause({ log: true }));
-      yield* dispatch({
-        type: "thread.metadata.update",
-        commandId: yield* newCommandId,
-        threadId: caller.id,
-        successorThreadId: threadId,
       }).pipe(Effect.ignoreCause({ log: true }));
     }
 
@@ -753,6 +982,8 @@ const make = Effect.gen(function* () {
       model: modelSelection.model,
       options: modelSelection.options ?? [],
       adopted: adopted.map((child) => child.title),
+      ...taskMoves,
+      ...(successorLinkError === undefined ? {} : { successorLinkError }),
       branch,
       worktreePath,
       idleHandoff,
@@ -873,13 +1104,25 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const userTypedSince = (threadId: ThreadId, since: DateTime.Utc) =>
+    threads.getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] }).pipe(
+      Effect.map(({ messages }) =>
+        messages.some(
+          (message) => typedByUser(message) && DateTime.isGreaterThan(message.createdAt, since),
+        ),
+      ),
+      Effect.mapError((error) => toolError("dispatch-failed", describe(error))),
+    );
+
   const wake = Effect.fn("SessionMcpService.wake")(function* (
     scope: McpInvocationScope,
     input: SessionWakeInput,
   ) {
     yield* requireMessage(input.message);
     const { caller, sessions } = yield* loadScope(scope);
-    const target = yield* resolveSession(sessions, caller, input.name);
+    const addressed = yield* resolveSession(sessions, caller, input.name);
+    const target = yield* wakeDestination(sessions, caller, addressed, userTypedSince);
+    const forwarded = target.id !== addressed.id;
     // A busy target takes the message inside its running turn only where its provider steers without
     // cancelling tools (SessionWakeSteering); otherwise it queues. A held queue is resumed first, so
     // this message joins its end. After a provider failure resuming would fail again, so that is
@@ -909,7 +1152,11 @@ const make = Effect.gen(function* () {
         threadId: target.id,
         messageId: SessionWakeFailureNotice.sessionWakeMessageId(commandId),
         senderThreadId: caller.id,
-        text: `[From session ${caller.title} (${caller.id}), another agent, not the user]\n\n${input.message}`,
+        text: `[From session ${caller.title} (${caller.id}), another agent, not the user]\n${
+          forwarded
+            ? `[Addressed to ${addressed.title} (${addressed.id}), forwarded to you after its handoff]\n`
+            : ""
+        }\n${input.message}`,
         attachments: [],
         mode: send.mode,
         createdBy: "agent",
@@ -923,16 +1170,16 @@ const make = Effect.gen(function* () {
     ).pipe(Effect.mapError((error) => toolError("dispatch-failed", describe(error))));
     // Only mode "restart" restarts a turn, so "auto" and "queue" never report it.
     const delivery = sent.delivery as Exclude<typeof sent.delivery, "restarted">;
-    const request = target.pendingRuntimeRequest;
-    if (delivery !== "queued" || request === null)
-      return { threadId: target.id, name: target.title, delivery };
-    const { askedAt, preview } = yield* pendingQuestion(target.id, request);
-    return {
+    const delivered = {
       threadId: target.id,
       name: target.title,
       delivery,
-      behindQuestion: { askedAt, preview },
+      ...(forwarded ? { forwardedFrom: addressed.id } : {}),
     };
+    const request = target.pendingRuntimeRequest;
+    if (delivery !== "queued" || request === null) return delivered;
+    const { askedAt, preview } = yield* pendingQuestion(target.id, request);
+    return { ...delivered, behindQuestion: { askedAt, preview } };
   });
 
   const settle = Effect.fn("SessionMcpService.settle")(function* (
@@ -1005,7 +1252,7 @@ const make = Effect.gen(function* () {
         "already-exists",
         clash.settledOverride === "settled"
           ? `a settled session named ${input.name} still holds that name; rename it first, by its threadId ${clash.id}, or archive it`
-          : `an open session named ${input.name} already exists`,
+          : `an open session named ${input.name} (${clash.id}) already exists`,
       );
     }
     yield* dispatch({
