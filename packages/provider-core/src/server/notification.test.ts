@@ -60,6 +60,27 @@ describe("backgroundWorkNotification", () => {
       outcome: "cancelled",
       summary: 'Subagent "Agent B" and command "Sleep 60 seconds" were stopped',
     });
+    assert.deepEqual(
+      backgroundWorkNotification([
+        { kind: "command", label: "sleep 30", outcome: "cancelled", taskId: "bstop1" },
+        { kind: "command", label: "sleep 30", outcome: "completed", exitCode: 0, taskId: "bdone2" },
+      ]),
+      {
+        source: { kind: "command" },
+        outcome: "cancelled",
+        summary:
+          'Command "sleep 30" (task bstop1) was stopped and command "sleep 30" (task bdone2) finished (exit 0)',
+      },
+    );
+    assert.equal(
+      backgroundWorkNotification(
+        (["completed", "completed", "cancelled", "failed"] as const).map((outcome) => ({
+          kind: "command" as const,
+          outcome,
+        })),
+      )?.summary,
+      "4 commands: 2 finished, 1 stopped, 1 failed",
+    );
   });
 
   it("counts work it cannot list", () => {

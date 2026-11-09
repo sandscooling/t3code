@@ -11,6 +11,8 @@ type NotificationOutcome = OrchestrationV2Notification["outcome"];
 
 export type BackgroundWork = {
   readonly label?: string | undefined;
+  // Fork: tells apart two reports that share a label in one summary.
+  readonly taskId?: string | undefined;
 } & (
   | { readonly kind: "subagent"; readonly childThreadId?: ThreadId | undefined }
   | { readonly kind: "command"; readonly exitCode?: number | undefined }
@@ -71,11 +73,34 @@ function exitSuffix(report: BackgroundWorkReport): string {
     : "";
 }
 
-function namedReport(report: BackgroundWorkReport, capitalize: boolean): string {
+function namedReport(
+  report: BackgroundWorkReport,
+  capitalize: boolean,
+  // Fork: per-report verb when a batch's outcomes differ, and a task tag on a shared label.
+  verb?: string,
+  tagged = false,
+): string {
   const noun = KIND_NOUN[report.kind][0];
   const label = reportLabel(report.label);
   const named = `${capitalize ? noun : noun.toLowerCase()}${label === undefined ? "" : ` "${label}"`}`;
-  return `${named}${exitSuffix(report)}`;
+  const tag = tagged && report.taskId !== undefined ? `task ${report.taskId}` : undefined;
+  if (verb !== undefined) {
+    return `${named}${tag === undefined ? "" : ` (${tag})`} ${verb}${exitSuffix(report)}`;
+  }
+  const exit = report.kind === "command" ? report.exitCode : undefined;
+  const parts = [tag, exit === undefined ? undefined : `exit ${exit}`].filter((part) => part);
+  return `${named}${parts.length === 0 ? "" : ` (${parts.join(", ")})`}`;
+}
+
+// Fork: one word per outcome, so a mixed batch reads "X was stopped and X finished".
+function pluralVerb(outcome: NotificationOutcome): string {
+  return outcome === "failed"
+    ? "failed"
+    : outcome === "cancelled"
+      ? "were stopped"
+      : outcome === "updated"
+        ? "updated"
+        : "finished";
 }
 
 function joinNames(names: ReadonlyArray<string>): string {
@@ -93,20 +118,33 @@ function reportsSummary(
     const noun = KIND_NOUN[first.kind][0];
     return `${noun}${label === undefined ? "" : ` "${label}"`} ${outcomeVerb(first.kind, first.outcome)}${exitSuffix(first)}`;
   }
-  const verb =
-    outcome === "failed"
-      ? "failed"
-      : outcome === "cancelled"
-        ? "were stopped"
-        : outcome === "updated"
-          ? "updated"
-          : "finished";
+  const verb = pluralVerb(outcome);
+  // Fork: the shared verb holds only when every report has the same outcome word.
+  const mixed = reports.some((report) => pluralVerb(report.outcome) !== verb);
   if (reports.length > 3 || reports.every((report) => reportLabel(report.label) === undefined)) {
     const kinds = new Set(reports.map((report) => report.kind));
     const noun = kinds.size === 1 ? KIND_NOUN[first.kind][1] : "background tasks";
-    return `${reports.length} ${noun} ${verb}`;
+    if (!mixed) return `${reports.length} ${noun} ${verb}`;
+    const counts = new Map<string, number>();
+    for (const report of reports) {
+      const word = pluralVerb(report.outcome).replace("were ", "");
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+    const tally = [...counts].map(([word, count]) => `${count} ${word}`).join(", ");
+    return `${reports.length} ${noun}: ${tally}`;
   }
-  return `${joinNames(reports.map((report, index) => namedReport(report, index === 0)))} ${verb}`;
+  const key = (report: BackgroundWorkReport) => `${report.kind}\n${reportLabel(report.label)}`;
+  const tagged = (report: BackgroundWorkReport) =>
+    reports.some((other) => other !== report && key(other) === key(report));
+  const names = reports.map((report, index) =>
+    namedReport(
+      report,
+      index === 0,
+      mixed ? outcomeVerb(report.kind, report.outcome) : undefined,
+      tagged(report),
+    ),
+  );
+  return mixed ? joinNames(names) : `${joinNames(names)} ${verb}`;
 }
 
 function reportsSource(

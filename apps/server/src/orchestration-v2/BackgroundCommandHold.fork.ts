@@ -21,7 +21,7 @@ export const BACKGROUND_COMMAND_REGISTRATION_WAIT = Duration.seconds(5);
 
 /** What an agent reads when its wait finds nothing new to hold. */
 export const NOTHING_TO_HOLD_MESSAGE =
-  "Could not wait: this turn started no running background command that is not already waited for. A command started in the same message as this call may not have registered yet, so call wait_for_background_commands again. Commands from earlier turns, such as a dev server, are not waited for, and a command that already exited needs no wait.";
+  "Could not wait: this turn started no running background command that is not already waited for. A command started in the same message as this call may not have registered yet, so call wait_for_background_commands again. Commands from earlier turns are not waited for here. In a Claude thread, an earlier turn's command you will continue from (tests, a build; never a dev server or watcher) can be held with t3_background_wait, its id in the taskIds array (an array, not taskId). A command that already exited needs no wait.";
 
 type ThreadReads = Pick<
   ThreadManagement.ThreadManagementService["Service"],

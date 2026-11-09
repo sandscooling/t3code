@@ -8698,7 +8698,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             (yield* Ref.get(wakeBuffers)).get(wakeInput.nativeThreadId)?.detail ?? null;
           const reports = yield* takeWakeReports(wakeInput.nativeThreadId);
           const notification = backgroundWorkNotification(
-            [...(reports?.values() ?? [])].map((entry) => entry.report),
+            // Fork: carry the task id so same-label reports are told apart.
+            [...(reports?.entries() ?? [])].map(([taskId, entry]) => ({ ...entry.report, taskId })),
           );
           yield* Effect.logInfo("orchestration-v2.claude-wake-turn-detected", {
             providerSessionId: input.providerSessionId,
