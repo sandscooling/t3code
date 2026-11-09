@@ -37,7 +37,6 @@ describe("withoutOutputStyleTrait", () => {
       provider: ProviderDriverKind.make("claudeAgent"),
       model: "styled-only",
       modelOptions: undefined,
-      planModeEnabled: false,
     };
     expect(getTraitsSectionVisibility({ ...input, models }).hasAnyControls).toBe(true);
     expect(
