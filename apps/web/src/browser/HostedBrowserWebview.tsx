@@ -12,6 +12,7 @@ import { useClientSettingsHydrated } from "~/hooks/useSettings";
 import { cn, isMacPlatform } from "~/lib/utils";
 
 import { resolveBrowserSurfacePanelRect, useBrowserSurfaceStore } from "./browserSurfaceStore";
+import { nextPanelSize, resolveForkHiddenBrowserViewportSize } from "./hiddenFillSize.fork"; // Fork
 import { useActiveBrowserRecordingTabIds } from "./browserRecording";
 import {
   browserViewportSettingKey,
@@ -220,19 +221,19 @@ export function HostedBrowserWebview(props: {
   const handleAspectRatioChange = (aspectRatio: number | null) => {
     setAspectRatioLocked(aspectRatio !== null);
   };
-  const content = presentation.content;
-  const hiddenWidth =
-    viewport._tag !== "fill"
-      ? viewport.width * layoutZoomFactor
-      : content
-        ? content.width / content.scale
-        : (lastRect?.width ?? 1280);
-  const hiddenHeight =
-    viewport._tag !== "fill"
-      ? viewport.height * layoutZoomFactor
-      : content
-        ? content.height / content.scale
-        : (lastRect?.height ?? 800);
+  // Fork: a hidden fill tab sizes from the last panel size, never a preset's content.
+  const [lastPanelSize, setLastPanelSize] = useState<ReturnType<typeof nextPanelSize>>(null);
+  const nextLastPanelSize = nextPanelSize(lastPanelSize, {
+    active,
+    rect: lastRect,
+    fitSourceContent: presentation.fitSourceContent,
+  });
+  if (nextLastPanelSize !== lastPanelSize) setLastPanelSize(nextLastPanelSize);
+  const { width: hiddenWidth, height: hiddenHeight } = resolveForkHiddenBrowserViewportSize({
+    setting: viewport,
+    zoomFactor: layoutZoomFactor,
+    lastPanelSize: nextLastPanelSize,
+  });
   // Build from primitives on each side of the resize hook to keep both objects cached.
   const containerSize =
     active && lastRect ? lastRect : { width: hiddenWidth, height: hiddenHeight };
