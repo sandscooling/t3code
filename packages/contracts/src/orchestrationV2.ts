@@ -466,6 +466,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  // Fork: the sessions that handed off to this one, nearest first, kept here so the
+  // list outlives their deletion. Absent means none.
+  handoffPredecessorThreadIds: Schema.optional(Schema.Array(ThreadId)),
   forkedFrom: Schema.NullOr(
     Schema.Union([
       Schema.Struct({ type: Schema.Literal("run"), threadId: ThreadId, runId: RunId }),
@@ -2137,6 +2140,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  handoffPredecessorThreadIds: Schema.optional(Schema.Array(ThreadId)),
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -3132,10 +3136,12 @@ export const OrchestrationV2Command = Schema.Union([
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
     // Fork: set (value) or clear (null); absent leaves it unchanged. The
-    // spawner and successor must be other, undeleted threads.
+    // spawner and successor must be other, undeleted threads. Handoff predecessors
+    // replace the list and may name deleted threads.
     group: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     spawnedByThreadId: Schema.optional(Schema.NullOr(ThreadId)),
     successorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+    handoffPredecessorThreadIds: Schema.optional(Schema.Array(ThreadId)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),

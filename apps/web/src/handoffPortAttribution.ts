@@ -1,58 +1,37 @@
 /**
- * Fork-owned: a handoff successor's Servers panel also lists the servers its
- * predecessors' agents started, so a handoff needs no server restart to move
- * them. Matching is by the agent's thread (T3CODE_THREAD_ID), which also
- * covers hand-made systemd units that carry it.
+ * Fork-owned: a handoff successor's Servers panel also lists the servers its predecessors'
+ * agents started (by T3CODE_THREAD_ID), so a handoff needs no server restart. The successor's
+ * own shell names its predecessors, so this holds after the prune deletes their threads.
  */
 import { useAtomValue } from "@effect/atom-react";
-import {
-  SESSION_SUCCESSOR_MAX_HOPS,
-  type EnvironmentId,
-  type OrchestrationV2ThreadShell,
-  type ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { environmentThreadShells } from "./state/threads";
 
 const KEY_SEPARATOR = "\n";
 
-type SuccessorIndex = ReadonlyMap<
+type ShellIndex = ReadonlyMap<
   ThreadId,
-  Pick<OrchestrationV2ThreadShell, "successorThreadId" | "archivedAt" | "deletedAt">
+  Pick<
+    OrchestrationV2ThreadShell,
+    "successorThreadId" | "handoffPredecessorThreadIds" | "archivedAt" | "deletedAt"
+  >
 >;
 
-/** Where a thread's successor links lead, stopping at a missing, archived or deleted one, or a cycle. */
-function successorChainEnd(index: SuccessorIndex, threadId: ThreadId): ThreadId {
-  const seen = new Set([threadId]);
-  let current = threadId;
-  for (let hop = 0; hop < SESSION_SUCCESSOR_MAX_HOPS; hop += 1) {
-    const next = index.get(current)?.successorThreadId;
-    const successor = next == null ? undefined : index.get(next);
-    if (
-      next == null ||
-      seen.has(next) ||
-      successor === undefined ||
-      successor.archivedAt !== null ||
-      successor.deletedAt !== null
-    ) {
-      break;
-    }
-    seen.add(next);
-    current = next;
+/**
+ * The threads that handed off, directly or through others, to `threadId`. A thread that has
+ * since handed off to a live thread passes them on with its own.
+ */
+export function handedOffThreadIds(index: ShellIndex, threadId: ThreadId): ReadonlyArray<ThreadId> {
+  const shell = index.get(threadId);
+  if (shell === undefined) return [];
+  const successor =
+    shell.successorThreadId == null ? undefined : index.get(shell.successorThreadId);
+  if (successor !== undefined && successor.archivedAt === null && successor.deletedAt === null) {
+    return [];
   }
-  return current;
-}
-
-/** The threads that handed off, directly or through others, to `threadId`. */
-export function handedOffThreadIds(index: SuccessorIndex, threadId: ThreadId): Array<ThreadId> {
-  const ids: Array<ThreadId> = [];
-  for (const [id, shell] of index) {
-    if (id !== threadId && shell.successorThreadId != null) {
-      if (successorChainEnd(index, id) === threadId) ids.push(id);
-    }
-  }
-  return ids.toSorted();
+  return shell.handoffPredecessorThreadIds ?? [];
 }
 
 // A string, so a shell change that leaves the set alone does not re-render the panel.

@@ -2882,7 +2882,11 @@ it.effect(
         group: "orchestrator",
         projectId: otherProjectId,
       });
-      yield* ok(lead, "session_spawn", { name: "L7-dev", group: "L7", message: "Go." });
+      const child = yield* ok(lead, "session_spawn", {
+        name: "L7-dev",
+        group: "L7",
+        message: "Go.",
+      });
 
       expect(
         yield* refused(lead, "session_spawn", {
@@ -2910,6 +2914,25 @@ it.effect(
       expect(successor.adopted).toEqual(["L7-dev"]);
       expect((yield* shellOf(successor.threadId)).spawnedByThreadId).toBe(root);
       expect((yield* shellOf(standalone.threadId)).spawnedByThreadId).toBeNull();
+
+      // Only a handoff successor records predecessors, whose servers its panel lists. The list
+      // lives on the successor, so it survives the install prune deleting the threads it names.
+      expect((yield* shellOf(standalone.threadId)).handoffPredecessorThreadIds).toBeUndefined();
+      expect((yield* shellOf(child.threadId)).handoffPredecessorThreadIds).toBeUndefined();
+      expect((yield* shellOf(successor.threadId)).handoffPredecessorThreadIds).toEqual([lead]);
+      const third = yield* ok(ThreadId.make(successor.threadId), "session_spawn", {
+        name: "Lead-3",
+        group: "leads",
+        message: "Take over again.",
+        handoff: true,
+      });
+      for (const gone of [lead, ThreadId.make(successor.threadId)]) {
+        yield* dispatch((commandId) => ({ type: "thread.delete", commandId, threadId: gone }));
+      }
+      expect((yield* shellOf(third.threadId)).handoffPredecessorThreadIds).toEqual([
+        successor.threadId,
+        lead,
+      ]);
     }).pipe(Effect.provide(makeHarness([]))),
 );
 

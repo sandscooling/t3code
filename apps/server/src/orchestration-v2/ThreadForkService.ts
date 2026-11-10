@@ -118,6 +118,7 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         // not handed off, so a settle cascade or a handoff follow must not reach it.
         spawnedByThreadId: null,
         successorThreadId: null,
+        handoffPredecessorThreadIds: [],
         lineage: {
           parentThreadId: input.sourceProjection.thread.id,
           relationshipToParent: "fork",

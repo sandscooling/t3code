@@ -23,6 +23,12 @@ const SessionName = Schema.String.check(Schema.isPattern(SESSION_NAME_PATTERN));
 export const SESSION_SUCCESSOR_MAX_HOPS = 8;
 
 /**
+ * How many handoff predecessors a successor thread records, nearest first. Higher than the hop
+ * cap because orchestrators hand off several times a day and their servers outlive those hops.
+ */
+export const SESSION_HANDOFF_PREDECESSORS_MAX = 32;
+
+/**
  * Session names only reach the caller's own project; a threadId reaches any
  * project. v2 threadIds carry colons, so this is not held to the name pattern.
  */

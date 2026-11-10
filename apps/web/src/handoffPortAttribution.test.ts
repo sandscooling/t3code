@@ -5,15 +5,23 @@ import { describe, expect, it } from "vite-plus/test";
 import { handedOffThreadIds } from "./handoffPortAttribution";
 
 const id = ThreadId.make;
-const index = (links: Record<string, string | null>, archived: ReadonlyArray<string> = []) =>
+type Shell = {
+  readonly successor?: string;
+  readonly predecessors?: ReadonlyArray<string>;
+  readonly archived?: boolean;
+};
+const index = (threads: Record<string, Shell>) =>
   new Map(
-    Object.entries(links).map(
-      ([thread, successor]) =>
+    Object.entries(threads).map(
+      ([thread, shell]) =>
         [
           id(thread),
           {
-            successorThreadId: successor === null ? null : id(successor),
-            archivedAt: archived.includes(thread) ? DateTime.makeUnsafe(0) : null,
+            successorThreadId: shell.successor === undefined ? null : id(shell.successor),
+            ...(shell.predecessors === undefined
+              ? {}
+              : { handoffPredecessorThreadIds: shell.predecessors.map((thread) => id(thread)) }),
+            archivedAt: shell.archived === true ? DateTime.makeUnsafe(0) : null,
             deletedAt: null,
           },
         ] as const,
@@ -21,23 +29,29 @@ const index = (links: Record<string, string | null>, archived: ReadonlyArray<str
   );
 
 describe("handedOffThreadIds", () => {
-  it("gives the live end of a handoff chain every thread that handed off to it", () => {
-    const threads = index({ first: "second", second: "third", third: null, other: null });
+  it("gives a live successor every predecessor it recorded, though their threads are gone", () => {
+    // The install prune deleted first and second; only third's own shell remains.
+    const threads = index({ third: { predecessors: ["second", "first"] }, other: {} });
 
-    expect(handedOffThreadIds(threads, id("third"))).toEqual([id("first"), id("second")]);
-    // A thread that handed off again no longer owns its predecessors' servers.
-    expect(handedOffThreadIds(threads, id("second"))).toEqual([]);
+    expect(handedOffThreadIds(threads, id("third"))).toEqual([id("second"), id("first")]);
     expect(handedOffThreadIds(threads, id("other"))).toEqual([]);
+    expect(handedOffThreadIds(threads, id("unknown"))).toEqual([]);
   });
 
-  it("ends a chain at a cycle, an archived thread, or a link to a thread it does not know", () => {
-    const threads = index({ a: "b", b: "a", stranded: "gone", lead: "archived", archived: null }, [
-      "archived",
-    ]);
+  it("gives nothing to a thread that handed off to a live one, and gives it back once that one is gone", () => {
+    const live = index({
+      second: { successor: "third", predecessors: ["first"] },
+      third: { predecessors: ["second", "first"] },
+    });
+    expect(handedOffThreadIds(live, id("second"))).toEqual([]);
 
-    expect(handedOffThreadIds(threads, id("b"))).toEqual([id("a")]);
-    expect(handedOffThreadIds(threads, id("a"))).toEqual([id("b")]);
-    expect(handedOffThreadIds(threads, id("gone"))).toEqual([]);
-    expect(handedOffThreadIds(threads, id("archived"))).toEqual([]);
+    const archived = index({
+      second: { successor: "third", predecessors: ["first"] },
+      third: { predecessors: ["second", "first"], archived: true },
+    });
+    expect(handedOffThreadIds(archived, id("second"))).toEqual([id("first")]);
+
+    const missing = index({ second: { successor: "third", predecessors: ["first"] } });
+    expect(handedOffThreadIds(missing, id("second"))).toEqual([id("first")]);
   });
 });

@@ -4118,6 +4118,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.successorThreadId === undefined
               ? {}
               : { successorThreadId: command.successorThreadId }),
+            ...(command.handoffPredecessorThreadIds === undefined
+              ? {}
+              : { handoffPredecessorThreadIds: command.handoffPredecessorThreadIds }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {

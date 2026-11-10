@@ -12,6 +12,7 @@ import {
   MessageId,
   OrchestrationToolError,
   scheduledTaskThreadMode,
+  SESSION_HANDOFF_PREDECESSORS_MAX,
   SESSION_SUCCESSOR_MAX_HOPS,
   ThreadId,
   type ModelSelection,
@@ -863,6 +864,16 @@ const make = Effect.gen(function* () {
       threadId,
       group: input.group,
       ...(spawnedByThreadId === undefined ? {} : { spawnedByThreadId }),
+      // Fork: kept on the successor, so its servers panel still finds the servers a
+      // predecessor started after the install prune deletes that predecessor's thread.
+      ...(handoff
+        ? {
+            handoffPredecessorThreadIds: [
+              caller.id,
+              ...(caller.handoffPredecessorThreadIds ?? []),
+            ].slice(0, SESSION_HANDOFF_PREDECESSORS_MAX),
+          }
+        : {}),
     }).pipe(
       Effect.catch((error) =>
         abandon(`its group and spawner were not recorded: ${error.detail ?? error.reason}`),

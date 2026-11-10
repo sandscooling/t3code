@@ -1650,6 +1650,9 @@ export function threadShellFromProjection(
     group: projection.thread.group ?? null,
     spawnedByThreadId: projection.thread.spawnedByThreadId ?? null,
     successorThreadId: projection.thread.successorThreadId ?? null,
+    ...(projection.thread.handoffPredecessorThreadIds?.length
+      ? { handoffPredecessorThreadIds: projection.thread.handoffPredecessorThreadIds }
+      : {}),
     forkedFrom: projection.thread.forkedFrom,
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     ...(projection.thread.historyOrigin === undefined
@@ -1935,6 +1938,9 @@ function shellFromState(input: {
     group: input.state.thread.group ?? null,
     spawnedByThreadId: input.state.thread.spawnedByThreadId ?? null,
     successorThreadId: input.state.thread.successorThreadId ?? null,
+    ...(input.state.thread.handoffPredecessorThreadIds?.length
+      ? { handoffPredecessorThreadIds: input.state.thread.handoffPredecessorThreadIds }
+      : {}),
     forkedFrom: input.state.thread.forkedFrom,
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
     ...(input.state.thread.historyOrigin === undefined
