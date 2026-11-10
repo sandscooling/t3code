@@ -1035,6 +1035,9 @@ function kindUnionWithFallback<
 }
 
 const PendingBackgroundTaskFields = {
+  command: Schema.optional(Schema.String),
+  itemId: Schema.optional(TurnItemId),
+  sourceThreadId: Schema.optional(ThreadId),
   taskId: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   // Fork: when the work started, so a client can show how long it has run.
