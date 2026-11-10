@@ -54,6 +54,7 @@ const makeGuest = (
   const guest = Object.assign(emitter, {
     isDestroyed: () => false,
     isCrashed: () => false,
+    isLoadingMainFrame: () => false,
     hostWebContents: null,
     setIgnoreMenuShortcuts: vi.fn(),
     sendInputEvent: (packet: GuestKeys.GuestKeyPacket) => {
