@@ -153,8 +153,6 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
-// Fork: Codex viewed-image work-log rows.
-import { codexImageItemEvents } from "./codexImageItems.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -5267,17 +5265,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               });
               if (settled) {
                 yield* releaseSettledTurnIfIdle(payload.turnId);
-              }
-              return;
-            }
-
-            // Fork: viewed images become their own work-log rows.
-            const imageEvents = yield* codexImageItemEvents(payload.item, (item) =>
-              buildDynamicToolArtifacts(context, item),
-            );
-            if (imageEvents !== null) {
-              for (const event of imageEvents) {
-                yield* emitProviderEvent(event);
               }
               return;
             }

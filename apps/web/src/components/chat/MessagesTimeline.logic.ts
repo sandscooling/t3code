@@ -29,7 +29,6 @@ import {
   contextCompactionTokenCounts,
   workEntriesViewedImagePaths,
   type ToolGroupSummaryKind,
-  workEntryViewedImagePath, // Fork: images pin in their work group
   liveThoughtLine,
   workEntryHiddenByToolCallVisibility,
 } from "@t3tools/client-runtime/work-log/presentation";
@@ -290,15 +289,6 @@ export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 // endpoint previews (centered on their strip) still fit above and below it.
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "max(4rem, calc(100% - 14.75rem))";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
-
-/**
- * Fork: rows the work-group fold never swallows. An image (generated, or one
- * the agent viewed, such as a Read of a png), which also shows inline without
- * expanding the row: it is content to look at rather than a step to count.
- */
-export function workEntryPinnedInGroup(entry: WorkLogEntry): boolean {
-  return workEntryViewedImagePath(entry) !== null;
-}
 
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
@@ -1675,7 +1665,6 @@ export function deriveMessagesTimelineRows(input: {
         isPendingApproval(entry.entry) ||
         !runIdIsActiveResponse(entry.entry.runId) ||
         entry.entry.sourceActivityKind === "context-compaction" ||
-        workEntryPinnedInGroup(entry.entry) || // Fork: images stay their own row
         collapsedEntryIds.has(entry.id) ||
         collapsedSupersededEntryIds.has(entry.id) ||
         foldsByAnchorEntryId.has(entry.id) ||
@@ -1979,8 +1968,7 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.entry.itemType === "system_notice" ||
         timelineEntry.entry.itemType === "notification" ||
         timelineEntry.entry.itemType === "todo_list" ||
-        timelineEntry.entry.questionAnswer !== undefined ||
-        workEntryPinnedInGroup(timelineEntry.entry) // Fork: images stay their own row
+        timelineEntry.entry.questionAnswer !== undefined
       ) {
         nextRows.push({
           kind: "work",
@@ -2008,7 +1996,6 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.entry.itemType === "todo_list" ||
           nextEntry.entry.questionAnswer !== undefined ||
           isPendingApproval(nextEntry.entry) ||
-          workEntryPinnedInGroup(nextEntry.entry) || // Fork: images stay their own row
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
           collapsedSupersededEntryIds.has(nextEntry.id) ||

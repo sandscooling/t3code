@@ -2139,7 +2139,7 @@ it.effect("tells the waker once when a steering restart cuts the turn its wake j
   }).pipe(Effect.provide(makeHarness([]))),
 );
 
-it.effect("steers a failure notice into a busy sender, queueing it when the steer is refused", () =>
+it.effect("sends a failure notice to a busy sender as auto, which the orchestrator queues", () =>
   Effect.gen(function* () {
     yield* seedOrchestrator;
     const busy = yield* runningTurn(orchestratorId);
@@ -2147,8 +2147,8 @@ it.effect("steers a failure notice into a busy sender, queueing it when the stee
     yield* ok(orchestratorId, "session_wake", { name: target, message: "Go." });
     expect(yield* wakeModeOf(orchestratorId)).toBe("auto");
 
-    // No provider process runs here, so the steer is refused and the notice queues under its
-    // own retry id; the refused id's receipt keeps a repeat from sending it twice.
+    // No provider session runs here, so the orchestrator resolves the auto send to a queue
+    // itself under the notice's own id; that id's receipt keeps a repeat from sending it twice.
     const notices = yield* SessionWakeFailureNotice.SessionWakeFailureNotice;
     const failed = yield* endRun(target, "failed");
     yield* notices.handle(failed);
@@ -2156,7 +2156,7 @@ it.effect("steers a failure notice into a busy sender, queueing it when the stee
     const projection = yield* projectionOf(orchestratorId);
     const notice = projection.messages.filter((message) => /session_wake to/.test(message.text));
     expect(notice.map((message) => message.id)).toEqual([
-      `server:session-wake-failure:${failed.payload.id}:${orchestratorId}:queued`,
+      `server:session-wake-failure:${failed.payload.id}:${orchestratorId}`,
     ]);
     expect(projection.runs.map((run) => [run.id === busy, run.status])).toEqual([
       [true, "running"],

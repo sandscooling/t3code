@@ -42,7 +42,6 @@ import {
   threadReadTargetTitle,
   workEntryDisplayLabel,
   workEntryReadOutput,
-  workEntryPinnedInGroup, // Fork: images show inline and stay out of the fold
 } from "./MessagesTimeline.logic";
 import { cn } from "~/lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
@@ -544,8 +543,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         </>
       }
     >
-      {/* Fork: an image shows without expanding the row. */}
-      {(expanded || workEntryPinnedInGroup(workEntry)) && viewedImage && threadRef ? (
+      {expanded && viewedImage && threadRef ? (
         <WorkLogDetails kind="media">
           <ChatMarkdownAssetImage
             environmentId={threadRef.environmentId}
