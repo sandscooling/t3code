@@ -70,22 +70,10 @@ export const toOperationError = (
       detail: timeoutMs === undefined ? undefined : { timeoutMs },
     });
   }
-  if (
-    /while parsing selector|Unknown engine|Unexpected token|strict mode violation/i.test(message)
-  ) {
-    // Fork: a valid locator that matched several elements is ambiguous, not invalid.
-    const matches = /strict mode violation.*resolved to (\d+) elements/i.exec(firstLine)?.[1];
+  if (/while parsing selector|Unknown engine|Unexpected token/i.test(message)) {
     return new ServerBrowserOperationError({
       tag: "PreviewAutomationInvalidSelectorError",
       message: firstLine,
-      ...(/strict mode violation/i.test(message)
-        ? {
-            detail:
-              matches === undefined
-                ? { ambiguous: true }
-                : { ambiguous: true, matches: Number(matches) },
-          }
-        : {}),
     });
   }
   if (/not an <input>|not editable|not an editable/i.test(message)) {
