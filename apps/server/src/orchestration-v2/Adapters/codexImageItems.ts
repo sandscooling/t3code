@@ -6,10 +6,9 @@ import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/Provi
 import type { CodexDynamicToolItem } from "./CodexAdapterV2.ts";
 
 /**
- * Fork: the tool names a Codex generated or viewed image is recorded under. The
- * web work log keeps any row carrying a viewedImagePath on screen.
+ * Fork: the tool name a Codex viewed image is recorded under. The web work log
+ * keeps any row carrying a viewedImagePath on screen.
  */
-const CODEX_IMAGE_GENERATION_TOOL_NAME = "image_generation";
 const CODEX_IMAGE_VIEW_TOOL_NAME = "view_image";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
@@ -28,9 +27,9 @@ function trimText(value: string | null | undefined): string | undefined {
 }
 
 /**
- * Fork: turns a completed Codex imageGeneration or imageView item into a dynamic_tool work-log row's
- * two events carrying viewedImagePath, since v2 otherwise drops them. Null for any other item, so
- * the adapter carries on; an empty list for an image item with no path.
+ * Fork: turns a completed Codex imageView item into a dynamic_tool work-log row's two events
+ * carrying viewedImagePath, since v2 otherwise drops it. Null for any other item, so the adapter
+ * carries on; an empty list for an imageView with no path.
  */
 export const codexImageItemEvents = <E, R>(
   item: CodexSchema.V2ItemCompletedNotification__ThreadItem,
@@ -38,41 +37,20 @@ export const codexImageItemEvents = <E, R>(
     item: CodexDynamicToolItem,
   ) => Effect.Effect<DynamicToolArtifacts, E, R>,
 ): Effect.Effect<ReadonlyArray<ProviderAdapterV2Event> | null, E, R> => {
-  let toolItem: CodexDynamicToolItem;
-  let title: string;
-  let viewedImagePath: string;
-  if (item.type === "imageGeneration") {
-    const savedPath = trimText(item.savedPath);
-    if (savedPath === undefined) {
-      return Effect.succeed([]);
-    }
-    const revisedPrompt = trimText(item.revisedPrompt);
-    toolItem = {
-      type: "dynamicToolCall",
-      id: item.id,
-      tool: CODEX_IMAGE_GENERATION_TOOL_NAME,
-      arguments: revisedPrompt === undefined ? {} : { prompt: revisedPrompt },
-      status: "completed",
-    };
-    title = "Generated image";
-    viewedImagePath = savedPath;
-  } else if (item.type === "imageView") {
-    const path = trimText(item.path);
-    if (path === undefined) {
-      return Effect.succeed([]);
-    }
-    toolItem = {
-      type: "dynamicToolCall",
-      id: item.id,
-      tool: CODEX_IMAGE_VIEW_TOOL_NAME,
-      arguments: { path },
-      status: "completed",
-    };
-    title = "Viewed image";
-    viewedImagePath = path;
-  } else {
+  if (item.type !== "imageView") {
     return Effect.succeed(null);
   }
+  const path = trimText(item.path);
+  if (path === undefined) {
+    return Effect.succeed([]);
+  }
+  const toolItem: CodexDynamicToolItem = {
+    type: "dynamicToolCall",
+    id: item.id,
+    tool: CODEX_IMAGE_VIEW_TOOL_NAME,
+    arguments: { path },
+    status: "completed",
+  };
   return buildDynamicToolArtifacts(toolItem).pipe(
     Effect.map((artifacts): ReadonlyArray<ProviderAdapterV2Event> => [
       { type: "node.updated", driver: CODEX_PROVIDER, node: artifacts.node },
@@ -81,7 +59,7 @@ export const codexImageItemEvents = <E, R>(
         driver: CODEX_PROVIDER,
         turnItem:
           artifacts.turnItem.type === "dynamic_tool"
-            ? { ...artifacts.turnItem, title, viewedImagePath }
+            ? { ...artifacts.turnItem, title: "Viewed image", viewedImagePath: path }
             : artifacts.turnItem,
       },
     ]),

@@ -153,7 +153,7 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
-// Fork: Codex image work-log rows.
+// Fork: Codex viewed-image work-log rows.
 import { codexImageItemEvents } from "./codexImageItems.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -5271,7 +5271,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
 
-            // Fork: generated and viewed images become their own work-log rows.
+            // Fork: viewed images become their own work-log rows.
             const imageEvents = yield* codexImageItemEvents(payload.item, (item) =>
               buildDynamicToolArtifacts(context, item),
             );
@@ -5279,8 +5279,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               for (const event of imageEvents) {
                 yield* emitProviderEvent(event);
               }
-              // A generated image still owes upstream's branch below its turn release.
-              if (payload.item.type !== "imageGeneration") return;
+              return;
             }
 
             if (payload.item.type === "fileChange") {
