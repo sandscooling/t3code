@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * Fork: answers every MCP request with `Connection: close`. The listener closes idle keep-alive
- * sockets after about 6 s, but the Claude CLI's Bun fetch reuses pooled sockets with no idle limit,
- * so a call about 6 s after the last can hit a just-closed socket and fail with ECONNRESET. Only the
+ * sockets after about 95 s, but the Claude CLI's Bun fetch reuses pooled sockets with no idle limit,
+ * so a call that long after the last can hit a just-closed socket and fail with ECONNRESET. Only the
  * MCP endpoint: the WebSocket upgrade and every other route keep keep-alive.
  */
 import type * as NodeHttp from "node:http";

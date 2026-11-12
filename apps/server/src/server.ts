@@ -33,6 +33,7 @@ import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
 import {
   guardHttpResponseWriteErrors,
+  keepIdleConnections,
   rejectRequestsUntilServing,
 } from "./httpResponseErrorGuard.ts";
 // Fork: MCP responses close their connection.
@@ -359,7 +360,9 @@ const layerHttpServer = Layer.unwrap(
     const createServer = () => closeMcpConnections(NodeHttp.createServer());
     return NodeHttpServer.layer(
       () => {
-        const server = rejectRequestsUntilServing(guardHttpResponseWriteErrors(createServer()));
+        const server = rejectRequestsUntilServing(
+          keepIdleConnections(guardHttpResponseWriteErrors(createServer())),
+        );
         if (config.privateNetworkOnly) {
           server.on("connection", (socket) => {
             if (!acceptsPrivateNetworkConnection(socket)) {
