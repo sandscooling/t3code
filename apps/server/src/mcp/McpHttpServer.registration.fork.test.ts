@@ -24,6 +24,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -60,6 +61,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
+  Layer.mock(PullRequestService.PullRequestService)({}),
   ServerSettings.layerTest({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
