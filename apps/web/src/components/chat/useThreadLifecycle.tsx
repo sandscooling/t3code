@@ -105,6 +105,8 @@ interface ThreadLifecycleInput {
   readonly serverConfig: EnvironmentServerConfig | null;
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
+  /** Also true while the server prepares, starts, or queues a run this client did not send. */
+  readonly runIsLive: boolean;
   readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkNowItem>[0]["tasks"];
   // Fork: background command holds.
   readonly backgroundWorkHoldScopeStartedAt: Exclude<
@@ -162,6 +164,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     serverConfig,
     runtimeMode,
     isWorking,
+    runIsLive,
     pendingBackgroundTasks,
     backgroundWorkHoldScopeStartedAt,
     turnItems,
@@ -417,9 +420,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const handleSwitchCheckoutToThreadStable = useStableCallback(() => {
     void handleSwitchCheckoutToThread();
   });
-  // The interrupt path also accepts a completed run while its provider still
-  // has background work.
-  const activeBackgroundTasks = !isWorking && activeThread ? pendingBackgroundTasks : [];
+  const activeBackgroundTasks = activeThread ? pendingBackgroundTasks : [];
   const [backgroundWorkStops, setBackgroundWorkStops] = useState<
     Record<string, BackgroundWorkStopRequest | undefined>
   >({});
@@ -634,7 +635,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         threadId: activeThread.id,
         tasks: activeBackgroundTasks,
         turnItems,
-        stopDisabled: !canOperateThread || isStoppingBackgroundWork,
+        // Interrupt stops the active run first, not this work; the composer owns that Stop.
+        stopDisabled: runIsLive || !canOperateThread || isStoppingBackgroundWork,
         stopping: isStoppingBackgroundWork,
         onStop: handleStopBackgroundWorkStable,
         onOpenThread: onOpenRelatedThreadStable,
