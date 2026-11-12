@@ -59,6 +59,7 @@ import * as ProviderSessionManager from "../../../orchestration-v2/ProviderSessi
 import * as ProviderTurnStart from "../../../orchestration-v2/ProviderTurnStartService.ts";
 import * as RunExecutionService from "../../../orchestration-v2/RunExecutionService.ts";
 import * as RuntimePolicy from "../../../orchestration-v2/RuntimePolicy.ts";
+import * as TurnItemPositionStore from "../../../orchestration-v2/TurnItemPositionStore.ts";
 import * as SessionIdleHandoff from "../../../orchestration-v2/SessionIdleHandoff.fork.ts";
 import * as SessionWakeFailureNotice from "../../../orchestration-v2/SessionWakeFailureNotice.fork.ts";
 import * as SessionWakeSteering from "../../../orchestration-v2/SessionWakeSteering.fork.ts";
@@ -2703,6 +2704,7 @@ const turnStartWithMissingWorktree = (
           }),
           Layer.mock(RunExecutionService.RunExecutionServiceV2)({}),
           Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+          Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({}),
         ),
       ),
     );

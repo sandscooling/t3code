@@ -711,6 +711,7 @@ export const OrchestrationV2Run = Schema.Struct({
   status: OrchestrationV2RunStatus,
   queuePosition: Schema.optional(Schema.NullOr(PositiveInt)),
   queueHeld: Schema.optional(Schema.Boolean),
+  steerWhenReadyRunId: Schema.optional(RunId),
   requestedAt: Schema.DateTimeUtc,
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -1557,6 +1558,8 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
 });
 export type OrchestrationV2ModelSwitch = typeof OrchestrationV2ModelSwitch.Type;
 
+const AssistantMessagePhase = Schema.Literals(["commentary", "partial_answer", "final_answer"]);
+
 const OrchestrationV2TurnItemBaseFields = {
   /** Wire-only cursor for collapsed work; persisted items keep their complete history. */
   deferredWork: Schema.optionalKey(
@@ -1686,6 +1689,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("assistant_message"),
+    phase: Schema.optional(AssistantMessagePhase),
     messageId: MessageId,
     text: Schema.String,
     textOmitted: DedupedBodyMarker,
@@ -1742,6 +1746,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     exitCode: Schema.optional(Schema.Int),
     /** Set when the command is a monitor, so background work lists it as a monitor. */
     monitor: Schema.optional(Schema.Boolean),
+    /** The provider wakes the agent when this command finishes after its turn. */
+    completionWake: Schema.optional(Schema.Literal("always")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2536,6 +2542,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("assistant_message"),
+    phase: Schema.optional(AssistantMessagePhase),
     messageId: MessageId,
     text: Schema.String,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
@@ -2591,6 +2598,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     exitCode: Schema.optional(Schema.Int),
     /** Set when the command is a monitor, so background work lists it as a monitor. */
     monitor: Schema.optional(Schema.Boolean),
+    /** The provider wakes the agent when this command finishes after its turn. */
+    completionWake: Schema.optional(Schema.Literal("always")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
