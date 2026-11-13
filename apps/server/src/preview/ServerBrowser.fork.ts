@@ -10,7 +10,21 @@ import * as Effect from "effect/Effect";
 import { constVoid } from "effect/Function";
 
 import type { DesktopTabKey } from "./DesktopBrowserChannel.ts";
-import { withDeadline } from "./ServerBrowserPage.fork.ts";
+
+/** Named `TimeoutError` so `toOperationError` reports it as a timeout. */
+// @effect-diagnostics-next-line extendsNativeError:off - a Playwright-style rejection that toOperationError reads by name.
+class DeadlineError extends Error {
+  override readonly name = "TimeoutError";
+}
+
+/** Rejects with a timeout once `ms` pass, without cancelling `work`. */
+const withDeadline = <A>(work: Promise<A>, ms: number, message: string): Promise<A> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new DeadlineError(message)), ms);
+  });
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer));
+};
 
 export const DRAWING_LINGER = Duration.seconds(1);
 

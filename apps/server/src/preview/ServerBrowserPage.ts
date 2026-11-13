@@ -23,18 +23,14 @@ import * as Schema from "effect/Schema";
 import type { CDPSession, ConsoleMessage, Frame, Locator, Page } from "playwright-core";
 import * as NodeCrypto from "node:crypto";
 import { BrowserControlInterrupted } from "./SessionControl.ts";
-// Fork: bounded captures (pingdotgg/t3code#16567).
-import {
-  noteUnavailableScreenshot,
-  screenshotUnavailable,
-  withCaptureDeadline,
-} from "./ServerBrowserPage.fork.ts";
 
 const isBrowserControlInterrupted = Schema.is(BrowserControlInterrupted);
 
 const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
 const MAX_SCREENSHOT_WIDTH = 1280;
+// Two attempts must fit in a snapshot's 10-second deadline.
+const SCREENSHOT_TIMEOUT_MS = 3_000;
 const WAIT_POLL_MS = 100;
 export const DIAGNOSTIC_BUFFER_LIMIT = 200;
 
@@ -474,13 +470,27 @@ export const captureViewport = async (
   cdp: CDPSession,
   options: { readonly format: "png" | "jpeg"; readonly quality?: number },
 ) => {
-  // Fork: a page that draws no frames never answers a capture.
-  const { data } = await withCaptureDeadline(
-    cdp.send("Page.captureScreenshot", {
-      format: options.format,
-      ...(options.quality === undefined ? {} : { quality: options.quality }),
-    }),
-  );
+  const capture = cdp.send("Page.captureScreenshot", {
+    format: options.format,
+    ...(options.quality === undefined ? {} : { quality: options.quality }),
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new ServerBrowserOperationError({
+            tag: "PreviewAutomationExecutionError",
+            message:
+              "The browser is not producing screenshot frames. For a desktop tab, show or restore the T3 Code window and try again.",
+          }),
+        ),
+      SCREENSHOT_TIMEOUT_MS,
+    );
+  });
+  // Hidden native guests can leave CDP captures pending forever. This deadline also
+  // releases a viewer's still-capture lock, which an agent snapshot may be waiting for.
+  const { data } = await Promise.race([capture, expired]).finally(() => clearTimeout(timer));
   return data;
 };
 
@@ -588,17 +598,14 @@ const capture = async (
         "url" | "title" | "loading" | "visibleText" | "interactiveElements"
       >
     >,
-    captureViewport(input.cdp, { format: "png" })
-      .then(async (full) =>
-        scale < 1
-          ? {
-              data: await shrinkPng(input.cdp, full, scale),
-              full: input.fullScreenshot ? full : undefined,
-            }
-          : { data: full, full: undefined },
-      )
-      // Fork: a capture that times out still lets the text answer.
-      .catch((cause: unknown) => ({ data: screenshotUnavailable(cause), full: undefined })),
+    captureViewport(input.cdp, { format: "png" }).then(async (full) =>
+      scale < 1
+        ? {
+            data: await shrinkPng(input.cdp, full, scale),
+            full: input.fullScreenshot ? full : undefined,
+          }
+        : { data: full, full: undefined },
+    ),
   ]);
   void pageAndScreenshot.catch(constVoid);
   // Leaves time for the second read; a frame that never loads holds the tree until then.
@@ -635,7 +642,7 @@ const capture = async (
       state.refs.set(ref, nativeRef);
       return `[ref=${ref}]`;
     });
-  return noteUnavailableScreenshot({
+  return {
     ...page,
     url: withoutDataPayload(page.url),
     // Mask text before truncating so a value crossing the cut cannot leak its prefix.
@@ -650,7 +657,7 @@ const capture = async (
       ...pngSize(data),
     },
     ...(full !== undefined ? { fullScreenshot: { data: full, ...pngSize(full) } } : {}),
-  }); // Fork
+  };
 };
 
 /** Snapshots begun per page; observers' snapshots aren't queued, so two can overlap. */

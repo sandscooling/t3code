@@ -1,5 +1,6 @@
 import {
   backgroundWorkHoldsCompletion,
+  isPullRequestWatchTask,
   turnItemUpdateCanEndBackgroundWork,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { backgroundWorkHoldsThread } from "@t3tools/shared/crewSession"; // Fork: crew commands hold
@@ -155,7 +156,10 @@ export function isAutoSettlementCandidate(
   // A guest is waiting on the owner; settling would hide the Request.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) return false;
   if (thread.activityRunStatus != null) return false;
-  if (backgroundWorkHoldsThread(thread, thread.pendingBackgroundTasks ?? [])) return false; // Fork: crew commands hold
+  const pendingTasks = thread.pendingBackgroundTasks ?? [];
+  if (backgroundWorkHoldsThread(thread, pendingTasks)) return false; // Fork: crew commands hold
+  // Settling ends a watch, which would silently drop a reviewer's later comments.
+  if (pendingTasks.some(isPullRequestWatchTask)) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;
   // Interrupted runs must keep the same snooze protection the sidebar shows.
   return !isSnoozed(thread, nowMs);

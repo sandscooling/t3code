@@ -55,7 +55,6 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
-import { UNAVAILABLE_SCREENSHOT_PNG } from "../preview/ServerBrowserPage.fork.ts"; // Fork
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import { PreviewToolkit } from "./toolkits/preview/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
@@ -269,7 +268,6 @@ it.effect.each([
           Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
-      Effect.scoped,
     ),
 );
 
@@ -580,24 +578,6 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
   }).pipe(Effect.provide(layerTest)),
 );
 
-// Fork: the path-only result carries no page text, so the placeholder note rides along.
-it.effect("a saved snapshot whose capture timed out says its file is a placeholder", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* serveSnapshots("mcp-save-placeholder-client", {
-        ...snapshotResult,
-        screenshot: { ...snapshotResult.screenshot, data: UNAVAILABLE_SCREENSHOT_PNG },
-      });
-      const pathOnly = yield* callSnapshot({ save: true, includeImage: false });
-      expect(pathOnly.structuredContent).toEqual({
-        url: snapshotResult.url,
-        screenshotPath: expect.any(String),
-        note: expect.stringMatching(/^\[Screenshot unavailable: /),
-      });
-    }),
-  ).pipe(Effect.provide(layerTest)),
-);
-
 it.effect("advertises the compact input schema for every registered tool", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -715,13 +695,13 @@ it.effect(
         ...thread,
         limit: 100,
         runLimit: 50,
-        maxCharsPerItem: 50_000,
+        maxCharsPerItem: 20_000,
       });
       yield* callTool("t3_thread_read", { ...thread, limit: 7, runLimit: 1, maxCharsPerItem: 1 });
 
       expect(calls).toEqual([
-        { ...thread, limit: 100, runLimit: 50, maxCharsPerItem: 50_000 },
-        { ...thread, limit: 100, runLimit: 50, maxCharsPerItem: 50_000 },
+        { ...thread, limit: 100, runLimit: 50, maxCharsPerItem: 20_000 },
+        { ...thread, limit: 100, runLimit: 50, maxCharsPerItem: 20_000 },
         { ...thread, limit: 7, runLimit: 1, maxCharsPerItem: 1 },
       ]);
     }).pipe(Effect.provide(layerRecordingTools(calls)));
