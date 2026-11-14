@@ -2719,8 +2719,12 @@ const turnStartWithMissingWorktree = (
     const failedRun = written.some(
       (event) => event.type === "run.updated" && event.payload.status === "failed",
     );
-    // A start that carried on past the check hit the stub and failed there.
-    return { recreated, errorItem, failedRun, carriedOn: Exit.isFailure(exit) };
+    // A start that carried on past the check hit the stub, which settles the run as a failed
+    // runtime recovery read.
+    const carriedOn =
+      Exit.isFailure(exit) ||
+      errorItem?.id.endsWith(":signal:runtime-recovery-read-failure") === true;
+    return { recreated, errorItem, failedRun, carriedOn };
   });
 
 it.effect(
@@ -2774,7 +2778,7 @@ it.effect(
       }
       // Inside T3's dir: upstream's repair, even for a spawned session.
       const repaired = yield* turnStartWithMissingWorktree(own, worktreesDir);
-      expect(repaired).toMatchObject({ recreated: true, failedRun: false, carriedOn: true });
+      expect(repaired).toMatchObject({ recreated: true, carriedOn: true });
     }).pipe(Effect.scoped),
 );
 
