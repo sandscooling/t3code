@@ -51,8 +51,6 @@ Always available to every agent session, with no setting to turn on:
 - Database backups and `t3 service install` work on Windows (file flush fixes).
 - A failed bootstrap teardown no longer crashes the desktop backend.
 - The project favicon path uses POSIX separators on Windows.
-- A thread waiting on a background test or build can stay Working, and counted in its project's active number, until the command ends: press Wait on the background work strip, or an agent calls `wait_for_background_commands`. Taken from upstream PR [#15315](https://github.com/pingdotgg/t3code/pull/15315), which upstream closed unmerged; the fork keeps it.
-- A delegated child that holds a background command stays open until that command ends, instead of finishing early and reporting a partial result to its parent.
 - Preview tool waits are capped at 45 seconds so they finish inside the agent's 60 second tool-call limit.
 - A background-work notice gives each command its own outcome, so a stopped command and a later one with the same description that finished no longer both read as stopped; same-named commands carry their task id.
 - In the desktop app, a hidden browser tab resized to fill takes the panel's size, not the phone width of an earlier preset.

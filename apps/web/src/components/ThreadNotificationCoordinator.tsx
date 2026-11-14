@@ -5,7 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import { isSilencedCrewAlert } from "@t3tools/shared/crewSession"; // Fork: quiet crew completions
-import { backgroundWorkTaskHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
+import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -54,7 +54,7 @@ interface NotificationState extends ThreadNotificationObservation {
   readonly status: SidebarThreadStatus;
   // Fork: an unchanged thread is skipped, so it must still count as awaiting.
   readonly awaitsAnswer: boolean;
-  // Fork: a held command keeps the thread waiting on its completion alert.
+  // Fork: an awaited command keeps the thread waiting on its completion alert.
   readonly holdsCompletion: boolean;
 }
 
@@ -356,7 +356,7 @@ export function startThreadNotifications(
         holdsCompletion:
           status === "waiting" &&
           thread.pendingBackgroundTasks.some(
-            (task) => task.kind === "command" && backgroundWorkTaskHoldsCompletion(task),
+            (task) => task.kind === "command" && backgroundWorkHoldsCompletion([task]),
           ),
       };
       next.set(thread.id, state);
@@ -365,7 +365,7 @@ export function startThreadNotifications(
     }
     entry.reconnecting = false;
     entry.previous = next;
-    // Fork: forgetting a thread while a held command runs re-arms its completion,
+    // Fork: forgetting a thread while an awaited command runs re-arms its completion,
     // so a completion that already alerted alerts again when the command ends.
     entry.gate.retain(
       new Set([...next].filter(([, state]) => !state.holdsCompletion).map(([id]) => id)),

@@ -89,7 +89,7 @@ that adds one, and a thread field would mean an event and projector change in up
 The cost is that the setting is not in the event log, so a database rebuilt from events loses it.
 
 Idle is derived from the shell's `latestRunCompletedAt` and `unsettledAt`, so a restart needs no
-timer restoration. The last time the sweep saw the thread busy (a held build that ended without a
+timer restoration. The last time the sweep saw the thread busy (an awaited build that ended without a
 new run, a settled or archived stretch) is kept in memory only and is not restored after a
 restart; an unarchive leaves no persisted mark, so one made while T3 was down can fire on
 startup. The reminder's command id is `idle-handoff:<threadId>:<latestRunId>`, so a second send

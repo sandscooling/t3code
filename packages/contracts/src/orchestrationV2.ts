@@ -519,12 +519,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  /**
-   * Background commands someone chose to wait for (thread.background-work.hold).
-   * A held command keeps the thread working, like a subagent, until it ends.
-   * Ids of commands that already ended are harmless and drop on the next hold.
-   */
-  heldBackgroundTaskIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
@@ -1092,12 +1086,7 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       providerInstanceId: Schema.optional(ProviderInstanceId),
       childThreadId: Schema.optional(ThreadId),
     }),
-    Schema.Struct({
-      ...PendingBackgroundTaskFields,
-      kind: Schema.Literal("command"),
-      /** Someone chose to wait for it, so it holds the thread like a subagent. */
-      held: Schema.optional(Schema.Boolean),
-    }),
+    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
@@ -1996,7 +1985,6 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
-      "thread.background-work-held",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2945,7 +2933,6 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
-      "thread.background-work-held",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -3185,17 +3172,6 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     enabled: Schema.Boolean,
-  }),
-  /**
-   * `held: true` keeps the thread working until the latest run's background commands, and any
-   * already held, end; earlier or later commands are not held, and a hold adding none is rejected.
-   * `held: false` stops waiting for all of them.
-   */
-  Schema.Struct({
-    type: Schema.Literal("thread.background-work.hold"),
-    commandId: CommandId,
-    threadId: ThreadId,
-    held: Schema.Boolean,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin"),

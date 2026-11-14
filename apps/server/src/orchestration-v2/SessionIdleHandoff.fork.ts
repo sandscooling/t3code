@@ -86,8 +86,7 @@ const ACTIVE_STATUSES = new Set(["preparing", "queued", "starting", "running", "
 
 /**
  * The thread's own work in flight. Background work only counts when someone waits for it
- * (wait_for_background_commands, or the agent's t3_background_wait); one left running on
- * purpose, like a dev server, does not.
+ * (the agent's t3_background_wait); one left running on purpose, like a dev server, does not.
  */
 const isBusy = (shell: OrchestrationV2ThreadShell) =>
   shell.activeRunId !== null ||
@@ -95,10 +94,7 @@ const isBusy = (shell: OrchestrationV2ThreadShell) =>
   ACTIVE_STATUSES.has(shell.status) ||
   shell.pendingRuntimeRequest !== null ||
   (shell.pendingBackgroundTasks ?? []).some(
-    (task) =>
-      task.kind === "subagent" ||
-      task.awaited === true ||
-      (task.kind === "command" && task.held === true),
+    (task) => task.kind === "subagent" || task.awaited === true,
   );
 
 /** Context size at the root provider thread's newest usage report, as the context meter reads it. */

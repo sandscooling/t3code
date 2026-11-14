@@ -50,7 +50,6 @@ import {
   reorderPinnedThread,
   reorderActiveThread,
   setThreadAutoSettle,
-  setThreadBackgroundWorkHeld,
   settleThread,
   snoozeThread,
   startThreadTurn,
@@ -242,12 +241,6 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-auto-settle",
       execute: setThreadAutoSettle,
-      scheduler,
-      concurrency,
-    }),
-    setBackgroundWorkHeld: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:set-background-work-held",
-      execute: setThreadBackgroundWorkHeld,
       scheduler,
       concurrency,
     }),
@@ -523,15 +516,6 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
       autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),
-    })),
-    // Commands started after the hold are not held; the server event corrects this.
-    setBackgroundWorkHeld: optimistic.wrap(commands.setBackgroundWorkHeld, (thread, input) => ({
-      ...thread,
-      pendingBackgroundTasks: (thread.pendingBackgroundTasks ?? []).map((task) => {
-        if (task.kind !== "command") return task;
-        const { held: _held, ...released } = task;
-        return input.held ? { ...released, held: true } : released;
-      }),
     })),
     pin: optimistic.wrap(commands.pin, (thread, input, now) => ({
       ...thread,

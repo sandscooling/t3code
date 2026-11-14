@@ -27,7 +27,7 @@ const state = vi.hoisted(() => ({
   gone: false,
   // Reuse the last thread object, as the shell reducer does for an unchanged thread.
   unchanged: false,
-  background: [] as Array<{ taskId: string; kind: "command" | "monitor"; held?: boolean }>,
+  background: [] as Array<{ taskId: string; kind: "command" | "monitor"; awaited?: true }>,
   add: vi.fn(
     (_toast: {
       id?: string;
@@ -212,6 +212,7 @@ function setup() {
       return { matches: [{ params: state.active }] };
     },
     navigate: state.navigate,
+    subscribe: () => () => {},
   } as unknown as AnyRouter;
   let started = false;
   return {
@@ -357,7 +358,7 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  // Fork: only a held command re-arms the completion alert; a pull request
+  // Fork: only an awaited command re-arms the completion alert; a pull request
   // watch makes the thread wait too, but its run already alerted.
   it("does not alert the same completion again after a pull request watch ends", async () => {
     await using app = setup();
@@ -373,7 +374,7 @@ describe("thread notifications", () => {
     expect(state.sound).toHaveBeenCalledTimes(1);
   });
 
-  it("still alerts again when a held command ends alongside a pull request watch", async () => {
+  it("still alerts again when an awaited command ends alongside a pull request watch", async () => {
     await using app = setup();
     state.mode = "notifications-and-sound";
     await app.render();
@@ -381,7 +382,7 @@ describe("thread notifications", () => {
     await app.render();
     state.background = [
       { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
-      { taskId: "bench", kind: "command", held: true },
+      { taskId: "bench", kind: "command", awaited: true },
     ];
     await app.render();
     expect(state.sound).toHaveBeenCalledTimes(1);

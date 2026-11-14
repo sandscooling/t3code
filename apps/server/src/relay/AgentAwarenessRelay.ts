@@ -104,7 +104,6 @@ function shouldPublishAgentAwarenessEvent(
     case "runtime-request.updated":
     case "subagent.updated":
     case "provider-thread.updated":
-    case "thread.background-work-held":
       return true;
     // Unsettling must not re-alert a dismissed result.
     case "thread.unsettled":

@@ -89,22 +89,10 @@ export function deriveBlockedOnThreadWait(input: {
 }
 
 export function backgroundWorkHoldsCompletion(
-  tasks: ReadonlyArray<BackgroundWorkHoldTask>,
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind" | "awaited">>,
 ): boolean {
-  return tasks.some((task) => backgroundWorkTaskHoldsCompletion(task));
-}
-
-// Fork: `held` is the Wait button and wait_for_background_commands, on commands only.
-type BackgroundWorkHoldTask = Pick<PendingBackgroundWorkTask, "kind" | "awaited"> & {
-  readonly held?: boolean | undefined;
-};
-
-// Fork: exported for the sidebar's Waiting clock and icon, and for crewSession.ts.
-export function backgroundWorkTaskHoldsCompletion(task: BackgroundWorkHoldTask): boolean {
-  return (
-    task.awaited === true ||
-    (task.kind === "command" && task.held === true) ||
-    backgroundWorkKindHoldsCompletion(task.kind)
+  return tasks.some(
+    (task) => task.awaited === true || backgroundWorkKindHoldsCompletion(task.kind),
   );
 }
 
@@ -264,24 +252,32 @@ export function pendingBackgroundTurnItems<Item extends PendingBackgroundWorkTur
   );
 }
 
-type BackgroundWorkSources = {
+export function derivePendingBackgroundWork(input: {
+  readonly latestRun: PendingBackgroundWorkRun | null | undefined;
   readonly providerThreads: ReadonlyArray<PendingBackgroundWorkProviderThread>;
   readonly turnItems: ReadonlyArray<PendingBackgroundWorkTurnItem>;
   readonly activeProviderThreadId?: string | null;
+  readonly hasActiveRun?: boolean;
   /** Excludes rolled-back runs; optional only when the caller already filtered them, as SQL shell reads do. */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
-};
+}): ReadonlyArray<PendingBackgroundWorkTask> {
+  const hasActiveRun =
+    input.hasActiveRun ??
+    input.runs?.some(
+      (run) => run.status === "preparing" || run.status === "starting" || run.status === "running",
+    ) ??
+    false;
+  if (hasActiveRun) {
+    return [];
+  }
+  if (input.latestRun == null) {
+    return pullRequestWatchTasks(input.pullRequests);
+  }
+  if (!isLatestRunSettledForBackgroundWait(input.latestRun)) {
+    return [];
+  }
 
-/**
- * Fork: every piece of background work a thread names (roster, active turn items, pull request
- * watches), without the settled-run gate, deduped by native task id and skipping rolled-back runs.
- * Holding commands reads this directly because an agent holds its command before its turn
- * settles. Callers picking a run to interrupt leave `pullRequests` out; Stop ends watches itself.
- */
-export function collectBackgroundWork(
-  input: BackgroundWorkSources,
-): ReadonlyArray<PendingBackgroundWorkTask> {
   const byTaskId = new Map<string, PendingBackgroundWorkTask>();
 
   const providerThreads =
@@ -323,126 +319,6 @@ export function collectBackgroundWork(
   for (const task of pullRequestWatchTasks(input.pullRequests)) byTaskId.set(task.taskId, task);
 
   return Array.from(byTaskId.values());
-}
-
-// Fork: a wait holds only the latest run's commands, so an earlier turn's dev server never
-// keeps a later turn Working. Roster commands carry no run id, so start time places them (one
-// server clock). A wake run starts a new scope on purpose: scoping by workStartedAt would let a
-// pull request watch's wake hold a dev server.
-export function backgroundCommandHoldScopeStartedAt(
-  runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "startedAt">>,
-): DateTime.Utc | null {
-  let latest: Pick<OrchestrationV2Run, "ordinal" | "startedAt"> | null = null;
-  for (const run of runs) {
-    if (run.startedAt !== null && (latest === null || run.ordinal > latest.ordinal)) latest = run;
-  }
-  return latest?.startedAt ?? null;
-}
-
-// Fork: a command with no start time cannot be placed, so it is never in scope.
-export function backgroundCommandInHoldScope(
-  task: Pick<PendingBackgroundWorkTask, "kind" | "startedAt">,
-  scopeStartedAt: DateTime.Utc | null,
-): boolean {
-  if (task.kind !== "command" || task.startedAt === undefined || scopeStartedAt === null) {
-    return false;
-  }
-  return Date.parse(task.startedAt) >= DateTime.toEpochMillis(scopeStartedAt);
-}
-
-/**
- * Fork: the commands a wait holds. Commands already held stay held while they
- * run; the latest run's commands join them. `added` names the ones not held
- * before: a wait that adds none is rejected, and a caller racing its own
- * command's registration waits for one.
- */
-export function backgroundCommandsToHold(input: {
-  readonly tasks: ReadonlyArray<PendingBackgroundWorkTask>;
-  readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "startedAt">>;
-  readonly heldTaskIds: ReadonlyArray<string> | undefined;
-}): { readonly held: ReadonlyArray<string>; readonly added: ReadonlyArray<string> } {
-  const scopeStartedAt = backgroundCommandHoldScopeStartedAt(input.runs);
-  const alreadyHeld = new Set(input.heldTaskIds ?? []);
-  const held: Array<string> = [];
-  const added: Array<string> = [];
-  for (const task of input.tasks) {
-    if (task.kind !== "command") continue;
-    if (alreadyHeld.has(task.taskId)) {
-      held.push(task.taskId);
-    } else if (backgroundCommandInHoldScope(task, scopeStartedAt)) {
-      held.push(task.taskId);
-      added.push(task.taskId);
-    }
-  }
-  return { held, added };
-}
-
-/** Fork: the turn items `runningHeldTaskIds` needs from a thread-records read. */
-export const RUNNING_COMMAND_ITEMS = {
-  turnItemTypes: ["command_execution"],
-  turnItemStatuses: ["pending", "running", "waiting"],
-} as const;
-
-/**
- * Fork: the thread's held commands still running. A held id can outlive its command until its grace
- * trims it, so the live roster and turn items decide. Neither carries `held`; only the shell does.
- */
-export function runningHeldTaskIds(input: {
-  readonly thread: { readonly heldBackgroundTaskIds?: ReadonlyArray<string> | undefined };
-  readonly providerThreads: ReadonlyArray<
-    Pick<PendingBackgroundWorkProviderThread, "pendingBackgroundTasks">
-  >;
-  readonly turnItems: ReadonlyArray<PendingBackgroundWorkTurnItem>;
-  readonly runs: ReadonlyArray<PendingBackgroundWorkRun>;
-}): ReadonlyArray<string> {
-  const held = input.thread.heldBackgroundTaskIds ?? [];
-  if (held.length === 0) return held;
-  const running = new Set([
-    ...input.providerThreads.flatMap((thread) =>
-      (thread.pendingBackgroundTasks ?? []).map((task) => task.taskId),
-    ),
-    ...pendingBackgroundTurnItems(input).map(nativeTaskIdFromTurnItem),
-  ]);
-  return held.filter((taskId) => running.has(taskId));
-}
-
-/**
- * Derive one normalized pending-background-work list for post-settlement UI:
- * `collectBackgroundWork`, gated on latest root run settlement. Excludes the
- * roster while any interruptible foreground run remains active. Commands in
- * `heldTaskIds` (the thread's `heldBackgroundTaskIds`) come back `held`.
- */
-export function derivePendingBackgroundWork(
-  input: BackgroundWorkSources & {
-    readonly latestRun: PendingBackgroundWorkRun | null | undefined;
-    readonly hasActiveRun?: boolean;
-    readonly heldTaskIds?: ReadonlyArray<string> | undefined;
-  },
-): ReadonlyArray<PendingBackgroundWorkTask> {
-  const hasActiveRun =
-    input.hasActiveRun ??
-    input.runs?.some(
-      (run) => run.status === "preparing" || run.status === "starting" || run.status === "running",
-    ) ??
-    false;
-  if (hasActiveRun) {
-    return [];
-  }
-  if (input.latestRun == null) {
-    return pullRequestWatchTasks(input.pullRequests);
-  }
-  if (!isLatestRunSettledForBackgroundWait(input.latestRun)) {
-    return [];
-  }
-
-  const tasks = collectBackgroundWork(input);
-  if (input.heldTaskIds === undefined || input.heldTaskIds.length === 0) {
-    return tasks;
-  }
-  const heldTaskIds = new Set(input.heldTaskIds);
-  return tasks.map((task) =>
-    task.kind === "command" && heldTaskIds.has(task.taskId) ? { ...task, held: true } : task,
-  );
 }
 
 function pullRequestWatchTasks(

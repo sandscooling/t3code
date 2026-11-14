@@ -398,10 +398,6 @@ function ThreadRouteContent(
     detailBehind: composer.selectedThreadDetailBehindShell,
   });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
-  const setBackgroundWorkHeld = useAtomCommand(
-    threadEnvironment.setBackgroundWorkHeld,
-    "wait for background commands",
-  );
   const resumeThreadQueue = useAtomCommand(threadEnvironment.resumeThreadQueue, {
     label: "resume queue",
     reportFailure: false,
@@ -677,13 +673,6 @@ function ThreadRouteContent(
         threadId: selectedThread.id,
         runId: composer.interruptibleRunId,
       },
-    });
-  };
-  const handleSetBackgroundWorkHeld = (held: boolean) => {
-    if (!selectedThread) return;
-    void setBackgroundWorkHeld({
-      environmentId: selectedThread.environmentId,
-      input: { threadId: selectedThread.id, held },
     });
   };
 
@@ -1082,7 +1071,6 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
-          onSetBackgroundWorkHeld={handleSetBackgroundWorkHeld}
           onResumeQueue={composer.canResume ? handleResumeQueue : null}
           onSendMessage={composer.onSendMessage}
           offersSideChat={composer.sideChatUnavailableReason === null}

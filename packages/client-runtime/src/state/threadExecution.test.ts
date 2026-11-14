@@ -658,61 +658,6 @@ describe("provider-reported model selection", () => {
   });
 });
 
-// Fork: background command holds.
-describe("presentPendingBackgroundWork command holds", () => {
-  it("offers to wait for a command, then to stop waiting while any command is held", () => {
-    const latestRunStartedAt = DateTime.makeUnsafe("2026-10-18T12:00:00.000Z");
-    const bench = {
-      taskId: "bench",
-      kind: "command" as const,
-      description: "Run benchmarks",
-      startedAt: "2026-10-18T12:01:00.000Z",
-    };
-    const dev = {
-      taskId: "dev",
-      kind: "command" as const,
-      description: "vp run dev",
-      startedAt: "2026-10-18T11:00:00.000Z",
-    };
-    expect(presentPendingBackgroundWork([bench], latestRunStartedAt)).toMatchObject({
-      title: "Running · Run benchmarks",
-      waiting: false,
-      commandHold: "wait",
-    });
-    expect(
-      presentPendingBackgroundWork([{ ...bench, held: true }], latestRunStartedAt),
-    ).toMatchObject({
-      title: "Waiting · Run benchmarks",
-      waiting: true,
-      commandHold: "release",
-    });
-    expect(
-      presentPendingBackgroundWork([{ ...bench, held: true }, dev], latestRunStartedAt),
-    ).toMatchObject({
-      title: "Waiting on 2 commands",
-      commandHold: "release",
-    });
-  });
-
-  it("does not offer Wait for a command an earlier turn left running", () => {
-    const dev = {
-      taskId: "dev",
-      kind: "command" as const,
-      description: "vp run dev",
-      startedAt: "2026-10-18T11:00:00.000Z",
-    };
-    const latestRunStartedAt = DateTime.makeUnsafe("2026-10-18T12:00:00.000Z");
-    expect(presentPendingBackgroundWork([dev], latestRunStartedAt)).toMatchObject({
-      title: "Running · vp run dev",
-      commandHold: null,
-    });
-    // Without the latest run's start the server's scope is unknown, so no Wait.
-    expect(
-      presentPendingBackgroundWork([{ ...dev, startedAt: "2026-10-18T12:01:00.000Z" }]),
-    ).toMatchObject({ commandHold: null });
-  });
-});
-
 describe("formatModelSelectionEffort", () => {
   it("labels an old Ultracode effort by the effort it runs at", () => {
     const models = [

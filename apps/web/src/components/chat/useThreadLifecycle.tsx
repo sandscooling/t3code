@@ -109,11 +109,6 @@ interface ThreadLifecycleInput {
   /** Also true while the server prepares, starts, or queues a run this client did not send. */
   readonly runIsLive: boolean;
   readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkNowItem>[0]["tasks"];
-  // Fork: background command holds.
-  readonly backgroundWorkHoldScopeStartedAt: Exclude<
-    Parameters<typeof backgroundWorkNowItem>[0]["holdScopeStartedAt"],
-    undefined
-  >;
   readonly turnItems: Parameters<typeof backgroundWorkNowItem>[0]["turnItems"];
   readonly activePendingApproval: PendingThreadRequests["activePendingApproval"];
   readonly activePendingUserInput: PendingThreadRequests["activePendingUserInput"];
@@ -167,7 +162,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     isWorking,
     runIsLive,
     pendingBackgroundTasks,
-    backgroundWorkHoldScopeStartedAt,
     turnItems,
     activePendingApproval,
     activePendingUserInput,
@@ -202,13 +196,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const interruptThreadTurn = useOrchestrationCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
-  const setThreadBackgroundWorkHeld = useAtomCommand(threadEnvironment.setBackgroundWorkHeld, {
-    reportFailure: false,
-  });
 
   const serverConfigLoaded = serverConfig !== null;
-  const supportsBackgroundWorkHold =
-    serverConfig?.environment.capabilities.threadBackgroundWorkHold === true;
   const activeThreadPinned = serverConfigLoaded && activeThreadShell?.pinnedAt != null;
   // A clock read in render would stay frozen in the compiler's cache, so the
   // snooze checks read a snapshot that moves when the wake time changes or passes.
@@ -474,29 +463,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     }
   };
   const handleStopBackgroundWorkStable = useStableCallback(handleStopBackgroundWork);
-  // Waiting for a command keeps the thread in Working until it ends, like a
-  // subagent. Commands are not held by default, because a dev server can run
-  // for hours after the agent is done.
-  const [holdingBackgroundWorkKey, setHoldingBackgroundWorkKey] = useState<string | null>(null);
-  const isHoldingBackgroundWork = holdingBackgroundWorkKey === `${environmentId}:${activeThreadId}`;
-  const handleSetBackgroundWorkHeld = async (held: boolean) => {
-    if (!activeThread) return;
-    const requestKey = `${environmentId}:${activeThread.id}`;
-    setHoldingBackgroundWorkKey(requestKey);
-    const result = await setThreadBackgroundWorkHeld({
-      environmentId,
-      input: { threadId: activeThread.id, held },
-    });
-    setHoldingBackgroundWorkKey((current) => (current === requestKey ? null : current));
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      setThreadError(
-        activeThread.id,
-        error instanceof Error ? error.message : "Failed to change background work waiting.",
-      );
-    }
-  };
-  const handleSetBackgroundWorkHeldStable = useStableCallback(handleSetBackgroundWorkHeld);
   const openRelatedThreadGenerationRef = useRef(0);
   // A task delegated to a linked environment opens there; the default is this thread's own.
   const onOpenRelatedThread = async (
@@ -644,14 +610,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         stopping: isStoppingBackgroundWork,
         onStop: handleStopBackgroundWorkStable,
         onOpenThread: onOpenRelatedThreadStable,
-        // Fork: background command holds.
-        holdScopeStartedAt: backgroundWorkHoldScopeStartedAt,
-        hold: supportsBackgroundWorkHold
-          ? {
-              disabled: !canOperateThread || isHoldingBackgroundWork,
-              onSetHeld: handleSetBackgroundWorkHeldStable,
-            }
-          : null,
       })
     : null;
   // The relative times read the clock; nowMinute re-renders them on the minute.

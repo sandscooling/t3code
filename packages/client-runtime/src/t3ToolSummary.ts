@@ -196,17 +196,6 @@ export function summarizeT3ToolCalls(
       label = phrase("Checked", "check", `task status ${times}`);
       break;
     case "background-wait":
-      // Fork: wait_for_background_commands shares this kind but never passes taskIds.
-      if (selected.every((call) => call.input?.taskIds === undefined)) {
-        label = selected.every((call) => call.input?.wait === false)
-          ? phrase("Stopped waiting for", "stop waiting for", "background commands")
-          : phrase(
-              "Set the thread to wait for",
-              "set the thread to wait for",
-              "background commands",
-            );
-        break;
-      }
       label = phrase("Updated", "update", `background waits ${times}`);
       break;
     case "task-cancel":

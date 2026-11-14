@@ -26,7 +26,7 @@ describe("sidebarWaitingOn", () => {
     const benchmark = {
       taskId: "bench",
       kind: "command" as const,
-      held: true,
+      awaited: true as const,
       startedAt: "2026-10-02T10:05:00.000Z",
     };
     expect(sidebarWaitingOn([subagent, benchmark], topLevel)).toEqual({

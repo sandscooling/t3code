@@ -25,7 +25,6 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
-  backgroundCommandInHoldScope, // Fork: background command holds
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -366,7 +365,6 @@ export function deriveThreadStructureRuntime(
       turnItems: projection.turnItems,
       activeProviderThreadId: projection.thread.activeProviderThreadId,
       runs: projection.runs,
-      heldTaskIds: projection.thread.heldBackgroundTaskIds,
       pullRequests: projection.thread.pullRequests,
     }),
   );
@@ -570,12 +568,6 @@ export interface PendingBackgroundWorkPresentation {
   readonly title: string;
   readonly items: ReadonlyArray<PendingBackgroundWorkItem>;
   readonly waiting: boolean;
-  /**
-   * What the Wait control offers: "release" while any command is held, so it
-   * matches a "Waiting" title, else "wait" when the latest run started a
-   * command (the server holds only those). Null otherwise.
-   */
-  readonly commandHold: "wait" | "release" | null;
 }
 
 function joinWithAnd(parts: ReadonlyArray<string>): string {
@@ -603,21 +595,11 @@ export function isBackgroundWorkStopPending(
   return request.retryAt === null || tasks.some((task) => request.taskIds.includes(task.taskId));
 }
 
-/**
- * Fork: `holdScopeStartedAt` is when the latest run started
- * (`backgroundCommandHoldScopeStartedAt`); without it Wait is not offered.
- */
 export function presentPendingBackgroundWork(
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
-  holdScopeStartedAt: DateTime.Utc | null = null,
 ): PendingBackgroundWorkPresentation | null {
   if (tasks.length === 0) return null;
   const waiting = backgroundWorkHoldsCompletion(tasks);
-  const commandHold = tasks.some((task) => task.kind === "command" && task.held === true)
-    ? "release"
-    : tasks.some((task) => backgroundCommandInHoldScope(task, holdScopeStartedAt))
-      ? "wait"
-      : null;
   const items = tasks
     .map((task): PendingBackgroundWorkItem => {
       const description = task.description?.trim();
@@ -653,7 +635,7 @@ export function presentPendingBackgroundWork(
       : waiting
         ? `Waiting on a ${noun}`
         : `Running a ${noun}`;
-    return { title, items, waiting, commandHold };
+    return { title, items, waiting };
   }
   const counts = new Map<BackgroundWorkKind, number>();
   for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
@@ -661,12 +643,7 @@ export function presentPendingBackgroundWork(
     const { singular, plural } = BACKGROUND_WORK_KINDS[kind];
     return `${count} ${count === 1 ? singular : plural}`;
   });
-  return {
-    title: `${waiting ? "Waiting on" : "Running"} ${joinWithAnd(groups)}`,
-    items,
-    waiting,
-    commandHold,
-  };
+  return { title: `${waiting ? "Waiting on" : "Running"} ${joinWithAnd(groups)}`, items, waiting };
 }
 
 export interface ProviderGoalPresentation {

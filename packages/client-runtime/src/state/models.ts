@@ -233,7 +233,7 @@ function terminalRunStatus(status: OrchestrationV2RunStatus): boolean {
 // server suppresses the roster while an interruptible activity run exists, so a
 // remaining roster is stronger than checkpoint-oriented waiting.
 function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
-  // Fork: held commands also hold, and so does any command or monitor a crew session left running.
+  // Fork: any command or monitor a crew session left running holds too.
   const parkAtIdle =
     backgroundWorkHoldsThread(thread, thread.pendingBackgroundTasks ?? []) &&
     thread.status !== "failed";

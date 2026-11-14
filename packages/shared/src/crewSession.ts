@@ -5,7 +5,10 @@
  * so a retired "Orchestrator-<date>" still counts as crew.
  */
 
-import { backgroundWorkTaskHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
+import {
+  backgroundWorkHoldsCompletion,
+  type PendingBackgroundWorkTask,
+} from "./orchestrationV2PendingBackgroundWork.ts";
 
 const ORCHESTRATOR_TITLE = "Orchestrator";
 
@@ -35,10 +38,10 @@ export function isIdleCrewSession(
   return status === "ready" && isCrewSession(thread) && thread.settledOverride !== "settled";
 }
 
-type BackgroundWorkHoldTask = Parameters<typeof backgroundWorkTaskHoldsCompletion>[0];
+type BackgroundWorkHoldTask = Pick<PendingBackgroundWorkTask, "kind" | "awaited">;
 
 /**
- * Elsewhere a command or monitor holds only when awaited or held, so a dev server left running
+ * Elsewhere a command or monitor holds only when awaited, so a dev server left running
  * does not. A crew session resumes when any of its commands or monitors ends, and settling it
  * stops them, so every running one holds it.
  */
@@ -47,7 +50,7 @@ export function backgroundWorkTaskHoldsThread(
   task: BackgroundWorkHoldTask,
 ): boolean {
   return (
-    backgroundWorkTaskHoldsCompletion(task) ||
+    backgroundWorkHoldsCompletion([task]) ||
     ((task.kind === "command" || task.kind === "monitor") && isCrewSession(thread))
   );
 }

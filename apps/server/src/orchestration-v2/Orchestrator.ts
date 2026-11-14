@@ -85,12 +85,9 @@ import { modelSwitchSince } from "./modelSwitch.ts";
 import { combinePullRequestWatchWakes, type PullRequestWatchWake } from "./pullRequestWatch.ts";
 import { recordThreadOpen } from "@t3tools/shared/paletteSearch";
 import {
-  backgroundCommandsToHold, // Fork: background command holds
   backgroundWorkHoldsCompletion,
-  collectBackgroundWork,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
-  RUNNING_COMMAND_ITEMS, // Fork
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -202,7 +199,6 @@ import {
   isForkableSourceRunStatus,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
-import { makeChildHoldGrace } from "./DelegatedChildHold.fork.ts"; // Fork
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { settleSpawnedThreads } from "./spawnedSessions.ts"; // Fork: settle cascade
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -637,7 +633,6 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.snooze":
     case "thread.unsnooze":
     case "thread.auto-settle.set":
-    case "thread.background-work.hold":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -12138,65 +12133,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
   });
 
-  // Fork: holding reads background work without the settled-run gate: an agent
-  // holds the command it just started before its own turn settles. The wait
-  // for a command still registering lives in the MCP tool, outside this queue.
-  const dispatchBackgroundWorkHold = Effect.fn("Orchestrator.dispatchBackgroundWorkHold")(
-    function* (
-      command: Extract<OrchestrationV2Command, { readonly type: "thread.background-work.hold" }>,
-      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-    ) {
-      const projection = yield* loadProjectionForCommand(
-        command,
-        ["runs", "providerThreads", "turnItems"],
-        RUNNING_COMMAND_ITEMS,
-      );
-      const { thread } = projection;
-      if (thread.deletedAt !== null) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Thread ${command.threadId} is deleted.`,
-        });
-      }
-      const { held: commandTaskIds, added } = backgroundCommandsToHold({
-        tasks: collectBackgroundWork({
-          providerThreads: projection.providerThreads,
-          turnItems: projection.turnItems,
-          activeProviderThreadId: thread.activeProviderThreadId,
-          runs: projection.runs,
-        }),
-        runs: projection.runs,
-        heldTaskIds: thread.heldBackgroundTaskIds,
-      });
-      // Its own tag, so the MCP tool can tell this apart from an outage. A
-      // wait that adds nothing fails even while older holds run, so an agent
-      // whose command never registered is not told it is waiting on it.
-      if (command.held && added.length === 0) {
-        return yield* new OrchestratorCommandRejectedError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Thread ${command.threadId} has no unheld background command its latest run started.`,
-        });
-      }
-      const { heldBackgroundTaskIds: _released, ...released } = thread;
-      const updatedThread = command.held
-        ? { ...thread, heldBackgroundTaskIds: commandTaskIds }
-        : released;
-      // Not thread activity, like a visit: updatedAt stays.
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.background-work-held",
-        threadId: command.threadId,
-        providerInstanceId: updatedThread.providerInstanceId,
-        occurredAt: yield* DateTime.now,
-        payload: updatedThread,
-      });
-    },
-  );
-
   const runInterruptReason = Effect.fnUntraced(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
@@ -14127,9 +14063,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         Effect.gen(function* () {
           const child = yield* projectionStore.getThreadRecords(
             childThreadId,
-            // Fork: turnItems for delegatedTaskProgress's held-command check.
-            ["runs", "messages", "subagents", "providerThreads", "providerSessions", "turnItems"],
-            { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS },
+            ["runs", "messages", "subagents", "providerThreads", "providerSessions"],
+            { messageRoles: ["user"] },
           );
           // Unawaited background tasks still allow a result but die with the process; the idle
           // timer keeps their process pinned.
@@ -14461,12 +14396,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
-  const holdGrace = yield* makeChildHoldGrace({
-    eventSink,
-    projectionStore,
-    threadDispatch,
-    writeSystemEvents,
-  }); // Fork
   // A waiting run has ended its turn, so its task waits only on the work it left.
   const progressAfterTurn = (child: Parameters<typeof delegatedTaskProgress>[0]) =>
     delegatedTaskProgress({
@@ -14482,16 +14411,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
-      [
-        "runs",
-        "messages",
-        "subagents",
-        "providerThreads",
-        "providerTurns",
-        "attempts",
-        "turnItems",
-      ],
-      { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
+      ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
+      { messageRoles: ["user"] },
     );
     const parentThreadId = childControls.thread.lineage.parentThreadId;
     if (
@@ -14500,7 +14421,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       childControls.thread.forkedFrom?.type !== "node"
     )
       return;
-    const progress = yield* holdGrace.gate(childControls, delegatedTaskProgress(childControls)); // Fork
+    const progress = delegatedTaskProgress(childControls);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -15138,9 +15059,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.background-work.settle":
         yield* dispatchBackgroundWorkSettle(command, events, effects);
         break;
-      case "thread.background-work.hold":
-        yield* dispatchBackgroundWorkHold(command, events);
-        break;
       case "thread.interrupt.unresponsive":
         yield* dispatchInterruptUnresponsive(command, events);
         break;
@@ -15722,7 +15640,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   // A child whose run ends while its background tasks or its own subagents still run has no
   // result yet. When that work settles there is no run update to finalize it, so these events
   // do it. A background roster counts once it stops holding after it was seen holding.
-  yield* holdGrace.run(terminalEventsAfterSequence); // Fork
   const providerThreadsWithBackgroundWork = new Set<string>();
   const settlesChildWork = (stored: OrchestrationV2StoredEvent) => {
     const { event } = stored;
@@ -15743,7 +15660,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     eventSink.stream({ afterSequence: terminalEventsAfterSequence, eventType: "subagent.updated" }),
   ).pipe(
     Stream.filter(settlesChildWork),
-    Stream.merge(holdGrace.releases(terminalEventsAfterSequence)), // Fork: holds end off the roster
     Stream.runForEach((stored) =>
       Effect.gen(function* () {
         const childThreadId = stored.event.threadId;
@@ -15862,16 +15778,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     function* (childThreadId: ThreadId, taskId?: NodeId) {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        [
-          "runs",
-          "messages",
-          "subagents",
-          "providerThreads",
-          "providerTurns",
-          "attempts",
-          "turnItems",
-        ],
-        { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
+        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
+        { messageRoles: ["user"] },
       );
       if (taskId !== undefined) {
         const runs = delegatedTaskRuns(child, taskId);
@@ -15884,7 +15792,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
-      const progress = yield* holdGrace.gate(child, delegatedTaskProgress(child)); // Fork
+      const progress = delegatedTaskProgress(child);
       if (progress.state !== "result_available") return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);
@@ -15962,8 +15870,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const child = yield* projectionStore
           .getThreadRecords(
             command.threadId,
-            ["runs", "messages", "subagents", "providerThreads", "turnItems"], // Fork
-            { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
+            ["runs", "messages", "subagents", "providerThreads"],
+            { messageRoles: ["user"] },
           )
           .pipe(mapDispatchError(command));
         const followUpRun = child.runs
@@ -15988,8 +15896,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             const child = yield* projectionStore
               .getThreadRecords(
                 command.threadId,
-                ["runs", "messages", "subagents", "providerThreads", "turnItems"], // Fork
-                { messageRoles: ["user"], ...RUNNING_COMMAND_ITEMS }, // Fork
+                ["runs", "messages", "subagents", "providerThreads"],
+                { messageRoles: ["user"] },
               )
               .pipe(mapDispatchError(command));
             const followUpRun = child.runs

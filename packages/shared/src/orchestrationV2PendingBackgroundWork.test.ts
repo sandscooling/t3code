@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProviderInstanceId, ProviderThreadId } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
-  collectBackgroundWork,
   derivePendingBackgroundWork,
   monitorHoldsWakeCompletion,
 } from "./orchestrationV2PendingBackgroundWork.ts";
@@ -484,50 +483,5 @@ describe("derivePendingBackgroundWork kinds", () => {
         }),
       ).toEqual([]);
     });
-  });
-});
-
-describe("held background commands", () => {
-  const providerThreads = [
-    {
-      id: "pt-1" as never,
-      pendingBackgroundTasks: [
-        { taskId: "bench", description: "Run benchmarks", kind: "command" as const },
-        { taskId: "dev", description: "Start the dev server", kind: "command" as const },
-        { taskId: "review", kind: "subagent" as const },
-      ],
-    },
-  ];
-
-  it("holds completion for a command only while someone waits for it", () => {
-    expect(backgroundWorkHoldsCompletion([{ kind: "command" }])).toBe(false);
-    expect(backgroundWorkHoldsCompletion([{ kind: "command", held: true }])).toBe(true);
-  });
-
-  it("marks only the held commands", () => {
-    const tasks = derivePendingBackgroundWork({
-      latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
-      providerThreads,
-      turnItems: [],
-      // A held id that is not a command does not change the subagent.
-      heldTaskIds: ["bench", "review", "ended"],
-    });
-    expect(tasks).toEqual([
-      { taskId: "bench", description: "Run benchmarks", kind: "command", held: true },
-      { taskId: "dev", description: "Start the dev server", kind: "command" },
-      { taskId: "review", kind: "subagent" },
-    ]);
-  });
-
-  it("collects work while the run that started it is still running", () => {
-    const running = { id: "run-1" as never, ordinal: 1, status: "running" as const };
-    expect(
-      derivePendingBackgroundWork({ latestRun: running, providerThreads, turnItems: [] }),
-    ).toEqual([]);
-    expect(
-      collectBackgroundWork({ providerThreads, turnItems: [], runs: [running] }).map(
-        (task) => task.taskId,
-      ),
-    ).toEqual(["bench", "dev", "review"]);
   });
 });

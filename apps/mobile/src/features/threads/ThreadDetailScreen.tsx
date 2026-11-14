@@ -8,7 +8,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult, Atom } from "effect/reactivity";
-import * as DateTime from "effect/DateTime"; // Fork: background command holds
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -298,12 +297,6 @@ export interface ThreadDetailScreenProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  /**
-   * Waits for, or stops waiting for, the background commands the thread runs.
-   * Absent where a thread has no background work, such as a draft; the hold
-   * choice is then not offered.
-   */
-  readonly onSetBackgroundWorkHeld?: (held: boolean) => void;
   /** Present while the thread's queue is held. */
   readonly onResumeQueue: (() => Promise<void>) | null;
   readonly offersSideChat: boolean;
@@ -587,7 +580,6 @@ function ThreadDetailBody(
     }
   })();
   const threadSyncLabel = useDelayedStatus(selectedThreadKey, realThreadSyncLabel);
-  const latestRunStartedAt = props.selectedThread.latestRun?.startedAt ?? null; // Fork
   const connectionRetrying =
     props.connectionStateLabel === "connecting" || props.connectionStateLabel === "reconnecting";
   const retryError = connectionRetrying ? props.connectionError : null;
@@ -761,36 +753,7 @@ function ThreadDetailBody(
   };
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
-    // Fork: Wait holds only the commands the latest run started.
-    latestRunStartedAt === null ? null : DateTime.makeUnsafe(latestRunStartedAt),
   );
-  // A command is not held by default, because a dev server can run for hours
-  // after the agent is done. Holding one keeps the thread in Working.
-  const onSetBackgroundWorkHeld = props.onSetBackgroundWorkHeld;
-  const backgroundCommandHold =
-    props.serverConfig?.environment.capabilities.threadBackgroundWorkHold === true &&
-    onSetBackgroundWorkHeld !== undefined
-      ? (pendingBackgroundWork?.commandHold ?? null)
-      : null;
-  // Fork: the pill opens upstream's background work sheet, so the hold choice
-  // offers that sheet as its middle button rather than taking the tap from it.
-  const confirmBackgroundCommandHold = (showWork: () => void) => {
-    if (backgroundCommandHold === "wait") {
-      Dialog.alert("Wait for this command?", "The thread stays in Working until it finishes.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Show work", onPress: showWork },
-        { text: "Wait", onPress: () => onSetBackgroundWorkHeld?.(true) },
-      ]);
-    } else if (backgroundCommandHold === "release") {
-      Dialog.alert("Stop waiting?", "The command keeps running, and the thread shows as done.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Show work", onPress: showWork },
-        { text: "Don't wait", onPress: () => onSetBackgroundWorkHeld?.(false) },
-      ]);
-    } else {
-      showWork();
-    }
-  };
   const extensionStatus = props.extensionStatuses?.length
     ? {
         label: `Pi · ${props.extensionStatuses.map((status) => status.text).join(" · ")}`,
@@ -878,12 +841,10 @@ function ThreadDetailBody(
         waiting: pendingBackgroundWork.waiting,
         onPress: () => {
           Keyboard.dismiss();
-          confirmBackgroundCommandHold(() =>
-            navigation.navigate("ThreadBackgroundWork", {
-              environmentId: props.environmentId,
-              threadId: props.selectedThread.id,
-            }),
-          );
+          navigation.navigate("ThreadBackgroundWork", {
+            environmentId: props.environmentId,
+            threadId: props.selectedThread.id,
+          });
         },
         action: {
           label: statusPending ? "Stopping..." : "Stop",

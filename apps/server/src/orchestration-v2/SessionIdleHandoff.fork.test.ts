@@ -355,7 +355,7 @@ it.effect("waits out work the agent marked awaited, but not an unmarked monitor"
   ).pipe(Effect.provide(base)),
 );
 
-it.effect("waits out a held background command, then counts the window from when it ended", () =>
+it.effect("waits out an awaited command, then counts the window from when it ended", () =>
   lifetime((service, sweep) =>
     Effect.gen(function* () {
       const threadId = yield* seedThread("thread:building");
@@ -365,22 +365,10 @@ it.effect("waits out a held background command, then counts the window from when
       yield* sink.write({
         events: [
           providerThread(threadId, at(1), [
-            // Started in turn 1, so a wait from that turn takes it.
-            {
-              kind: "command",
-              taskId: "build",
-              description: "vp build",
-              startedAt: DateTime.formatIso(at(0)),
-            },
+            { kind: "command", taskId: "build", description: "vp build", awaited: true },
           ]),
         ],
       });
-      yield* dispatch((commandId) => ({
-        type: "thread.background-work.hold",
-        commandId,
-        threadId,
-        held: true,
-      }));
 
       yield* clockAt(60);
       yield* sweep;
@@ -671,22 +659,10 @@ it.effect("moves the due time past a busy stretch the worker saw, as its firing 
       yield* sink.write({
         events: [
           providerThread(threadId, at(1), [
-            // Started in turn 1, so a wait from that turn takes it.
-            {
-              kind: "command",
-              taskId: "build",
-              description: "vp build",
-              startedAt: DateTime.formatIso(at(0)),
-            },
+            { kind: "command", taskId: "build", description: "vp build", awaited: true },
           ]),
         ],
       });
-      yield* dispatch((commandId) => ({
-        type: "thread.background-work.hold",
-        commandId,
-        threadId,
-        held: true,
-      }));
       yield* clockAt(60);
       yield* sweep;
       expect(yield* service.dueAt(threadId)).toBeNull();

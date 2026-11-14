@@ -1496,7 +1496,6 @@ export function deriveThreadPendingBackgroundTasks(projection: ThreadStructure |
       activeProviderThreadId: projection.thread.activeProviderThreadId,
       hasActiveRun: false,
       runs: projection.runs,
-      heldTaskIds: projection.thread.heldBackgroundTaskIds, // Fork: background command holds
       pullRequests: projection.thread.pullRequests,
     }),
   ];

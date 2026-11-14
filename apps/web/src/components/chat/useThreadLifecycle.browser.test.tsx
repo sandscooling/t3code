@@ -119,7 +119,6 @@ function RestoreBranchHarness(props: {
     isWorking: false,
     runIsLive: false,
     pendingBackgroundTasks: [{ taskId: "background-command", kind: "command" }] as never,
-    backgroundWorkHoldScopeStartedAt: null, // Fork: background command holds
     turnItems: [],
     activePendingApproval: null as never,
     activePendingUserInput: null as never,

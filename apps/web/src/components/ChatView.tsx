@@ -118,7 +118,6 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
 import { projectScriptCwd, resolveProjectScripts } from "@t3tools/shared/projectScripts";
-import { backgroundCommandHoldScopeStartedAt } from "@t3tools/shared/orchestrationV2PendingBackgroundWork"; // Fork: background command holds
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { orchestrationV2WorktreePending } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -2461,9 +2460,6 @@ export default function ChatView(props: ChatViewProps) {
     // A waiting run is checkpoint drain; Stop there reaches its background work.
     runIsLive: (isWorking && activeRuntime?.status !== "waiting") || phase === "connecting",
     pendingBackgroundTasks,
-    backgroundWorkHoldScopeStartedAt: backgroundCommandHoldScopeStartedAt(
-      serverProjection?.runs ?? [],
-    ), // Fork: background command holds
     turnItems: serverProjection?.turnItems ?? EMPTY_TURN_ITEMS,
     activePendingApproval,
     activePendingUserInput,

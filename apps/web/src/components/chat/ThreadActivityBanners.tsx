@@ -177,15 +177,9 @@ export function backgroundWorkNowItem(input: {
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  // Fork: Wait holds only the commands the latest run started; null hold means unsupported.
-  readonly holdScopeStartedAt?: DateTime.Utc | null;
-  readonly hold?: {
-    readonly disabled: boolean;
-    readonly onSetHeld: (held: boolean) => Promise<void>;
-  } | null;
 }): ThreadNowItem | null {
   const { onOpenThread } = input;
-  const presentation = presentPendingBackgroundWork(input.tasks, input.holdScopeStartedAt ?? null);
+  const presentation = presentPendingBackgroundWork(input.tasks);
   if (presentation === null) return null;
   const rows = presentation.items.map((task) => {
     const itemKey =
@@ -220,7 +214,6 @@ export function backgroundWorkNowItem(input: {
   const isCommand = (row: (typeof rows)[number]) => row.task.kind !== "subagent";
   const onlyThreadId = only?.childThreadId;
   const startedAtMs = only?.startedAtMs ?? null;
-  const hold = input.hold ?? null; // Fork: background command holds
   return {
     id: `background-work:${input.threadId}`,
     icon: rows.every(isCommand) ? <TerminalIcon /> : <CircleDashedIcon />,
@@ -269,23 +262,6 @@ export function backgroundWorkNowItem(input: {
             Open
           </InlineButton>
         )}
-        {/* Fork: background command holds. */}
-        {hold !== null && presentation.commandHold !== null ? (
-          <>
-            <InlineButton
-              disabled={hold.disabled}
-              title={
-                presentation.commandHold === "wait"
-                  ? "Keep this thread in Working until the command finishes"
-                  : "Treat the command as left running, like a dev server"
-              }
-              onClick={() => void hold.onSetHeld(presentation.commandHold === "wait")}
-            >
-              {presentation.commandHold === "wait" ? "Wait" : "Don't wait"}
-            </InlineButton>
-            <span aria-hidden>·</span>
-          </>
-        ) : null}
         <InlineButton disabled={input.stopDisabled} onClick={() => void input.onStop()}>
           {input.stopping ? "Stopping..." : "Stop"}
         </InlineButton>

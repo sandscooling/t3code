@@ -30,8 +30,8 @@ describe("V2 client presentation", () => {
 });
 
 // Fork: a crew session resumes when any command it left running ends, so an
-// unheld command holds it Waiting; elsewhere only a held one does.
-describe("crew sessions wait on unheld commands", () => {
+// unawaited command holds it Waiting; elsewhere only an awaited one does.
+describe("crew sessions wait on unawaited commands", () => {
   const now = DateTime.makeUnsafe("2026-10-24T22:00:00.000Z");
   const crew = { spawnedByThreadId: ThreadId.make("thread-orchestrator") };
   const gate = { taskId: "gate", kind: "command" as const };

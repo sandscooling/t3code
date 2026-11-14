@@ -7,15 +7,6 @@ function completed(input: unknown, output?: unknown): T3ToolSummaryCall {
 }
 
 describe("summarizeT3ToolCalls", () => {
-  it("names a release as the opposite of a wait for background commands", () => {
-    expect(summarizeT3ToolCalls("background-wait", [completed({})]).label).toBe(
-      "Set the thread to wait for background commands",
-    );
-    expect(summarizeT3ToolCalls("background-wait", [completed({ wait: false })]).label).toBe(
-      "Stopped waiting for background commands",
-    );
-  });
-
   it("reads provider result envelopes without treating JSON in the message as result data", () => {
     const result = { messageId: "message-1", threadId: "actual-thread" };
     const json = JSON.stringify(result);

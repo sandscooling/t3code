@@ -75,15 +75,14 @@ describe("backgroundWorkHoldsThread", () => {
 
   it("holds a crew session on any running command or monitor, marked or not", () => {
     expect(backgroundWorkHoldsThread(crew, [command])).toBe(true);
-    expect(backgroundWorkTaskHoldsThread(crew, { ...command, held: true })).toBe(true);
+    expect(backgroundWorkTaskHoldsThread(crew, { ...command, awaited: true })).toBe(true);
     expect(backgroundWorkHoldsThread(crew, [{ kind: "monitor" }])).toBe(true);
   });
 
-  it("holds other threads only on held or awaited work, so a dev server or watchdog does not", () => {
+  it("holds other threads only on awaited work, so a dev server or watchdog does not", () => {
     for (const thread of [orchestrator, ownThread, spawnedOrchestrator]) {
       expect(backgroundWorkHoldsThread(thread, [command])).toBe(false);
       expect(backgroundWorkHoldsThread(thread, [{ kind: "monitor" }])).toBe(false);
-      expect(backgroundWorkHoldsThread(thread, [{ ...command, held: true }])).toBe(true);
       expect(backgroundWorkHoldsThread(thread, [{ ...command, awaited: true }])).toBe(true);
       expect(backgroundWorkHoldsThread(thread, [{ kind: "monitor", awaited: true }])).toBe(true);
     }
