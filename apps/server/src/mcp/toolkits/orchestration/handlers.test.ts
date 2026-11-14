@@ -43,6 +43,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 import { McpSchema, McpServer } from "effect/ai";
 
+import * as CheckpointStore from "../../../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as GitWorkflow from "../../../git/GitWorkflowService.ts";
 import { CodexProviderCapabilitiesV2 } from "../../../orchestration-v2/Adapters/CodexAdapterV2.ts";
@@ -254,7 +255,17 @@ function makeHarness(
     }),
   );
   const realLaunch = ThreadLaunch.layer.pipe(
-    Layer.provide(Layer.mergeAll(external, threadManagement, receipts, IdAllocator.layer)),
+    Layer.provide(
+      Layer.mergeAll(
+        external,
+        threadManagement,
+        receipts,
+        IdAllocator.layer,
+        Layer.mock(CheckpointStore.CheckpointStore)({
+          isGitRepository: () => Effect.succeed(true),
+        }),
+      ),
+    ),
   );
   const launch = Layer.effect(
     ThreadLaunch.ThreadLaunchService,
@@ -276,6 +287,7 @@ function makeHarness(
             ),
           ),
         checkWorktreeBase: real.checkWorktreeBase,
+        isNonGitProject: real.isNonGitProject,
         retryPreparation: real.retryPreparation,
         prepareRun: real.prepareRun,
       });
