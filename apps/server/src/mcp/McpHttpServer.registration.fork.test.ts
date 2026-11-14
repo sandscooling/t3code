@@ -47,6 +47,7 @@ import { PeerForwarding } from "../peer/PeerForwarding.ts";
 import { PeerLinkRequests } from "../peer/PeerLinkRequests.ts";
 import { PeerLinks } from "../peer/PeerLinks.ts";
 import { RemoteDelegation } from "../peer/RemoteDelegation.ts";
+import { EnvironmentThemeService } from "../environmentTheme.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(Orchestrator.OrchestratorV2)({}),
@@ -77,6 +78,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(RemoteDelegation)({}),
+  Layer.mock(EnvironmentThemeService)({}),
   // Fork: the session_* tools' service reads held queues and keeps idle
   // handoff settings.
   Layer.succeed(SqlClient.SqlClient, {} as never),

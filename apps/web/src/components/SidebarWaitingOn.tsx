@@ -1,4 +1,4 @@
-import type { OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
 import { BotIcon, TerminalIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -20,7 +20,8 @@ const WAITING_ON = {
 export function SidebarWaitingOn(props: {
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   thread: Parameters<typeof sidebarWaitingOn>[1];
-  Duration: ComponentType<{ startedAt: string | null }>;
+  environmentId: EnvironmentId;
+  Duration: ComponentType<{ environmentId: EnvironmentId; startedAt: string | null }>;
 }) {
   const waitingOn = sidebarWaitingOn(props.tasks, props.thread);
   if (waitingOn === null) {
@@ -38,7 +39,7 @@ export function SidebarWaitingOn(props: {
         <TooltipPopup side="top">{label}</TooltipPopup>
       </Tooltip>
       <span aria-hidden>
-        <props.Duration startedAt={waitingOn.startedAt} />
+        <props.Duration environmentId={props.environmentId} startedAt={waitingOn.startedAt} />
       </span>
     </>
   );

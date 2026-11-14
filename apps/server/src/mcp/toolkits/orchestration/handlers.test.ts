@@ -235,6 +235,7 @@ function makeHarness(
           totalCount: worktrees.length,
         }),
       createWorktree: () => Effect.die("spawn never creates a worktree"),
+      currentBranch: () => Effect.succeed(null),
     }),
     Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
       runForThread: (input) =>
