@@ -82,6 +82,7 @@ import {
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { modelSwitchSince } from "./modelSwitch.ts";
+import { isPlaceholderThreadTitle } from "./placeholderThreadTitle.ts";
 import { combinePullRequestWatchWakes, type PullRequestWatchWake } from "./pullRequestWatch.ts";
 import { recordThreadOpen } from "@t3tools/shared/paletteSearch";
 import {
@@ -721,6 +722,24 @@ function pendingThreadTitleGenerationEffect(
     threadId,
     request: { type: "thread-title.generate", kind },
   };
+}
+
+// Clients seed a new thread with its first message, and empty threads start as "New thread" or
+// an agent's placeholder. Any other title on a thread without messages was chosen on purpose.
+// Forks and side chats are titled from their source history instead.
+function hasTitleSetBeforeFirstMessage(
+  thread: OrchestrationV2AppThread,
+  titleSeed: string | undefined,
+): boolean {
+  const title = thread.title.trim();
+  return (
+    thread.forkedFrom === null &&
+    thread.lineage.sideChat !== true &&
+    title.length > 0 &&
+    title !== "New thread" &&
+    !isPlaceholderThreadTitle(title) &&
+    title !== titleSeed?.trim()
+  );
 }
 
 function delegatedTasksStopEffect(command: {
@@ -3232,6 +3251,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const delayMs = continuationStartRetryDelayMs(run, projection);
     if (delayMs === undefined) return;
     const commandId = CommandId.make(`command:restart-continuation-retry:${run.id}`);
+    // A start retry is not a crash: carry the crash budget forward unchanged.
+    const previous =
+      run.restartContinuationOfRunId === undefined
+        ? undefined
+        : Option.getOrUndefined(
+            yield* effectOutbox.get(
+              `effect:restart-continuation:${run.restartContinuationOfRunId}`,
+            ),
+          )?.request;
+    const processLossCount =
+      previous?.type === "provider-runtime.continue" ? previous.processLossCount : undefined;
     yield* writeSystemEvents(
       [],
       [
@@ -3239,7 +3269,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           id: `effect:restart-continuation:${run.id}`,
           commandId,
           threadId,
-          request: { type: "provider-runtime.continue", sourceRunId: run.id },
+          request: {
+            type: "provider-runtime.continue",
+            sourceRunId: run.id,
+            ...(processLossCount === undefined ? {} : { processLossCount }),
+          },
           availableAt: DateTime.add(yield* DateTime.now, { milliseconds: delayMs }),
         },
       ],
@@ -4475,9 +4509,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         session.status !== "stopped" &&
         session.status !== "error",
     );
-    if (command.type !== "thread.archive" && command.type !== "thread.settle") {
+    if (
+      command.type !== "thread.archive" &&
+      command.type !== "thread.settle" &&
+      liveSessions.length > 0
+    ) {
+      // The provider context holds only the active and target provider threads; a session kept
+      // busy by an earlier queued hand-off owns neither, so probe every thread of this one.
+      const { providerThreads } = yield* projectionStore
+        .getThreadRecords(command.threadId, ["providerThreads"], {
+          omitSettledSubagentRecords: true,
+        })
+        .pipe(mapDispatchError(command));
       for (const session of liveSessions) {
-        if (yield* sessionHasBackgroundWork(session, providerContext!.providerThreads)) {
+        if (yield* sessionHasBackgroundWork(session, providerThreads)) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
@@ -6982,13 +7027,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             mapDispatchError(command),
           )
       : Effect.succeed(false);
+    // A thread named before its first message (for example by an MCP launch that tracks an issue)
+    // keeps that name instead of a title generated from a terse prompt such as "work on this".
+    const seedsUntitledThread =
+      command.titleSeed !== undefined &&
+      (yield* projectionStore.getMessageCount(command.threadId).pipe(mapDispatchError(command))) ===
+        0 &&
+      !hasTitleSetBeforeFirstMessage(projection.thread, command.titleSeed);
     if (
       !isNativeMaintenanceCommand(command) &&
-      ((command.titleSeed !== undefined &&
-        (yield* projectionStore
-          .getMessageCount(command.threadId)
-          .pipe(mapDispatchError(command))) === 0) ||
-        (command.createdBy === "user" && (yield* onlyMaintenanceHistory)))
+      (seedsUntitledThread || (command.createdBy === "user" && (yield* onlyMaintenanceHistory)))
     ) {
       const now = yield* DateTime.now;
       const thread: OrchestrationV2AppThread = {

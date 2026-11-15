@@ -670,6 +670,32 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("preserves recording artifacts saved in the same millisecond", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const stored = new Map<string, Uint8Array>();
+        const save = (path: string, bytes: Uint8Array) => {
+          stored.set(path, Uint8Array.from(bytes));
+          return undefined;
+        };
+        writeFile.mockImplementationOnce(save).mockImplementationOnce(save);
+        const firstBytes = new Uint8Array([1, 2, 3]);
+        const secondBytes = new Uint8Array([4, 5, 6]);
+        const [first, second] = yield* Effect.all(
+          [
+            manager.saveRecording("tab_first", "video/webm", firstBytes),
+            manager.saveRecording("tab_second", "video/webm", secondBytes),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        expect(first.path).not.toBe(second.path);
+        expect(stored.get(first.path)).toEqual(firstBytes);
+        expect(stored.get(second.path)).toEqual(secondBytes);
+      }),
+    ),
+  );
+
   // Fork: a key for a cross-site iframe goes over the iframe's CDP session and is the page's too.
   effectIt.effect.each(["replies", "fails", "throws"] as const)(
     "an agent's chord into the guest's iframe is not forwarded, and the next key is the user's, when the send %s",
@@ -788,6 +814,7 @@ describe("PreviewManager", () => {
                 attach: () => {},
                 detach: () => {},
                 setShown: () => {},
+                setCaptureDrawn: () => {},
                 loadFailed: () => {},
                 humanStartedDownload: () => true,
                 agentLedPage: () => false,
@@ -2566,6 +2593,7 @@ describe("PreviewManager", () => {
           }),
         );
         expect(yield* Queue.take(capturing)).toBe(true);
+        yield* manager.setCaptureDrawn("tab_1", true);
         screenshot.resolve({ data: "" });
         expect(yield* Queue.take(capturing)).toBe(false);
       }).pipe(Effect.provide(managerLayer())),
