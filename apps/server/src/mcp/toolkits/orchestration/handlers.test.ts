@@ -732,16 +732,17 @@ it.effect("refuses every tool without the orchestration capability", () =>
   }).pipe(Effect.provide(makeHarness([]))),
 );
 
-it.effect("refuses an MCP client signed in from outside a thread", () =>
+it.effect("hides the session tools from an MCP client signed in from outside a thread", () =>
   Effect.gen(function* () {
     yield* seedOrchestrator;
     const server = yield* McpServer.McpServer;
-    // A read and a change: both are refused before the session service runs.
+    // A read and a change: neither is offered, so neither reaches the session service.
     for (const [name, args] of [
       ["session_list", {}],
       ["session_spawn", { name: "outsider", group: "outside", message: "Hi." }],
     ] as const) {
-      const result = yield* server.callTool({ name, arguments: args }).pipe(
+      const error = yield* server.callTool({ name, arguments: args }).pipe(
+        Effect.flip,
         Effect.provideService(McpInvocationContext.McpInvocationContext, {
           environmentId: EnvironmentId.make("environment-session-tools"),
           requestNamespace: "client:session-1",
@@ -752,8 +753,7 @@ it.effect("refuses an MCP client signed in from outside a thread", () =>
         }),
         Effect.provideService(McpSchema.McpServerClient, client),
       );
-      expect(result.isError, name).toBe(true);
-      expect(contentText(result), name).toContain("acts as the calling T3 thread");
+      expect(error.message, name).toContain(`Tool '${name}' not found`);
     }
   }).pipe(Effect.provide(makeHarness([]))),
 );
