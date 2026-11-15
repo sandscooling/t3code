@@ -68,7 +68,7 @@ vp i
 vp run dist:desktop:linux
 ```
 
-The AppImage lands in `release/`; `vp run dist:desktop:win` builds the Windows installer instead. A rebuild of the same version overwrites the previous artifact. Copy `.env.example` to `.env` first to build with T3 Connect (remote access and phone alerts); without it, cloud features are off. Let Connect install its own cloudflared rather than installing one system-wide.
+The AppImage lands in `release/`; `vp run dist:desktop:win` builds the Windows installer instead. A rebuild of the same version overwrites the previous artifact. Copy `.env.example` to `.env` first to build with T3 Connect (remote access and phone alerts); without it, cloud features are off. Let Connect install its own cloudflared rather than installing one system-wide. On a distro with glibc newer than 2.39 (Arch, CachyOS, Fedora), build with `T3CODE_GLIBC_BUILD_CEILING=$(ldd --version | head -1 | awk '{print $NF}')` set, or the packaging check rejects the locally compiled native modules.
 
 ## Links
 
