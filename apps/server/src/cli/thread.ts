@@ -224,12 +224,13 @@ export type ThreadTools = ReturnType<typeof makeThreadTools>;
  * outside agent does, and revokes that session when the command ends.
  */
 const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E, R>(
-  flags: { readonly baseDir: Option.Option<string> },
+  flags: { readonly baseDir: Option.Option<string>; readonly json: boolean },
   // Fork: origin is for --image uploads.
   run: (tools: ThreadTools, origin: string) => Effect.Effect<A, E, R>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(flags, logLevel);
+  const config = yield* resolveCliAuthConfig(flags, logLevel, { quietLogs: flags.json });
+  const minimumLogLevel = flags.json ? "Error" : config.logLevel;
   return yield* Effect.gen(function* () {
     const runtimeState = yield* readLiveServerRuntimeState(config.serverRuntimeStatePath);
     if (Option.isNone(runtimeState)) {
@@ -257,10 +258,11 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
     return yield* run(makeThreadTools(session, origin), origin);
   }).pipe(
     Effect.scoped,
+    Effect.provideService(References.MinimumLogLevel, minimumLogLevel),
     Effect.provide(
       EnvironmentAuth.layerRuntime.pipe(
         Layer.provide(ServerConfig.layer(config)),
-        Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),
+        Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
       ),
     ),
   );

@@ -76,31 +76,30 @@ function exitSuffix(report: BackgroundWorkReport): string {
 function namedReport(
   report: BackgroundWorkReport,
   capitalize: boolean,
-  // Fork: per-report verb when a batch's outcomes differ, and a task tag on a shared label.
   verb?: string,
+  // Fork: a task tag on a label another report in the batch shares.
   tagged = false,
 ): string {
   const noun = KIND_NOUN[report.kind][0];
   const label = reportLabel(report.label);
   const named = `${capitalize ? noun : noun.toLowerCase()}${label === undefined ? "" : ` "${label}"`}`;
-  const tag = tagged && report.taskId !== undefined ? `task ${report.taskId}` : undefined;
-  if (verb !== undefined) {
-    return `${named}${tag === undefined ? "" : ` (${tag})`} ${verb}${exitSuffix(report)}`;
-  }
-  const exit = report.kind === "command" ? report.exitCode : undefined;
-  const parts = [tag, exit === undefined ? undefined : `exit ${exit}`].filter((part) => part);
-  return `${named}${parts.length === 0 ? "" : ` (${parts.join(", ")})`}`;
+  const tag = tagged && report.taskId !== undefined ? ` (task ${report.taskId})` : "";
+  return `${named}${tag}${verb === undefined ? "" : ` ${verb}`}${exitSuffix(report)}`;
 }
 
-// Fork: one word per outcome, so a mixed batch reads "X was stopped and X finished".
-function pluralVerb(outcome: NotificationOutcome): string {
-  return outcome === "failed"
-    ? "failed"
-    : outcome === "cancelled"
-      ? "were stopped"
-      : outcome === "updated"
-        ? "updated"
-        : "finished";
+const OUTCOME_GROUPS = ["failed", "cancelled", "updated", "completed"] as const;
+
+function groupVerb(group: (typeof OUTCOME_GROUPS)[number], count: number): string {
+  switch (group) {
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return count === 1 ? "was stopped" : "were stopped";
+    case "updated":
+      return "updated";
+    case "completed":
+      return "finished";
+  }
 }
 
 function joinNames(names: ReadonlyArray<string>): string {
@@ -110,7 +109,6 @@ function joinNames(names: ReadonlyArray<string>): string {
 
 function reportsSummary(
   reports: readonly [BackgroundWorkReport, ...ReadonlyArray<BackgroundWorkReport>],
-  outcome: NotificationOutcome,
 ): string {
   const [first] = reports;
   if (reports.length === 1) {
@@ -118,33 +116,34 @@ function reportsSummary(
     const noun = KIND_NOUN[first.kind][0];
     return `${noun}${label === undefined ? "" : ` "${label}"`} ${outcomeVerb(first.kind, first.outcome)}${exitSuffix(first)}`;
   }
-  const verb = pluralVerb(outcome);
-  // Fork: the shared verb holds only when every report has the same outcome word.
-  const mixed = reports.some((report) => pluralVerb(report.outcome) !== verb);
+  const groups = OUTCOME_GROUPS.flatMap((group) => {
+    const count = reports.filter(
+      (report) => (report.outcome === "unknown" ? "completed" : report.outcome) === group,
+    ).length;
+    return count === 0 ? [] : [{ group, count }];
+  });
   if (reports.length > 3 || reports.every((report) => reportLabel(report.label) === undefined)) {
     const kinds = new Set(reports.map((report) => report.kind));
-    const noun = kinds.size === 1 ? KIND_NOUN[first.kind][1] : "background tasks";
-    if (!mixed) return `${reports.length} ${noun} ${verb}`;
-    const counts = new Map<string, number>();
-    for (const report of reports) {
-      const word = pluralVerb(report.outcome).replace("were ", "");
-      counts.set(word, (counts.get(word) ?? 0) + 1);
-    }
-    const tally = [...counts].map(([word, count]) => `${count} ${word}`).join(", ");
-    return `${reports.length} ${noun}: ${tally}`;
+    const [noun, nouns] = kinds.size === 1 ? KIND_NOUN[first.kind] : KIND_NOUN.background_task;
+    return joinNames(
+      groups.map(
+        ({ group, count }, index) =>
+          `${count}${index === 0 ? ` ${count === 1 ? noun.toLowerCase() : nouns}` : ""} ${groupVerb(group, count)}`,
+      ),
+    );
   }
+  // Fork: tag reports whose kind and label another report shares.
   const key = (report: BackgroundWorkReport) => `${report.kind}\n${reportLabel(report.label)}`;
   const tagged = (report: BackgroundWorkReport) =>
     reports.some((other) => other !== report && key(other) === key(report));
-  const names = reports.map((report, index) =>
-    namedReport(
-      report,
-      index === 0,
-      mixed ? outcomeVerb(report.kind, report.outcome) : undefined,
-      tagged(report),
-    ),
-  );
-  return mixed ? joinNames(names) : `${joinNames(names)} ${verb}`;
+  if (groups.length > 1) {
+    return joinNames(
+      reports.map((report, index) =>
+        namedReport(report, index === 0, outcomeVerb(report.kind, report.outcome), tagged(report)),
+      ),
+    );
+  }
+  return `${joinNames(reports.map((report, index) => namedReport(report, index === 0, undefined, tagged(report))))} ${groupVerb(groups[0]!.group, reports.length)}`;
 }
 
 function reportsSource(
@@ -179,7 +178,7 @@ export function backgroundWorkNotification(
   return {
     source: reportsSource([first, ...rest]),
     outcome,
-    summary: reportsSummary([first, ...rest], outcome),
+    summary: reportsSummary([first, ...rest]),
   };
 }
 

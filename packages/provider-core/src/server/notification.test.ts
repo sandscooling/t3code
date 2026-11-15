@@ -60,6 +60,17 @@ describe("backgroundWorkNotification", () => {
       outcome: "cancelled",
       summary: 'Subagent "Agent B" and command "Sleep 60 seconds" were stopped',
     });
+    assert.deepInclude(
+      backgroundWorkNotification([
+        { kind: "command", label: "npm test", outcome: "completed", exitCode: 0 },
+        { kind: "command", label: "npm run lint", outcome: "failed", exitCode: 1 },
+      ]),
+      {
+        outcome: "failed",
+        summary: 'Command "npm test" finished (exit 0) and command "npm run lint" failed (exit 1)',
+      },
+    );
+    // Fork: same-label reports carry their task id.
     assert.deepEqual(
       backgroundWorkNotification([
         { kind: "command", label: "sleep 30", outcome: "cancelled", taskId: "bstop1" },
@@ -71,15 +82,6 @@ describe("backgroundWorkNotification", () => {
         summary:
           'Command "sleep 30" (task bstop1) was stopped and command "sleep 30" (task bdone2) finished (exit 0)',
       },
-    );
-    assert.equal(
-      backgroundWorkNotification(
-        (["completed", "completed", "cancelled", "failed"] as const).map((outcome) => ({
-          kind: "command" as const,
-          outcome,
-        })),
-      )?.summary,
-      "4 commands: 2 finished, 1 stopped, 1 failed",
     );
   });
 
@@ -94,6 +96,18 @@ describe("backgroundWorkNotification", () => {
       outcome: "completed",
       summary: "4 subagents finished",
     });
+    assert.deepEqual(
+      backgroundWorkNotification(
+        reports.map((report, index) =>
+          index === 0 ? { ...report, outcome: "failed" as const } : report,
+        ),
+      ),
+      {
+        source: { kind: "subagent" },
+        outcome: "failed",
+        summary: "1 subagent failed and 3 finished",
+      },
+    );
   });
 });
 
