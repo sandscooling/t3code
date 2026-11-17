@@ -39,12 +39,13 @@ export function assertClaudeBackgroundMonitorWakeOutput(
     .filter((task) => task.taskId === MONITOR_TASK_ID);
   // The first roster precedes task_started linking the Monitor call, so that entry reads command.
   assert.isAbove(rosterTasks.length, 1);
-  for (const task of rosterTasks.slice(1)) {
+  for (const { runId, startedAt, ...task } of rosterTasks.slice(1)) {
+    // Adapter rosters carry no run; server rewrites of the stored thread carry the projection's stamp.
+    if (runId !== undefined) assert.equal(runId, monitorItem?.runId);
     // Fork: startedAt is the first snapshot's, kept through every resend.
-    const { startedAt, ...named } = task;
     assert.isString(startedAt);
     assert.equal(startedAt, rosterTasks[0]?.startedAt);
-    assert.deepEqual(named, {
+    assert.deepEqual(task, {
       taskId: MONITOR_TASK_ID,
       description: "Background monitor test",
       kind: "monitor",
