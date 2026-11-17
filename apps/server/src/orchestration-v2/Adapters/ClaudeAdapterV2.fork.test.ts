@@ -823,7 +823,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
   // Fork: a background wait holds only commands started since the latest run
   // began, so a shell that outlives a failed turn must keep its first start.
-  it.effect("keeps a shell's first start time after a failed turn clears the roster", () =>
+  it.effect("keeps a shell's first start time across a failed turn", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeWakeHarness;
@@ -879,9 +879,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         );
         yield* awaitUntil(() => harness.terminalEvents().length === 1, "failed terminal");
         assert.equal(harness.terminalEvents()[0]?.status, "failed");
+        // pingdotgg/t3code#31840: a failed turn on a live process keeps its roster.
         assert.deepEqual(
-          providerThreadRosterEvents(harness.events).at(-1)?.providerThread.pendingBackgroundTasks,
-          [],
+          providerThreadRosterEvents(harness.events)
+            .at(-1)
+            ?.providerThread.pendingBackgroundTasks?.map((task) => [task.taskId, task.startedAt]),
+          [["task-dev", DateTime.formatIso(firstSeenAt)]],
         );
 
         // The next turn starts later, and Claude lists the surviving shell again.
