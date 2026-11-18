@@ -9,6 +9,7 @@ import {
 import type { StartThreadTurnInput } from "@t3tools/client-runtime/operations";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
+import { msg } from "gt-react";
 
 import {
   NEW_THREAD_PROJECTS_GROUP,
@@ -16,6 +17,7 @@ import {
 } from "../components/sessionFleet.logic";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useStableCallback } from "../hooks/useStableCallback";
+import { m } from "../i18n/messages";
 import { primaryServerSettingsAtom } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -33,6 +35,7 @@ import { newMessageId, newThreadId } from "./utils";
  * without changing that instruction leaves the fleet guessing.
  */
 function sessionStandbyMessage(index: number): string {
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- an agent prompt, which stays English
   return `Session ${index}`;
 }
 
@@ -170,8 +173,12 @@ export function useSessionFleet(input: {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "No model to start with",
-          description: `Set a default model for ${project.title}, then spawn sessions.`,
+          title: m(msg("No model to start with")),
+          description: m(
+            msg("Set a default model for {project}, then spawn sessions.", {
+              project: project.title,
+            }),
+          ),
         }),
       );
       return;
@@ -204,8 +211,13 @@ export function useSessionFleet(input: {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "No base branch",
-            description: `${project.title} starts threads in a worktree, but its current branch could not be read.`,
+            title: m(msg("No base branch")),
+            description: m(
+              msg(
+                "{project} starts threads in a worktree, but its current branch could not be read.",
+                { project: project.title },
+              ),
+            ),
           }),
         );
         return;
@@ -232,8 +244,18 @@ export function useSessionFleet(input: {
         type: result.failed > 0 ? "error" : "success",
         title:
           result.failed > 0
-            ? `Started ${result.started} of ${fleetCount} sessions`
-            : `Started ${result.started} ${result.started === 1 ? "session" : "sessions"}`,
+            ? m(
+                msg("Started {started} of {total} sessions", {
+                  started: result.started,
+                  total: fleetCount,
+                }),
+              )
+            : m(
+                msg(
+                  "{count, plural, one {Started {count} session} other {Started {count} sessions}}",
+                  { count: result.started },
+                ),
+              ),
         description: project.title,
       }),
     );

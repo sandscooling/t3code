@@ -5,6 +5,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
+import { useMessages } from "gt-react";
 import { GlobeIcon } from "lucide-react";
 
 import { cn } from "../lib/utils";
@@ -43,11 +44,12 @@ export function SidebarBrowserStatusIcon(props: {
   status: BrowserStatusIndicator | null;
   threadId: string;
 }) {
+  const m = useMessages();
   if (!props.status) return null;
   return (
     <span
       role="img"
-      aria-label={props.status.label}
+      aria-label={m(props.status.label)}
       data-testid={`sidebar-browser-status-${props.threadId}`}
       className={cn("inline-flex shrink-0 items-center justify-center", props.status.colorClass)}
     >
@@ -68,11 +70,12 @@ export function SidebarBrowserStatusLine(props: {
     scopeThreadRef(props.thread.environmentId, props.thread.id),
     props.thread,
   );
+  const m = useMessages();
   if (!status) return null;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <GlobeIcon aria-hidden className={cn("size-3 shrink-0", status.colorClass)} />
-      <div className="min-w-0 truncate text-foreground/75">{status.label}</div>
+      <div className="min-w-0 truncate text-foreground/75">{m(status.label)}</div>
     </div>
   );
 }

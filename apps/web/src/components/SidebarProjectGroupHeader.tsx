@@ -1,5 +1,6 @@
 // Fork: the header above one project's rows when the sidebar groups threads
 // by project. It folds the group and counts the group's working threads.
+import { T, useGT } from "gt-react";
 import { ChevronDownIcon, FolderIcon } from "lucide-react";
 
 import { cn } from "../lib/utils";
@@ -14,6 +15,7 @@ export function SidebarProjectGroupHeader(props: {
   onToggle: (group: string) => void;
   onContextMenu: (group: string, position: { x: number; y: number }) => void;
 }) {
+  const gt = useGT();
   return (
     <button
       type="button"
@@ -35,13 +37,16 @@ export function SidebarProjectGroupHeader(props: {
         <FolderIcon aria-hidden className="size-3.5 shrink-0" />
       )}
       <span className="min-w-0 flex-1 truncate">
-        {props.project?.displayName ?? "Other projects"}
+        {props.project?.displayName ?? gt("Other projects")}
       </span>
       {props.workingCount > 0 ? (
         <span className="flex shrink-0 items-center gap-1 tabular-nums text-info">
           <span aria-hidden className="size-1.5 rounded-full bg-current" />
           {props.workingCount}
-          <span className="sr-only"> working or waiting</span>
+          <span className="sr-only">
+            {" "}
+            <T>working or waiting</T>
+          </span>
         </span>
       ) : null}
     </button>

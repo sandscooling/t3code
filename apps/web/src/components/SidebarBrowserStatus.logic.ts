@@ -1,20 +1,22 @@
 // Fork: what a sidebar row's globe shows.
+import { msg } from "gt-react";
 import type { SidebarThreadSummary } from "../types";
 
 export interface BrowserStatusIndicator {
-  readonly label: "Agent using browser" | "Browser tab open";
+  /** A `msg()` string; render it through `useMessages()`. */
+  readonly label: string;
   readonly colorClass: string;
   readonly pulse: boolean;
 }
 
 // Constants, so a row that re-renders keeps the same object.
 const AGENT_USING_BROWSER: BrowserStatusIndicator = {
-  label: "Agent using browser",
+  label: msg("Agent using browser"),
   colorClass: "text-sky-600 dark:text-sky-300/90",
   pulse: true,
 };
 const BROWSER_TAB_OPEN: BrowserStatusIndicator = {
-  label: "Browser tab open",
+  label: msg("Browser tab open"),
   colorClass: "text-muted-foreground/40",
   pulse: false,
 };

@@ -1,4 +1,5 @@
 import type { EnvironmentId, OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
+import { msg, useMessages } from "gt-react";
 import { BotIcon, TerminalIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -7,9 +8,9 @@ import { PullRequestGlyph } from "./pullRequest/pullRequestIcons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const WAITING_ON = {
-  agent: { label: "Waiting on an agent", Icon: BotIcon },
-  command: { label: "Waiting on a command", Icon: TerminalIcon },
-  "pull-request": { label: "Waiting on a pull request", Icon: PullRequestGlyph.pullRequest },
+  agent: { label: msg("Waiting on an agent"), Icon: BotIcon },
+  command: { label: msg("Waiting on a command"), Icon: TerminalIcon },
+  "pull-request": { label: msg("Waiting on a pull request"), Icon: PullRequestGlyph.pullRequest },
 } as const;
 
 /**
@@ -23,11 +24,13 @@ export function SidebarWaitingOn(props: {
   environmentId: EnvironmentId;
   Duration: ComponentType<{ environmentId: EnvironmentId; startedAt: string | null }>;
 }) {
+  const m = useMessages();
   const waitingOn = sidebarWaitingOn(props.tasks, props.thread);
   if (waitingOn === null) {
     return null;
   }
-  const { label, Icon } = WAITING_ON[waitingOn.kind];
+  const { Icon } = WAITING_ON[waitingOn.kind];
+  const label = m(WAITING_ON[waitingOn.kind].label);
   return (
     <>
       <Tooltip>

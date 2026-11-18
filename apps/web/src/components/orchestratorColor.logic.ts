@@ -1,5 +1,8 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../i18n/messages";
 
 /**
  * Fork: orchestrator card swatches, spelled out so Tailwind generates them (500 light, 400 dark).
@@ -8,47 +11,48 @@ import type { SidebarOrchestratorColor } from "@t3tools/contracts/settings";
  */
 const ORCHESTRATOR_COLORS: ReadonlyArray<{
   readonly id: SidebarOrchestratorColor;
+  /** A `msg()` string. */
   readonly label: string;
   readonly className: string;
 }> = [
   {
     id: "red",
-    label: "Red",
+    label: msg("Red", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-red-500),var(--color-red-400))]",
   },
   {
     id: "orange",
-    label: "Orange",
+    label: msg("Orange", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-orange-500),var(--color-orange-400))]",
   },
   {
     id: "amber",
-    label: "Amber",
+    label: msg("Amber", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-amber-500),var(--color-amber-400))]",
   },
   {
     id: "green",
-    label: "Green",
+    label: msg("Green", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-green-500),var(--color-green-400))]",
   },
   {
     id: "teal",
-    label: "Teal",
+    label: msg("Teal", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-teal-500),var(--color-teal-400))]",
   },
   {
     id: "blue",
-    label: "Blue",
+    label: msg("Blue", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-blue-500),var(--color-blue-400))]",
   },
   {
     id: "violet",
-    label: "Violet",
+    label: msg("Violet", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-violet-500),var(--color-violet-400))]",
   },
   {
     id: "pink",
-    label: "Pink",
+    label: msg("Pink", { $context: "color" }),
     className: "shadow-[inset_4px_0_0_light-dark(var(--color-pink-500),var(--color-pink-400))]",
   },
 ];
@@ -65,15 +69,20 @@ export type OrchestratorColorMenuId =
 /** The "Orchestrator color" submenu, with the project's current tint checked. */
 export function buildOrchestratorColorMenuItem(
   current: SidebarOrchestratorColor | null,
+  resolve: MessageResolver = m,
 ): ContextMenuItem<OrchestratorColorMenuId> {
   return {
     id: "orchestrator-color",
-    label: "Orchestrator color",
+    label: resolve(msg("Orchestrator color")),
     children: [
-      { id: "orchestrator-color:none", label: "None", checked: current === null },
+      {
+        id: "orchestrator-color:none",
+        label: resolve(msg("None", { $context: "no color" })),
+        checked: current === null,
+      },
       ...ORCHESTRATOR_COLORS.map((entry, index) => ({
         id: `orchestrator-color:${entry.id}` as const,
-        label: entry.label,
+        label: resolve(entry.label),
         checked: current === entry.id,
         separatorBefore: index === 0,
       })),

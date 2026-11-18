@@ -5,8 +5,10 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
+import { msg } from "gt-react";
 
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { m } from "../i18n/messages";
 import { readLocalApi } from "../localApi";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
@@ -183,10 +185,10 @@ export function useSidebarThreadGroups(input: {
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
-            { id: "top", label: "Move to top", disabled: index === 0 },
-            { id: "up", label: "Move up", disabled: index === 0 },
-            { id: "down", label: "Move down", disabled: index === last },
-            { id: "bottom", label: "Move to bottom", disabled: index === last },
+            { id: "top", label: m(msg("Move to top")), disabled: index === 0 },
+            { id: "up", label: m(msg("Move up")), disabled: index === 0 },
+            { id: "down", label: m(msg("Move down")), disabled: index === last },
+            { id: "bottom", label: m(msg("Move to bottom")), disabled: index === last },
             { ...colorMenu.input, separatorBefore: true },
           ],
           position,

@@ -4,11 +4,13 @@
 import { createEnvironmentRpcQueryAtomFamily } from "@t3tools/client-runtime/state/runtime";
 import { SESSION_IDLE_HANDOFF_DUE_METHOD } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
+import { msg, useMessages } from "gt-react";
 import { TimerIcon } from "lucide-react";
 import { useState } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useClientSettings } from "../hooks/useSettings";
+import type { MessageResolver } from "../i18n/messages";
 import { useEnvironmentQuery } from "../state/query";
 import { formatShortTimestamp, formatUpcomingTimestamp } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
@@ -22,12 +24,17 @@ const idleHandoffDueAtom = createEnvironmentRpcQueryAtomFamily(connectionAtomRun
 });
 
 /** `Hands off at 12:44 PM if idle`, naming the day once it is not today. */
-function idleHandoffLabel(dueAt: string, timestampFormat: TimestampFormat, nowMs: number): string {
-  if (Date.parse(dueAt) <= nowMs) return "Hands off now if idle";
+function idleHandoffLabel(
+  dueAt: string,
+  timestampFormat: TimestampFormat,
+  nowMs: number,
+  resolve: MessageResolver,
+): string {
+  if (Date.parse(dueAt) <= nowMs) return resolve(msg("Hands off now if idle"));
   const when = formatUpcomingTimestamp(dueAt, timestampFormat, nowMs);
   return when === formatShortTimestamp(dueAt, timestampFormat)
-    ? `Hands off at ${when} if idle`
-    : `Hands off ${when} if idle`;
+    ? resolve(msg("Hands off at {when} if idle", { when }))
+    : resolve(msg("Hands off {when} if idle", { when }));
 }
 
 /** The card mounts only while open, so the query runs only while it shows. */
@@ -35,6 +42,7 @@ export function SidebarIdleHandoffLine(props: {
   thread: Pick<SidebarThreadSummary, "environmentId" | "id">;
 }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const m = useMessages();
   // Read once when the card opens: the line is static, never a countdown.
   const [openedAtMs] = useState(() => Date.now());
   const { data } = useEnvironmentQuery(
@@ -48,7 +56,7 @@ export function SidebarIdleHandoffLine(props: {
     <div className="flex min-w-0 items-center gap-2">
       <TimerIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
       <div className="min-w-0 truncate text-foreground/75">
-        {idleHandoffLabel(data.dueAt, timestampFormat, openedAtMs)}
+        {idleHandoffLabel(data.dueAt, timestampFormat, openedAtMs, m)}
       </div>
     </div>
   );
