@@ -22,6 +22,7 @@ import {
 } from "~/previewStateStore";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { previewEnvironment } from "~/state/preview";
+import { readPreviewTunnelUrl } from "~/state/previewTunnel";
 import { useEnvironmentScope } from "~/state/session";
 
 import { startAgentDrawingEvents } from "./agentDrawing.fork"; // Fork
@@ -120,6 +121,11 @@ export function startElectronBrowserHost(): () => void {
       useBrowserPointerStore.getState().apply(event);
     }),
     preview.onOpenLink(openLinkInPreview),
+    preview.onTunnelAccessRequest(({ requestId, environmentId }) => {
+      void readPreviewTunnelUrl(environmentId).then((url) =>
+        preview.resolveTunnelAccess(requestId, url),
+      );
+    }),
     startAgentDrawingEvents(preview), // Fork
   ];
   return () => {

@@ -16,6 +16,7 @@ import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 import * as SqlClient from "effect/sql/SqlClient"; // Fork: held-queue reads
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as GitManager from "../git/GitManager.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as SessionIdleHandoff from "../orchestration-v2/SessionIdleHandoff.fork.ts"; // Fork: idle handoff
@@ -53,7 +54,8 @@ import { ThreadIssueService } from "../orchestration-v2/ThreadIssueService.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(Orchestrator.OrchestratorV2)({}),
-  Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+  // The auth middleware reads the thread's forge; unknown keeps every tool listed.
+  Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
@@ -66,6 +68,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
   Layer.mock(PullRequestService.PullRequestService)({}),
   ServerSettings.layerTest({}),
+  Layer.mock(GitManager.GitManager)({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
@@ -176,8 +179,19 @@ it.effect("production mcp layer lists the session tools beside upstream's over h
       const toolNames = tools.map((tool) => tool.name);
       expect(toolNames).toContain("t3_worktree_status");
       expect(toolNames).toContain("delegate_task");
-      expect(toolNames).toContain("session_spawn");
-      expect(toolNames).toContain("session_list");
+      expect(toolNames).toEqual(
+        expect.arrayContaining([
+          "session_idle_handoff",
+          "session_list",
+          "session_models",
+          "session_projects",
+          "session_release",
+          "session_rename",
+          "session_settle",
+          "session_spawn",
+          "session_wake",
+        ]),
+      );
 
       // MCP requires every tool input schema to be a top-level object schema.
       // A non-object schema (e.g. the anyOf produced by an empty

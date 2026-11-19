@@ -73,6 +73,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as DesktopBrowserHost from "../preview/DesktopBrowserHost.ts"; // Fork
+import * as LoopbackTunnel from "../preview/LoopbackTunnel.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 
 interface StubbedDesktop {
@@ -235,6 +236,7 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           Layer.mock(MacPermissions.MacPermissions, {}),
           // Fork: the automation drawing forwarder's host.
           Layer.succeed(DesktopBrowserHost.DesktopBrowserHost, {} as never),
+          Layer.mock(LoopbackTunnel.LoopbackTunnel, {}),
           Layer.mock(PreviewManager.PreviewManager, {
             isBrowserPartition: () => {
               throw new Error("unexpected browser partition lookup");
