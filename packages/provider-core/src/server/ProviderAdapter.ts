@@ -589,8 +589,6 @@ export interface ProviderAdapterV2SteerInput {
   readonly modelSelection?: ModelSelection;
   /** The thread's MCP app notes; the adapter sends those the agent has not seen yet. */
   readonly appContext?: ProviderAdapterV2TurnInput["appContext"];
-  // Fork: the user promoted this queued message to Steer, so it cuts in like one they typed.
-  readonly cutsIn?: boolean;
 }
 
 export interface ProviderAdapterV2InterruptInput {

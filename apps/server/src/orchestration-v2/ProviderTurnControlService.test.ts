@@ -176,8 +176,7 @@ function layerProjectionStore(
       getNextTurnItemOrdinal: () => Effect.die("unused ordinal read"),
       getTurnItem: () => Effect.die("unused turn item read"),
       getMessagesById: () => Effect.die("unused getMessagesById"),
-      // Fork: steer reads turn items to spot a message promoted to Steer.
-      getThreadRecords: () => Effect.succeed({ turnItems: [] } as never),
+      getThreadRecords: () => Effect.die("unused record read"),
       getRuntimeRequest: () => Effect.die("unused getRuntimeRequest"),
       getRunningTurnContext: () => Effect.die("unused getRunningTurnContext"),
       getThreadProviderContext: () => Effect.die("unused getThreadProviderContext"),

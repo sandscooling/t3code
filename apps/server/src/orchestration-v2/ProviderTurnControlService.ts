@@ -451,16 +451,6 @@ export const layer: Layer.Layer<
             mcpAppModelContext,
             input.threadId,
           );
-          // Fork: a queued message promoted to Steer cuts in whoever wrote it.
-          const promoted = (yield* projections.getThreadRecords(input.threadId, ["turnItems"], {
-            turnItemRunIds: [run.id],
-            turnItemTypes: ["user_message"],
-          })).turnItems.some(
-            (item) =>
-              item.type === "user_message" &&
-              item.messageId === message.id &&
-              item.inputIntent === "promoted_queued_to_steer",
-          );
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -471,7 +461,6 @@ export const layer: Layer.Layer<
                 ? {}
                 : { modelSelection: input.modelSelection }),
               ...(appContext.length === 0 ? {} : { appContext }),
-              ...(promoted ? { cutsIn: true } : {}), // Fork: see promoted
               message: {
                 messageId: message.id,
                 text: projectComposerContextForProvider({
