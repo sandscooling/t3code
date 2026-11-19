@@ -111,8 +111,9 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         creationSource: input.creationSource,
         id: input.targetThreadId,
         title: input.title ?? `${input.sourceProjection.thread.title} fork`,
-        // The source's title job completes only on the source thread.
+        // The source's title job and rename stay with the source thread.
         titleRegeneration: null,
+        titleRenamed: false,
         activeProviderThreadId: null,
         // Fork: a fork stays in its source's lane group, but nobody spawned it and it was
         // not handed off, so a settle cascade or a handoff follow must not reach it.
