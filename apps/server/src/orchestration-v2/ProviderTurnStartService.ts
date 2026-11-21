@@ -46,6 +46,7 @@ import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts"; // Fork
+import type * as TaskFolders from "../workspace/TaskFolders.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
@@ -273,6 +274,7 @@ export const layer: Layer.Layer<
   | RuntimePolicy.RuntimePolicyV2
   | TurnItemPositionStore.TurnItemPositionStoreV2
   | AttachedWorktrees.AttachedWorktreeGuardServices // Fork
+  | TaskFolders.TaskFolders
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {

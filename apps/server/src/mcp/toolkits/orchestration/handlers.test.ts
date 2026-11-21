@@ -67,6 +67,7 @@ import * as SessionWakeSteering from "../../../orchestration-v2/SessionWakeSteer
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { layerNoTaskFolders } from "../../../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import * as SqlitePersistence from "../../../persistence/Sqlite.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
@@ -214,6 +215,7 @@ function makeHarness(
   );
   const external = Layer.mergeAll(
     WorktreeSetupTracker.layer,
+    layerNoTaskFolders,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
     Layer.mock(ProjectService.ProjectService)({
@@ -2650,6 +2652,7 @@ const turnStartWithMissingWorktree = (
               }),
           }),
           IdAllocator.layer,
+          layerNoTaskFolders,
           Layer.succeed(FileSystem.FileSystem, {
             exists: () => Effect.succeed(false),
             realPath: (target: string) => Effect.succeed(target),
