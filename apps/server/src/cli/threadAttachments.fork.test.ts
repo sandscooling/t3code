@@ -130,6 +130,29 @@ const sendCases = [
     error: undefined,
   },
   {
+    name: "a text-only send carries --output-schema to t3_thread_send",
+    images: [],
+    outputSchema: { type: "object" },
+    failPost: undefined,
+    sendResult: { threadId, messageId: "m", runId: "r", status: "queued", delivery: "queued" },
+    expected: [
+      [
+        "t3_thread_send",
+        { threadId, message: "look", mode: "queue", outputSchema: { type: "object" } },
+      ],
+    ],
+    error: undefined,
+  },
+  {
+    name: "--output-schema beside images is refused before any upload",
+    images,
+    outputSchema: { type: "object" },
+    failPost: undefined,
+    sendResult: undefined,
+    expected: [],
+    error: "--output-schema cannot be combined with --image on thread send.",
+  },
+  {
     name: "a send with images uploads each one and sends them as attachments",
     images,
     failPost: undefined,
@@ -195,7 +218,12 @@ it.effect.each(sendCases)("$name", (testCase) =>
     const outcome = yield* sendThreadMessage(
       tools,
       "http://127.0.0.1:3773",
-      { threadId, message: "look", images: testCase.images },
+      {
+        threadId,
+        message: "look",
+        images: testCase.images,
+        ...(testCase.outputSchema === undefined ? {} : { outputSchema: testCase.outputSchema }),
+      },
       (url, image) =>
         Effect.suspend(() => {
           log.push(["post", new URL(url).pathname]);

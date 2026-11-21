@@ -250,16 +250,22 @@ export const sendThreadMessage = Effect.fn("cli.thread.sendMessage")(function* (
     readonly threadId: ThreadId;
     readonly message: string;
     readonly images: ReadonlyArray<CliImage>;
+    readonly outputSchema?: { readonly [key: string]: Schema.Json };
   },
   post: PostImage = postImage,
 ) {
-  const { threadId, message, images } = input;
+  const { threadId, message, images, outputSchema } = input;
   if (images.length === 0) {
     return yield* tools.call(
       "t3_thread_send",
-      { threadId, message, mode: "queue" },
+      { threadId, message, mode: "queue", ...(outputSchema === undefined ? {} : { outputSchema }) },
       OrchestratorMcpThreadSendResult,
     );
+  }
+  if (outputSchema !== undefined) {
+    return yield* new ThreadImageError({
+      detail: "--output-schema cannot be combined with --image on thread send.",
+    });
   }
   const sent = yield* callWithImages(
     tools,
