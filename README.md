@@ -27,7 +27,7 @@ Always available to every agent session, with no setting to turn on:
 
 - The latest finished turn shows its work expanded under its "Worked for" row; older turns fold. Click the row to collapse it.
 - The chat's scroll map marks only the messages you typed; messages from other agents, server notices and scheduled task runs get no tick.
-- `t3 thread start` and `t3 thread send` take `--image <file>` (repeatable, up to 8 PNG, JPEG, WebP or GIF images of 10 MiB each) to send images as attachments, or `--image -` to read one image from stdin. A `send` with images is delivered into a busy thread's running turn, while a text-only `send` waits for its next turn.
+- `t3 thread start` and `t3 thread send` take `--image <file>` (repeatable, up to 8 PNG, JPEG, WebP or GIF images of 10 MiB each) to send images as attachments, or `--image -` to read one image from stdin. A `send` with images is delivered into a busy thread's running turn, while a text-only `send` waits for its next turn. `send` refuses `--image` together with upstream's `--output-schema`; `start` takes both.
 
 ### Threads and sidebar
 
