@@ -52,6 +52,8 @@ import { RemoteDelegation } from "../peer/RemoteDelegation.ts";
 import { EnvironmentThemeService } from "../environmentTheme.ts";
 import { IssueService } from "../issue/IssueService.ts";
 import { ThreadIssueService } from "../orchestration-v2/ThreadIssueService.ts";
+import { FeedbackStore } from "../feedback/FeedbackStore.ts";
+import { AnalyticsService } from "../telemetry/AnalyticsService.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(Orchestrator.OrchestratorV2)({}),
@@ -88,6 +90,8 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(EnvironmentThemeService)({}),
   Layer.mock(IssueService)({}),
   Layer.mock(ThreadIssueService)({}),
+  Layer.mock(FeedbackStore)({}),
+  Layer.mock(AnalyticsService)({}),
   // Fork: the session_* tools' service reads held queues and keeps idle
   // handoff settings.
   Layer.succeed(SqlClient.SqlClient, {} as never),
