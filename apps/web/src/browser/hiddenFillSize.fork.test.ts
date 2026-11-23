@@ -6,6 +6,7 @@ const phone = { _tag: "preset", presetId: "iphone-12-pro", width: 390, height: 8
 const fill = { _tag: "fill" } as const;
 const panelRect = { width: 1100, height: 760 };
 const miniRect = { width: 320, height: 200 };
+const windowSize = { width: 1440, height: 900 };
 
 describe("nextPanelSize", () => {
   it("remembers only the panel's rect", () => {
@@ -33,10 +34,16 @@ describe("resolveForkHiddenBrowserViewportSize", () => {
         setting: fill,
         zoomFactor: 1,
         lastPanelSize: panelRect,
+        windowSize,
       }),
     ).toEqual(panelRect);
     expect(
-      resolveForkHiddenBrowserViewportSize({ setting: fill, zoomFactor: 1, lastPanelSize: null }),
+      resolveForkHiddenBrowserViewportSize({
+        setting: fill,
+        zoomFactor: 1,
+        lastPanelSize: null,
+        windowSize,
+      }),
     ).toEqual({ width: 1280, height: 800 });
   });
 
@@ -46,6 +53,7 @@ describe("resolveForkHiddenBrowserViewportSize", () => {
         setting: phone,
         zoomFactor: 1.25,
         lastPanelSize: panelRect,
+        windowSize: { width: 1440, height: 1200 },
       }),
     ).toEqual({ width: 487.5, height: 1055 });
   });

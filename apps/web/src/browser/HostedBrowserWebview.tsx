@@ -13,6 +13,7 @@ import {
 } from "~/components/preview/thumbButtons";
 import { usePreviewBridge } from "~/components/preview/usePreviewBridge";
 import { useClientSettingsHydrated } from "~/hooks/useSettings";
+import { useViewportSize } from "~/hooks/useViewportSize";
 import { cn, isMacPlatform } from "~/lib/utils";
 
 import { resolveBrowserSurfacePanelRect, useBrowserSurfaceStore } from "./browserSurfaceStore";
@@ -23,6 +24,7 @@ import {
   resolveBrowserViewportLayout,
   resolveBrowserViewportTransform,
   resolveFittedBrowserViewport,
+  resolveHiddenBrowserViewportFitScale,
 } from "./browserViewportLayout";
 import { BrowserDeviceToolbar } from "./BrowserDeviceToolbar";
 import { BrowserViewportResizeHandles } from "./BrowserViewportResizeHandles";
@@ -253,10 +255,12 @@ export function HostedBrowserWebview(props: {
     fitSourceContent: presentation.fitSourceContent,
   });
   if (nextLastPanelSize !== lastPanelSize) setLastPanelSize(nextLastPanelSize);
+  const windowSize = useViewportSize();
   const { width: hiddenWidth, height: hiddenHeight } = resolveForkHiddenBrowserViewportSize({
     setting: viewport,
     zoomFactor: layoutZoomFactor,
     lastPanelSize: nextLastPanelSize,
+    windowSize,
   });
   // Build from primitives on each side of the resize hook to keep both objects cached.
   const containerSize =
@@ -353,7 +357,16 @@ export function HostedBrowserWebview(props: {
   };
 
   const renderingActive = active || backgroundActivity || pictureInPicture || recordingActive;
-  const viewportTransform = resolveBrowserViewportTransform(layout.viewportScale, fullDetail);
+  // Electron clips a guest's native surface at the window edge, so a hidden guest draws scaled to fit.
+  const fitScale =
+    active && lastRect
+      ? 1
+      : resolveHiddenBrowserViewportFitScale(
+          { width: hiddenWidth, height: hiddenHeight },
+          windowSize,
+        );
+  const viewportScale = layout.viewportScale * fitScale;
+  const viewportTransform = resolveBrowserViewportTransform(viewportScale, fullDetail);
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
     renderingActive,
@@ -395,10 +408,10 @@ export function HostedBrowserWebview(props: {
           key={webviewGeneration}
           className="absolute"
           style={{
-            left: layout.viewportX,
-            top: layout.viewportY,
-            width: layout.viewportWidth,
-            height: layout.viewportHeight,
+            left: layout.viewportX * fitScale,
+            top: layout.viewportY * fitScale,
+            width: layout.viewportWidth * fitScale,
+            height: layout.viewportHeight * fitScale,
             transformStyle: viewportTransform && fullDetail ? "preserve-3d" : undefined,
           }}
         >
