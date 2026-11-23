@@ -1,37 +1,10 @@
 /**
  * Fork: an agent's keys reach a field in a cross-origin iframe, such as a Stripe card field. Chromium
  * gives an out-of-process iframe its own widget, so keys go as DevTools commands on the iframe's own
- * session, which Playwright's auto-attach already opens. The focus chain is walked from an isolated
- * world the page cannot patch; an out-of-process frame with no session fails the command.
+ * session (Playwright's auto-attach opens it, the host's `frameSessions` names it). The focus chain is
+ * walked from an isolated world the page cannot patch; an out-of-process frame with no session fails.
  */
 import { asAgentKey, GuestKeyError, insertedText } from "./guestKeys.fork.ts";
-
-/** Each debugger's iframe sessions, by the iframe's target id (its frame id). */
-const frameSessions = new WeakMap<Electron.Debugger, Map<string, string>>();
-
-/** Follows `debuggee`'s iframe sessions; call once it is the tab's debugger. Idempotent. */
-export const trackFrameSessions = (debuggee: Electron.Debugger) => {
-  if (frameSessions.has(debuggee)) return;
-  const sessions = new Map<string, string>();
-  frameSessions.set(debuggee, sessions);
-  debuggee.on("message", (_event, method, params) => {
-    const event = params as {
-      readonly sessionId?: string;
-      readonly targetInfo?: { readonly targetId?: string; readonly type?: string };
-    };
-    if (method === "Target.attachedToTarget") {
-      const targetId = event.targetInfo?.targetId;
-      if (event.targetInfo?.type === "iframe" && targetId && event.sessionId) {
-        sessions.set(targetId, event.sessionId);
-      }
-    } else if (method === "Target.detachedFromTarget") {
-      for (const [targetId, sessionId] of sessions) {
-        if (sessionId === event.sessionId) sessions.delete(targetId);
-      }
-    }
-  });
-  debuggee.on("detach", () => sessions.clear());
-};
 
 /**
  * Where the keys land: the main widget (no session) or an iframe's session,
@@ -131,8 +104,10 @@ const markedFrameId = (send: Send, session: string | undefined, contextId: numbe
     );
 
 /** Follows the page's focus to the frame whose widget takes the keys. */
-export const findKeyTarget = async (debuggee: Electron.Debugger): Promise<KeyTarget> => {
-  const sessions = frameSessions.get(debuggee) ?? new Map<string, string>();
+export const findKeyTarget = async (
+  debuggee: Electron.Debugger,
+  sessions: ReadonlyMap<string, string>,
+): Promise<KeyTarget> => {
   const send = sender(debuggee);
   const tree = (await send("Page.getFrameTree", {}, undefined).catch(() => null)) as {
     frameTree?: { frame?: { id?: string } };

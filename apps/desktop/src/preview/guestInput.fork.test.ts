@@ -5,6 +5,7 @@ import * as NodeVM from "node:vm";
 import * as GuestInput from "./guestInput.fork.ts";
 
 const GUEST_ID = 42;
+const NO_FRAMES: ReadonlyMap<string, string> = new Map();
 
 /** Just enough of the app's document for the focus scripts: elements, focus and blur. */
 const makeAppWindow = () => {
@@ -133,6 +134,7 @@ describe("routeGuestCommand", () => {
     const forwarded = await GuestInput.routeGuestCommand(
       guest,
       debuggee,
+      NO_FRAMES,
       "Input.dispatchMouseEvent",
       { type: "mousePressed", x: 1, y: 1 },
       () => {
@@ -145,6 +147,7 @@ describe("routeGuestCommand", () => {
       GuestInput.routeGuestCommand(
         guest,
         debuggee,
+        NO_FRAMES,
         "Input.dispatchTouchEvent",
         { type: "touchStart" },
         () => {
@@ -162,6 +165,7 @@ describe("routeGuestCommand", () => {
       await GuestInput.routeGuestCommand(
         guest,
         debuggee,
+        NO_FRAMES,
         "Input.dispatchMouseEvent",
         { type },
         () => {
@@ -179,6 +183,7 @@ describe("routeGuestCommand", () => {
       GuestInput.routeGuestCommand(
         guest,
         debuggee,
+        NO_FRAMES,
         "Target.sendMessageToTarget",
         { message: '{"method":"Input.insertText"}' },
         () => {
@@ -219,10 +224,17 @@ describe("routeGuestCommand input order", () => {
     const guest = { id: GUEST_ID, hostWebContents: appContents } as unknown as Electron.WebContents;
     const seen: Array<string> = [];
     const send = (type: string, forward = () => Promise.resolve<unknown>({})) =>
-      GuestInput.routeGuestCommand(guest, debuggee, "Input.dispatchMouseEvent", { type }, () => {
-        seen.push(type);
-        return forward();
-      });
+      GuestInput.routeGuestCommand(
+        guest,
+        debuggee,
+        NO_FRAMES,
+        "Input.dispatchMouseEvent",
+        { type },
+        () => {
+          seen.push(type);
+          return forward();
+        },
+      );
     const answer = (kind: string) => {
       const index = waiting.findIndex((call) => call.kind === kind);
       waiting.splice(index, 1)[0]!.resolve();
@@ -289,8 +301,13 @@ describe("routeGuestCommand input order", () => {
         sendCommand: () => new Promise(() => undefined),
       } as unknown as Electron.Debugger;
       const { guest, debuggee, seen, send } = makeGuest(hung);
-      void GuestInput.routeGuestCommand(guest, debuggee, "Input.insertText", { text: "a" }, () =>
-        Promise.resolve({}),
+      void GuestInput.routeGuestCommand(
+        guest,
+        debuggee,
+        NO_FRAMES,
+        "Input.insertText",
+        { text: "a" },
+        () => Promise.resolve({}),
       );
       const moved = send("mouseMoved");
       await vi.advanceTimersByTimeAsync(GuestInput.INPUT_HOLD_DEADLINE_MS - 1);
@@ -333,6 +350,7 @@ describe("routeGuestCommand input order", () => {
       const typed = GuestInput.routeGuestCommand(
         guest,
         debuggee,
+        NO_FRAMES,
         "Input.insertText",
         { text: "a" },
         () => Promise.resolve({}),

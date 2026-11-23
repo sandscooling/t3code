@@ -1,6 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - Stands in for an Electron debugger.
 import { describe, expect, it } from "@effect/vitest";
-import * as NodeEvents from "node:events";
 
 import * as FrameKeys from "./frameKeys.fork.ts";
 
@@ -19,21 +17,21 @@ interface Sent {
 }
 
 /**
- * A debugger over a page whose main frame is `MAIN`. `frames` maps each
- * frame's id to its focused element; `outOfProcess` lists the frames that are
- * targets of their own. It evaluates only in isolated worlds, so a walk that
- * read a page's own (patchable) world would fail here.
+ * A debugger over a page whose main frame is `MAIN`. `frames` maps each frame's id to its focused
+ * element; `outOfProcess` lists the frames that are targets of their own; `sessions` stands in for
+ * the host's iframe sessions. It evaluates only in isolated worlds, so a walk that read a page's
+ * own (patchable) world would fail here.
  */
 const makeDebugger = (page: {
   readonly frames: Readonly<Record<string, Focus>>;
   readonly outOfProcess?: ReadonlyArray<string>;
 }) => {
-  const emitter = new NodeEvents.EventEmitter();
+  const sessions = new Map<string, string>();
   const sent: Array<Sent> = [];
   const live = new Set<string>();
   const worlds = new Map<number, string>();
   let marked: string | undefined;
-  const debuggee = Object.assign(emitter, {
+  const debuggee = {
     sendCommand: (method: string, params: Record<string, unknown> = {}, session?: string) => {
       sent.push({ method, params, session });
       if (session !== undefined && !live.has(session)) {
@@ -76,33 +74,25 @@ const makeDebugger = (page: {
           return Promise.resolve({});
       }
     },
-  });
+  };
   const tab = debuggee as unknown as Electron.Debugger;
-  FrameKeys.trackFrameSessions(tab);
   return {
     tab,
+    sessions,
     sent,
-    attach: (targetId: string, sessionId: string, type = "iframe") => {
+    attach: (targetId: string, sessionId: string) => {
       live.add(sessionId);
-      emitter.emit("message", {}, "Target.attachedToTarget", {
-        sessionId,
-        targetInfo: { targetId, type },
-      });
+      sessions.set(targetId, sessionId);
     },
-    detachSession: (sessionId: string) => {
-      live.delete(sessionId);
-      emitter.emit("message", {}, "Target.detachedFromTarget", { sessionId });
-    },
-    /** A session that died without the debugger saying so. */
+    /** A session that died without the host hearing of it. */
     kill: (sessionId: string) => live.delete(sessionId),
-    detachDebugger: () => emitter.emit("detach", {}, "target closed"),
   };
 };
 
 describe("findKeyTarget", () => {
   it("keeps keys on the main widget when the page's own field has focus", async () => {
     const page = makeDebugger({ frames: { MAIN: { multiline: true } } });
-    expect(await FrameKeys.findKeyTarget(page.tab)).toMatchObject({
+    expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
       session: undefined,
       multiline: true,
     });
@@ -115,7 +105,7 @@ describe("findKeyTarget", () => {
     });
     page.attach("CARD", "S1");
     page.attach("INNER", "S2");
-    expect(await FrameKeys.findKeyTarget(page.tab)).toMatchObject({
+    expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
       session: "S2",
       multiline: false,
     });
@@ -133,7 +123,7 @@ describe("findKeyTarget", () => {
 
   it("reads a same-process frame through its own world and stays on its widget", async () => {
     const page = makeDebugger({ frames: { MAIN: { frame: "LOCAL" }, LOCAL: { multiline: true } } });
-    expect(await FrameKeys.findKeyTarget(page.tab)).toMatchObject({
+    expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
       session: undefined,
       multiline: true,
     });
@@ -144,17 +134,9 @@ describe("findKeyTarget", () => {
       frames: { MAIN: { frame: "CARD" }, CARD: {} },
       outOfProcess: ["CARD"],
     });
-    await expect(FrameKeys.findKeyTarget(page.tab)).rejects.toThrow(
+    await expect(FrameKeys.findKeyTarget(page.tab, page.sessions)).rejects.toThrow(
       /runs apart and has no session/,
     );
-    // A session that went away, or one that is not an iframe's, is not used either.
-    page.attach("CARD", "S1");
-    page.detachSession("S1");
-    page.attach("CARD", "W1", "worker");
-    await expect(FrameKeys.findKeyTarget(page.tab)).rejects.toThrow(/has no session/);
-    page.attach("CARD", "S1");
-    page.detachDebugger();
-    await expect(FrameKeys.findKeyTarget(page.tab)).rejects.toThrow(/has no session/);
   });
 
   it("refuses when a frame cannot be read or the focused frame cannot be named", async () => {
@@ -164,9 +146,13 @@ describe("findKeyTarget", () => {
     });
     unreadable.attach("CARD", "S1");
     unreadable.kill("S1");
-    await expect(FrameKeys.findKeyTarget(unreadable.tab)).rejects.toThrow(/could not be read/);
+    await expect(FrameKeys.findKeyTarget(unreadable.tab, unreadable.sessions)).rejects.toThrow(
+      /could not be read/,
+    );
     const unnamed = makeDebugger({ frames: { MAIN: { frame: "" } } });
-    await expect(FrameKeys.findKeyTarget(unnamed.tab)).rejects.toThrow(/could not be identified/);
+    await expect(FrameKeys.findKeyTarget(unnamed.tab, unnamed.sessions)).rejects.toThrow(
+      /could not be identified/,
+    );
   });
 });
 
@@ -182,7 +168,7 @@ describe("sendFrameKeys", () => {
       outOfProcess: ["CARD"],
     });
     page.attach("CARD", "S1");
-    const target = await FrameKeys.findKeyTarget(page.tab);
+    const target = await FrameKeys.findKeyTarget(page.tab, page.sessions);
     const guest = { setIgnoreMenuShortcuts: () => undefined } as unknown as Electron.WebContents;
     await FrameKeys.sendFrameKeys(guest, page.tab, { ...target, session: "S1" }, method, params);
     return page.sent.filter(({ method }) => method.startsWith("Input."));

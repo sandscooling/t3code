@@ -8,8 +8,6 @@
 import { findKeyTarget, sendFrameKeys, targetFrame } from "./frameKeys.fork.ts";
 import { guestKeyPackets, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.ts";
 
-export { trackFrameSessions } from "./frameKeys.fork.ts";
-
 // @effect-diagnostics-next-line extendsNativeError:off - thrown back to Electron's debugger relay, outside Effect.
 class GuestInputError extends Error {
   override readonly name = "GuestInputError";
@@ -93,13 +91,14 @@ const keepAppFocus = async <A>(
 const sendKeys = async (
   guest: Electron.WebContents,
   debuggee: Electron.Debugger,
+  frameSessions: ReadonlyMap<string, string>,
   method: string,
   params: Record<string, unknown>,
   signal: AbortSignal,
 ) => {
   // An unsupported command is refused before the page is read.
   guestKeyPackets(method, params);
-  const target = await findKeyTarget(debuggee);
+  const target = await findKeyTarget(debuggee, frameSessions);
   return target.session === undefined
     ? sendGuestKeys(
         guest,
@@ -174,10 +173,14 @@ const forwardThen =
     }
   };
 
-/** Routes one server command for `guest`; `forward` sends it to the guest's debugger. */
+/**
+ * Routes one server command for `guest`; `forward` sends it to the guest's debugger.
+ * `frameSessions` is the host's map of cross-site iframe sessions by frame id.
+ */
 export const routeGuestCommand = (
   guest: Electron.WebContents,
   debuggee: Electron.Debugger,
+  frameSessions: ReadonlyMap<string, string>,
   method: string,
   params: Record<string, unknown>,
   forward: () => Promise<unknown>,
@@ -189,7 +192,7 @@ export const routeGuestCommand = (
   }
   if (isGuestKeyMethod(method)) {
     return inInputOrder(guest, (_sent, signal) =>
-      sendKeys(guest, debuggee, method, params, signal),
+      sendKeys(guest, debuggee, frameSessions, method, params, signal),
     );
   }
   if (isPointerPress(method, params)) {

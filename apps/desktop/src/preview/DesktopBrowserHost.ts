@@ -17,7 +17,12 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { createCdpRelayConnection, type CdpRelayConnection } from "./CdpRelay.ts";
-import { sendPageCommand } from "./GuestInput.ts";
+import {
+  type FrameDetachWatch,
+  type PointerRoute,
+  routeMouseToFrame,
+  sendPageCommand,
+} from "./GuestInput.ts";
 import * as GuestInput from "./guestInput.fork.ts"; // Fork
 
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(DesktopBrowserEvent));
@@ -57,6 +62,55 @@ export interface DesktopBrowserTabDebugger {
 
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
 
+const trackFrameSession = (
+  tab: {
+    readonly frameSessions: Map<string, string>;
+    readonly frameDetachListeners: Map<string, Set<() => void>>;
+  },
+  method: string,
+  params: unknown,
+) => {
+  if (method === "Target.attachedToTarget") {
+    const { sessionId, targetInfo } = params as {
+      readonly sessionId?: string;
+      readonly targetInfo?: { readonly targetId?: string; readonly type?: string };
+    };
+    if (targetInfo?.type === "iframe" && targetInfo.targetId && sessionId) {
+      tab.frameSessions.set(targetInfo.targetId, sessionId);
+    }
+  } else if (method === "Target.detachedFromTarget") {
+    const { sessionId } = params as { readonly sessionId?: string };
+    for (const [frameId, frameSession] of tab.frameSessions) {
+      if (frameSession === sessionId) tab.frameSessions.delete(frameId);
+    }
+    if (sessionId === undefined) return;
+    const listeners = tab.frameDetachListeners.get(sessionId);
+    tab.frameDetachListeners.delete(sessionId);
+    for (const listener of listeners ?? []) listener();
+  }
+};
+
+const watchFrameDetach =
+  (tab: {
+    readonly frameSessions: Map<string, string>;
+    readonly frameDetachListeners: Map<string, Set<() => void>>;
+  }): FrameDetachWatch =>
+  (sessionId, listener) => {
+    if (![...tab.frameSessions.values()].includes(sessionId)) {
+      listener();
+      return () => {};
+    }
+    const listeners = tab.frameDetachListeners.get(sessionId) ?? new Set();
+    tab.frameDetachListeners.set(sessionId, listeners);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0 && tab.frameDetachListeners.get(sessionId) === listeners) {
+        tab.frameDetachListeners.delete(sessionId);
+      }
+    };
+  };
+
 interface AttachedTab {
   readonly key: DesktopBrowserTabKey;
   readonly debuggee: DesktopBrowserTabDebugger;
@@ -82,6 +136,10 @@ interface AttachedTab {
   readonly capturing: Set<object>;
   /** Each wait on the guest's next frame, as whether it still waits; the guest is prodded until none do. */
   readonly frameWaits: Set<() => boolean>;
+  /** Sessions of the guest's cross-site frames that Chromium attached, by frame id. */
+  readonly frameSessions: Map<string, string>;
+  /** Input sent to a frame session, waiting to learn if the frame detaches first. */
+  readonly frameDetachListeners: Map<string, Set<() => void>>;
   nudging: Fiber.Fiber<void> | null;
   /** A wait outlasted its first nudge, so the guest is painted and unthrottled like a capture. */
   frameStalled: boolean;
@@ -448,8 +506,19 @@ export const make = Effect.gen(function* () {
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
     const { webContents, debugger: debuggee, cookiesCleared } = tab.debuggee;
+    const routeHidden = routeMouseToFrame(debuggee, tab.frameSessions, watchFrameDetach(tab));
+    // Read when the pointer queue reaches the event: a guest the window shows routes its own input.
+    const routeMouse: PointerRoute = (params) =>
+      shownTabs.get(keyOf(tab.key)) === true ? Promise.resolve(null) : routeHidden(params);
     const send = async (method: string, params: Record<string, unknown>, sessionId?: string) => {
-      const result = await sendPageCommand(webContents, debuggee, method, params, sessionId);
+      const result = await sendPageCommand(
+        webContents,
+        debuggee,
+        method,
+        params,
+        sessionId,
+        routeMouse,
+      );
       if (method === "Network.clearBrowserCookies") await cookiesCleared?.();
       return result;
     };
@@ -492,8 +561,13 @@ export const make = Effect.gen(function* () {
                 ? Promise.reject(new Error("The page this screenshot was for has moved on."))
                 : current === undefined
                   ? // Fork: agent input stays in the guest, the app's focus with the user (guestInput.fork.ts).
-                    GuestInput.routeGuestCommand(webContents, debuggee, method, params, () =>
-                      send(method, params, sessionId),
+                    GuestInput.routeGuestCommand(
+                      webContents,
+                      debuggee,
+                      tab.frameSessions,
+                      method,
+                      params,
+                      () => send(method, params, sessionId),
                     )
                   : send(method, params, sessionId);
             const run = () =>
@@ -612,6 +686,12 @@ export const make = Effect.gen(function* () {
     tab.debuggee.debugger.off("message", tab.onMessage);
     tab.debuggee.webContents.off("did-navigate", tab.onNewDocument);
     runFork(PubSub.publish(drawing, { key, active: false })); // Fork
+    // Input routed to a frame would wait for a detach event the tab no longer hears.
+    const listeners = [...tab.frameDetachListeners.values()].flatMap((set) => [...set]);
+    tab.frameDetachListeners.clear();
+    // A route resolved after this would find no session and go to the page.
+    tab.frameSessions.clear();
+    for (const listener of listeners) listener();
     syncPainting(tab);
     if (announced) emit({ type: "detached", ...key });
   };
@@ -636,6 +716,8 @@ export const make = Effect.gen(function* () {
       focusPending: new Map(),
       capturing: new Set(),
       frameWaits: new Set(),
+      frameSessions: new Map(),
+      frameDetachListeners: new Map(),
       nudging: null,
       frameStalled: false,
       painting: false,
@@ -647,6 +729,7 @@ export const make = Effect.gen(function* () {
           const guid = (params as { guid?: unknown } | undefined)?.guid;
           tab.pendingDownloadGuid = typeof guid === "string" ? guid : null;
         }
+        trackFrameSession(tab, method, params);
         tab.relay?.event(method, params, sessionId);
       },
       // A screenshot pending when the page loads a new document, a reload included, can
@@ -662,7 +745,6 @@ export const make = Effect.gen(function* () {
     tabs.set(id, tab);
     debuggee.debugger.on("message", tab.onMessage);
     debuggee.webContents.on("did-navigate", tab.onNewDocument);
-    GuestInput.trackFrameSessions(debuggee.debugger); // Fork: keys for out-of-process iframes
     const announce = () => {
       emit({ type: "attached", ...key });
       const shown = shownTabs.get(id);
