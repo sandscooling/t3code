@@ -78,6 +78,7 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as Scheduler from "../../../scheduling/Scheduler.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as WorktreeSetupTracker from "../../../project/WorktreeSetupTracker.ts";
+import { ThreadWorktreeRestore } from "../../../workspace/restoreMissingWorktree.ts";
 import * as ProviderAuthService from "../../../provider/ProviderAuthService.ts";
 import * as ProviderRegistryMock from "../../../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
@@ -2653,10 +2654,15 @@ const turnStartWithMissingWorktree = (
           }),
           IdAllocator.layer,
           layerNoTaskFolders,
+          // A recreated checkout exists, so the start that follows its setup carries on.
           Layer.succeed(FileSystem.FileSystem, {
-            exists: () => Effect.succeed(false),
+            exists: () => Effect.sync(() => recreated),
             realPath: (target: string) => Effect.succeed(target),
           } as never),
+          Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
+            runForThread: () => Effect.succeed({ status: "no-script" as const }),
+          }),
+          Layer.mock(ThreadWorktreeRestore)({ takeRecreated: () => Effect.undefined }),
           Layer.succeed(ServerConfig.ServerConfig, { worktreesDir } as never),
           ServerSettings.layerTest(),
           NodePathLayer.layer,
