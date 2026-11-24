@@ -34,6 +34,7 @@ import {
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
   AuthOrchestrationOperateScope,
+  AuthTerminalOperateScope,
   AuthProvidersManageScope,
   type AuthEnvironmentScope,
   ProviderDriverKind,
@@ -1642,6 +1643,11 @@ export const layerWsRpc = (
               ...result,
               tasks: result.tasks.map(({ webhook: _webhook, ...task }) => task),
             };
+      // A project's layout command is its owner's code: only a session that may already run
+      // commands on the host has it run from a worktree request.
+      const projectCommands =
+        currentSession.scopes.includes(AuthOrchestrationOperateScope) ||
+        currentSession.scopes.includes(AuthTerminalOperateScope);
       const authorizeEffect = <A, E, R>(
         requiredScope: AuthEnvironmentScope,
         effect: Effect.Effect<A, E, R>,
@@ -3349,7 +3355,7 @@ export const layerWsRpc = (
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           // A project that tracks repositories gets a task folder, as its new worktree threads do.
-          taskFolders.createForProjectFolder(input).pipe(
+          taskFolders.createForProjectFolder(input, { projectCommands }).pipe(
             Effect.mapError(
               (cause) =>
                 new GitCommandError({
@@ -3371,7 +3377,11 @@ export const layerWsRpc = (
             // A thread's worktree may be a task folder: its repositories' worktrees go with it.
             Effect.andThen(
               taskFolders
-                .removeIfTaskFolder({ path: input.path, force: input.force === true })
+                .removeIfTaskFolder({
+                  path: input.path,
+                  force: input.force === true,
+                  projectCommands,
+                })
                 .pipe(
                   Effect.mapError(
                     (cause) =>
