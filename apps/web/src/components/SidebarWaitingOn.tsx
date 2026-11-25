@@ -5,7 +5,7 @@ import type { ComponentType } from "react";
 
 import { sidebarWaitingOn } from "./backgroundWorkClock";
 import { PullRequestGlyph } from "./pullRequest/pullRequestIcons";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { SharedTooltipTrigger } from "./ui/shared-tooltip";
 
 const WAITING_ON = {
   agent: { label: msg("Waiting on an agent"), Icon: BotIcon },
@@ -33,14 +33,12 @@ export function SidebarWaitingOn(props: {
   const label = m(WAITING_ON[waitingOn.kind].label);
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger
-          render={<span role="img" aria-label={label} className="inline-flex shrink-0" />}
-        >
-          <Icon aria-hidden className="size-4 shrink-0" />
-        </TooltipTrigger>
-        <TooltipPopup side="top">{label}</TooltipPopup>
-      </Tooltip>
+      <SharedTooltipTrigger
+        render={<span role="img" aria-label={label} className="inline-flex shrink-0" />}
+        label={label}
+      >
+        <Icon aria-hidden className="size-4 shrink-0" />
+      </SharedTooltipTrigger>
       <span aria-hidden>
         <props.Duration environmentId={props.environmentId} startedAt={waitingOn.startedAt} />
       </span>
