@@ -264,6 +264,8 @@ function makeHarness(
         threadManagement,
         receipts,
         IdAllocator.layer,
+        ProjectionStore.layer.pipe(Layer.provide(database)),
+        NodeServices.layer,
         Layer.mock(CheckpointStore.CheckpointStore)({
           isGitRepository: () => Effect.succeed(true),
         }),
