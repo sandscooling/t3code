@@ -1,9 +1,8 @@
 // @effect-diagnostics globalTimers:off - Bounds Electron renderer calls, which run outside the Effect runtime.
 /**
  * Fork: the one door between the server and a desktop tab's debugger. Keys go to the guest's own
- * widget, or through upstream's routing to a focused cross-site frame; a pointer press returns focus
- * to the app's previous element (Chromium focuses the guest on a DevTools press) while the page keeps
- * its own; input keeps send order; `Target.sendMessageToTarget` is refused, as it bypasses these.
+ * widget, or through upstream's routing to a focused cross-site frame; input keeps send order;
+ * `Target.sendMessageToTarget` is refused, as it bypasses these.
  */
 import { findKeyTarget, targetFrame } from "./frameKeys.fork.ts";
 import { asAgentKeys, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.ts";
@@ -12,80 +11,6 @@ import { asAgentKeys, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.t
 class GuestInputError extends Error {
   override readonly name = "GuestInputError";
 }
-
-const isPointerPress = (method: string, params: Record<string, unknown>) =>
-  (method === "Input.dispatchMouseEvent" && params["type"] === "mousePressed") ||
-  (method === "Input.dispatchTouchEvent" && params["type"] === "touchStart");
-
-/** Where the app's focus was before each guest's pending press, by guest id. */
-const FOCUS_STORE = "__t3AgentPressFocus";
-
-/**
- * Runs in the app's window: remembers its focused element for one guest's
- * press. A press that starts before the last one's restore (a double click)
- * keeps the element the first one remembered, which may already have lost
- * focus to the `<webview>`.
- */
-export const rememberFocusExpression = (guestId: number) => `(() => {
-  const store = (globalThis.${FOCUS_STORE} ??= new Map());
-  const held = store.get(${guestId});
-  if (held) held.presses += 1;
-  else store.set(${guestId}, { element: document.activeElement, presses: 1 });
-  return true;
-})()`;
-
-/**
- * Runs in the app's window after the press: undoes only a focus move onto this
- * guest's own `<webview>`, so focus the user already had in that page, or
- * moved elsewhere meanwhile, stays where it is. Only the last of overlapping
- * presses restores.
- */
-export const restoreFocusExpression = (guestId: number) => `(() => {
-  const store = globalThis.${FOCUS_STORE};
-  const held = store?.get(${guestId});
-  if (held && --held.presses > 0) return false;
-  store?.delete(${guestId});
-  const previous = held?.element;
-  const active = document.activeElement;
-  if (!active || active === previous || active.tagName !== "WEBVIEW") return false;
-  if (typeof active.getWebContentsId !== "function" || active.getWebContentsId() !== ${guestId}) return false;
-  if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) {
-    previous.focus({ preventScroll: true });
-  } else active.blur();
-  return true;
-})()`;
-
-/** An app window that never answers must not hold up the agent's click. */
-const APP_CALL_DEADLINE_MS = 2_000;
-
-const inApp = (app: Electron.WebContents, expression: string) => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, APP_CALL_DEADLINE_MS);
-  });
-  return Promise.race([
-    app.executeJavaScript(expression).then(
-      () => undefined,
-      () => undefined,
-    ),
-    expired,
-  ]).finally(() => clearTimeout(timer));
-};
-
-/** Runs one pointer press with the app's focus put back where the user had it. */
-const keepAppFocus = async <A>(
-  guest: Electron.WebContents,
-  press: () => Promise<A>,
-): Promise<A> => {
-  const app = guest.hostWebContents;
-  if (!app || app.isDestroyed()) return press();
-  await inApp(app, rememberFocusExpression(guest.id));
-  try {
-    return await press();
-  } finally {
-    if (!app.isDestroyed()) await inApp(app, restoreFocusExpression(guest.id));
-  }
-};
 
 /**
  * Sends a key command to the guest's own widget when its focused field is in the page's process;
@@ -191,11 +116,6 @@ export const routeGuestCommand = (
   if (isGuestKeyMethod(method)) {
     return inInputOrder(guest, (_sent, signal) =>
       sendKeys(guest, debuggee, frameSessions, method, params, forward, signal),
-    );
-  }
-  if (isPointerPress(method, params)) {
-    return inInputOrder(guest, (sent, signal) =>
-      keepAppFocus(guest, forwardThen(forward, sent, signal)),
     );
   }
   if (method.startsWith("Input.")) {

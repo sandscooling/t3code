@@ -578,7 +578,7 @@ export const make = Effect.gen(function* () {
               stale()
                 ? Promise.reject(new Error("The page this screenshot was for has moved on."))
                 : current === undefined
-                  ? // Fork: agent input stays in the guest, the app's focus with the user (guestInput.fork.ts).
+                  ? // Fork: agent input stays in the guest (guestInput.fork.ts).
                     GuestInput.routeGuestCommand(
                       webContents,
                       debuggee,
