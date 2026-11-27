@@ -308,6 +308,16 @@ describe("question answer paths", () => {
     ],
     ["hyphen symbol fallback", String.raw`{\rtf1\ansi\uc3\u945\~\_\-Z}`, "αZ"],
     ["control word", String.raw`{\rtf1\ansi A\u9\tab X}`, "A\tX"],
+    [
+      "Unicode alternate destination",
+      String.raw`{\rtf1\ansi\uc1 Price: {\upr{\{??\}\bin2 {}}{\*\ud{\u20320?{\upr{?}{\*\ud{\u22909?}}}}}} confirmed.{\*\ud Hidden}{\*\unknown{\upr{Hidden}{\*\ud Also hidden}}}}`,
+      "Price: 你好 confirmed.",
+    ],
+    [
+      "ANSI alternate with a truncated Unicode destination",
+      String.raw`{\rtf1\ansi Price: {\upr{fallback}{\*\ud{\u20320?}`,
+      "Price: fallback",
+    ],
     ["line break paragraphs", "{\\rtf1\\ansi First\\\nSecond\\\r\nThird}", "First\nSecond\nThird"],
     [
       "tracked deletion",
@@ -781,6 +791,22 @@ describe("question answer paths", () => {
         {
           ext: "epub",
           parts: {
+            "META-INF/container.xml":
+              '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>',
+            "book.opf":
+              '<package version="2.0"><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>',
+            "chapter.xhtml":
+              '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">' +
+              '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Market report</title></head><body><table>' +
+              "<caption>Revenue by region</caption><thead><tr><th>Region</th><th>Revenue</th></tr></thead>" +
+              "<tfoot><tr><th>Total</th><td>42</td></tr></tfoot>" +
+              "<tbody><tr><td>East</td><td>18</td></tr></tbody><tbody><tr><td>West</td><td>24</td></tr></tbody></table></body></html>",
+          },
+          expected: ["Revenue by region\nRegion\tRevenue\nEast\t18\nWest\t24\nTotal\t42"],
+        },
+        {
+          ext: "epub",
+          parts: {
             "META-INF/container.xml": '<container><rootfile full-path="book.opf"/></container>',
             "book.opf":
               '<package><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>',
@@ -1195,6 +1221,25 @@ describe("question answer paths", () => {
           ],
           absent: ["Discard", "[Extracted text truncated"],
         })),
+        ...[
+          "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+          "http://purl.oclc.org/ooxml/wordprocessingml/main",
+        ].map((namespace) => ({
+          ext: "docx",
+          parts: {
+            "word/document.xml":
+              `<w:document xmlns:w="${namespace}"><w:body><w:p>` +
+              "<w:r><w:t>次は</w:t></w:r>" +
+              "<w:r><w:ruby><w:rt><w:r><w:t>とうきょう</w:t></w:r></w:rt>" +
+              "<w:rubyBase><w:r><w:t>東京</w:t></w:r></w:rubyBase></w:ruby></w:r>" +
+              "<w:r><w:t>から</w:t></w:r>" +
+              "<w:r><w:ruby><w:rt><w:r><w:t/></w:r></w:rt>" +
+              "<w:rubyBase><w:r><w:t>京都</w:t></w:r></w:rubyBase></w:ruby></w:r>" +
+              "<w:r><w:t>まで。</w:t></w:r></w:p></w:body></w:document>",
+          },
+          expected: [],
+          exact: "次は東京(とうきょう)から京都まで。",
+        })),
         {
           ext: "odt",
           bounded: true,
@@ -1248,6 +1293,63 @@ describe("question answer paths", () => {
             "Annual report\tDraft",
             "Before Inner After\tNeighbor\t\u2011\n\u2011\nDemoted\nIntro. \n# Box title",
           ],
+        },
+        {
+          ext: "docx",
+          bounded: true,
+          parts: {
+            "word/_rels/document.xml.rels":
+              '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles-de.xml"/></Relationships>',
+            "word/styles-de.xml":
+              '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Standard"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="berschrift1"><w:name w:val="heading 1"/></w:style><w:style w:type="paragraph" w:styleId="berschrift2"><w:name w:val="heading 2"/></w:style><w:style w:type="paragraph" w:styleId="Titel"><w:name w:val="Title"/></w:style></w:styles>',
+            "word/document.xml":
+              '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Titel"/></w:pPr><w:r><w:t>Jahresbericht</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="berschrift1"/></w:pPr><w:r><w:t>Einleitung</w:t></w:r></w:p><w:p><w:r><w:t>Text.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="berschrift2"/></w:pPr><w:r><w:t>Ziele</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Standard"/></w:pPr><w:r><w:t>Mehr Text.</w:t></w:r></w:p></w:body></w:document>',
+          },
+          expected: [],
+          exact: "Jahresbericht\n# Einleitung\nText.\n## Ziele\nMehr Text.",
+        },
+        {
+          ext: "docx",
+          parts: {
+            "word/styles.xml": [
+              '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+              '<w:style w:type="paragraph" w:styleId="ReportSection"><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style>',
+              '<w:style w:type="paragraph" w:styleId="ReportDetail"><w:basedOn w:val="ReportSection"/></w:style>',
+              '<w:style w:type="paragraph" w:styleId="ReportLabel"><w:basedOn w:val="ReportSection"/><w:pPr><w:outlineLvl w:val="9"/></w:pPr></w:style>',
+              '<w:style w:type="paragraph" w:styleId="ReportCaption"><w:name w:val="heading 4"/><w:basedOn w:val="ReportLabel"/></w:style>',
+              '<w:style w:type="paragraph" w:styleId="LoopA"><w:basedOn w:val="LoopB"/></w:style>',
+              '<w:style w:type="paragraph" w:styleId="LoopB"><w:basedOn w:val="LoopA"/></w:style>',
+              "</w:styles>",
+            ].join(""),
+            "word/document.xml": [
+              '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>',
+              '<w:p><w:pPr><w:pStyle w:val="ReportSection"/></w:pPr><w:r><w:t>Quarterly revenue</w:t></w:r></w:p>',
+              '<w:p><w:pPr><w:pStyle w:val="ReportDetail"/></w:pPr><w:r><w:t>Revenue by region</w:t></w:r></w:p>',
+              '<w:p><w:pPr><w:pStyle w:val="ReportLabel"/></w:pPr><w:r><w:t>For internal use</w:t></w:r></w:p>',
+              '<w:p><w:pPr><w:pStyle w:val="ReportCaption"/></w:pPr><w:r><w:t>Caption</w:t></w:r></w:p>',
+              '<w:p><w:pPr><w:pStyle w:val="ReportSection"/><w:outlineLvl w:val="2"/></w:pPr><w:r><w:t>Direct level wins</w:t></w:r></w:p>',
+              '<w:p><w:pPr><w:pStyle w:val="LoopA"/></w:pPr><w:r><w:t>Plain text</w:t></w:r></w:p>',
+              "</w:body></w:document>",
+            ].join(""),
+          },
+          expected: [],
+          exact:
+            "## Quarterly revenue\n## Revenue by region\nFor internal use\nCaption\n### Direct level wins\nPlain text",
+        },
+        {
+          ext: "docx",
+          parts: {
+            "word/document.xml":
+              '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+              '<w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>Overview</w:t></w:r></w:p>' +
+              '<w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Budget</w:t></w:r></w:p>' +
+              '<w:p><w:pPr><w:outlineLvl w:val="8"/></w:pPr><w:r><w:t>Details</w:t></w:r></w:p>' +
+              '<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Override</w:t></w:r></w:p>' +
+              '<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:outlineLvl w:val="9"/><w:pPrChange w:id="0" w:author="Editor"><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:pPrChange></w:pPr><w:r><w:t>Body text</w:t></w:r></w:p>' +
+              "</w:body></w:document>",
+          },
+          expected: [],
+          exact: "# Overview\n## Budget\n###### Details\n## Override\nBody text",
         },
         {
           ext: "docx",
@@ -1380,10 +1482,10 @@ describe("question answer paths", () => {
               '<Relationships><Relationship Id="a" Target="worksheets/a.xml"/></Relationships>',
             "xl/styles.xml": '<styleSheet><cellXfs><xf numFmtId="9"/></cellXfs></styleSheet>',
             "xl/worksheets/a.xml":
-              "<worksheet><row><c><f>SUM(11,22)</f><v/></c></row><row><c><f>SUM(33,44)</f><v> \n </v></c></row><row><c><f>SUM(55,66)</f></c></row><row><c><f>SUM(11,22)</f><v>33</v></c><c><f>SUM(0,0)</f><v>0</v></c></row></worksheet>",
+              '<worksheet><row><c><f>SUM(11,22)</f><v/></c></row><row><c><f>SUM(33,44)</f><v> \n </v></c></row><row><c><f>SUM(55,66)</f></c></row><row><c t="str"><f>CHAR(13)</f><v>_x000D_</v></c><c t="str"><f>CHAR(95)&amp;"x000D_"</f><v>_x005F_x000D_</v></c></row><row><c><f>SUM(11,22)</f><v>33</v></c><c><f>SUM(0,0)</f><v>0</v></c></row></worksheet>',
           },
           expected: [
-            "SUM(11,22)\nSUM(33,44)\nSUM(55,66)",
+            "SUM(11,22)\nSUM(33,44)\nSUM(55,66)\nCHAR(13)\t_x000D_",
             "33 [Excel numFmtId=9; date system 1900]\t0 [Excel numFmtId=9; date system 1900]",
           ],
           absent: ["SUM(0,0)", "[Extracted text truncated"],
@@ -1561,6 +1663,25 @@ describe("question answer paths", () => {
         },
         {
           ext: "pptx",
+          parts: {
+            "ppt/presentation.xml":
+              '<presentation><sldIdLst><sldId r:id="a"/></sldIdLst></presentation>',
+            "ppt/_rels/presentation.xml.rels":
+              '<Relationships><Relationship Id="a" Target="slides/a.xml"/></Relationships>',
+            "ppt/slides/a.xml":
+              '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+              '<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>' +
+              '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Visible" hidden="0"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:t>Harbor briefing</a:t></a:r></a:p></p:txBody></p:sp>' +
+              '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Hidden" hidden="1"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:t>Unshown draft</a:t></a:r></a:p></p:txBody></p:sp>' +
+              '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="4" name="Hidden group" hidden="true"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>' +
+              '<p:sp><p:nvSpPr><p:cNvPr id="5" name="Group member"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:t>Unshown group draft</a:t></a:r></a:p></p:txBody></p:sp>' +
+              "</p:grpSp></p:spTree></p:cSld></p:sld>",
+          },
+          expected: ["## Slide 1", "Harbor briefing"],
+          absent: ["Unshown draft", "Unshown group draft", "[Skipped document part"],
+        },
+        {
+          ext: "pptx",
           bounded: true,
           parts: {
             "ppt/presentation.xml":
@@ -1662,6 +1783,21 @@ describe("question answer paths", () => {
           },
           expected: [
             `## Orchard\n19   violet crates shipped today\tDock\nGate\u00a0B\nSecond\nA B${"\nContents\nOrchard 1".repeat(7)}`,
+          ],
+        },
+        {
+          ext: "odt",
+          parts: {
+            "content.xml":
+              '<office:document-content xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:other="urn:example:other">' +
+              "<office:body><office:text><text:p>Inspection route</text:p>" +
+              '<text:p><draw:frame text:anchor-type="as-char"><draw:text-box><text:p>North loading dock</text:p><text:p>South loading dock</text:p></draw:text-box></draw:frame></text:p>' +
+              '<text:p>Meeting point: <draw:frame text:anchor-type="as-char"><draw:text-box><text:p>Gate 4</text:p></draw:text-box></draw:frame> at noon</text:p>' +
+              "<text:p>End <other:text-box>of <text:span>route</text:span>.</other:text-box></text:p>" +
+              "</office:text></office:body></office:document-content>",
+          },
+          expected: [
+            "Inspection route\nNorth loading dock\nSouth loading dock\nMeeting point: Gate 4 at noon\nEnd of route.",
           ],
         },
         {
