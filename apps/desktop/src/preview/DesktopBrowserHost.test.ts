@@ -121,6 +121,7 @@ const makeDebuggee = (
     getUserAgent: () => "Electron",
     isLoadingMainFrame: () => options.loading === true,
     isDestroyed: () => destroyed,
+    setIgnoreMenuShortcuts: () => undefined, // Fork: an agent's key closes the menu path.
   });
   return {
     tab: {

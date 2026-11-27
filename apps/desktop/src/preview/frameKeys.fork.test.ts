@@ -6,8 +6,6 @@ import * as FrameKeys from "./frameKeys.fork.ts";
 interface Focus {
   readonly frame?: string;
   readonly multiline?: boolean;
-  /** The element the walk found has lost its frame's focus since. */
-  readonly moved?: boolean;
 }
 
 interface Sent {
@@ -28,15 +26,11 @@ const makeDebugger = (page: {
 }) => {
   const sessions = new Map<string, string>();
   const sent: Array<Sent> = [];
-  const live = new Set<string>();
   const worlds = new Map<number, string>();
   let marked: string | undefined;
   const debuggee = {
     sendCommand: (method: string, params: Record<string, unknown> = {}, session?: string) => {
       sent.push({ method, params, session });
-      if (session !== undefined && !live.has(session)) {
-        return Promise.reject(new Error("No session with given id"));
-      }
       switch (method) {
         case "Page.getFrameTree":
           return Promise.resolve({ frameTree: { frame: { id: "MAIN" } } });
@@ -50,10 +44,6 @@ const makeDebugger = (page: {
           const frameId = worlds.get(params["contextId"] as number);
           if (frameId === undefined) return Promise.reject(new Error("Not an isolated world"));
           const focus = page.frames[frameId]!;
-          const expression = String(params["expression"]);
-          if (expression === FrameKeys.STILL_FOCUSED) {
-            return Promise.resolve({ result: { value: !focus.moved } });
-          }
           if (params["objectGroup"]) {
             marked = frameId;
             return Promise.resolve({ result: { objectId: `active-${frameId}` } });
@@ -81,11 +71,8 @@ const makeDebugger = (page: {
     sessions,
     sent,
     attach: (targetId: string, sessionId: string) => {
-      live.add(sessionId);
       sessions.set(targetId, sessionId);
     },
-    /** A session that died without the host hearing of it. */
-    kill: (sessionId: string) => live.delete(sessionId),
   };
 };
 
@@ -93,112 +80,43 @@ describe("findKeyTarget", () => {
   it("keeps keys on the main widget when the page's own field has focus", async () => {
     const page = makeDebugger({ frames: { MAIN: { multiline: true } } });
     expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
-      session: undefined,
       multiline: true,
     });
-  });
-
-  it("follows focus into an out-of-process iframe, and through a nested one", async () => {
-    const page = makeDebugger({
-      frames: { MAIN: { frame: "CARD" }, CARD: { frame: "INNER" }, INNER: {} },
-      outOfProcess: ["CARD", "INNER"],
-    });
-    page.attach("CARD", "S1");
-    page.attach("INNER", "S2");
-    expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
-      session: "S2",
-      multiline: false,
-    });
-    // Every frame is read from an isolated world (the fake has no other), and
-    // every object the walk made is released in the session that made it.
-    const released = page.sent.filter(({ method }) => method === "Runtime.releaseObjectGroup");
-    expect(released.map(({ session }) => session)).toEqual([undefined, "S1"]);
-    const worlds = page.sent.filter(({ method }) => method === "Page.createIsolatedWorld");
-    expect(worlds.map(({ params, session }) => `${String(params["frameId"])}@${session}`)).toEqual([
-      "MAIN@undefined",
-      "CARD@S1",
-      "INNER@S2",
-    ]);
   });
 
   it("reads a same-process frame through its own world and stays on its widget", async () => {
     const page = makeDebugger({ frames: { MAIN: { frame: "LOCAL" }, LOCAL: { multiline: true } } });
     expect(await FrameKeys.findKeyTarget(page.tab, page.sessions)).toMatchObject({
-      session: undefined,
       multiline: true,
     });
   });
 
-  it("refuses a focused frame that runs apart but has no session", async () => {
-    const page = makeDebugger({
+  it("leaves focus in a cross-site frame to upstream's routing, and never reads inside it", async () => {
+    const withSession = makeDebugger({
+      frames: { MAIN: { frame: "CARD" }, CARD: { frame: "INNER" }, INNER: {} },
+      outOfProcess: ["CARD", "INNER"],
+    });
+    withSession.attach("CARD", "S1");
+    withSession.attach("INNER", "S2");
+    expect(await FrameKeys.findKeyTarget(withSession.tab, withSession.sessions)).toBeNull();
+    const withoutSession = makeDebugger({
       frames: { MAIN: { frame: "CARD" }, CARD: {} },
       outOfProcess: ["CARD"],
     });
-    await expect(FrameKeys.findKeyTarget(page.tab, page.sessions)).rejects.toThrow(
-      /runs apart and has no session/,
-    );
+    expect(await FrameKeys.findKeyTarget(withoutSession.tab, withoutSession.sessions)).toBeNull();
+    for (const page of [withSession, withoutSession]) {
+      // Every frame is read from an isolated world on the page's own session, and released there.
+      expect(page.sent.every(({ session }) => session === undefined)).toBe(true);
+      const worlds = page.sent.filter(({ method }) => method === "Page.createIsolatedWorld");
+      expect(worlds.map(({ params }) => params["frameId"])).toEqual(["MAIN"]);
+      expect(page.sent.some(({ method }) => method === "Runtime.releaseObjectGroup")).toBe(true);
+    }
   });
 
-  it("refuses when a frame cannot be read or the focused frame cannot be named", async () => {
-    const unreadable = makeDebugger({
-      frames: { MAIN: { frame: "CARD" }, CARD: {} },
-      outOfProcess: ["CARD"],
-    });
-    unreadable.attach("CARD", "S1");
-    unreadable.kill("S1");
-    await expect(FrameKeys.findKeyTarget(unreadable.tab, unreadable.sessions)).rejects.toThrow(
-      /could not be read/,
-    );
+  it("leaves a page it cannot read to upstream's routing", async () => {
+    const unreadable = makeDebugger({ frames: { MAIN: { frame: "GONE" } } });
+    expect(await FrameKeys.findKeyTarget(unreadable.tab, unreadable.sessions)).toBeNull();
     const unnamed = makeDebugger({ frames: { MAIN: { frame: "" } } });
-    await expect(FrameKeys.findKeyTarget(unnamed.tab, unnamed.sessions)).rejects.toThrow(
-      /could not be identified/,
-    );
-  });
-});
-
-describe("sendFrameKeys", () => {
-  /** Walks to an iframe field, then sends one command to it. */
-  const send = async (
-    method: string,
-    params: Record<string, unknown>,
-    field: Focus = {},
-  ): Promise<Array<Sent>> => {
-    const page = makeDebugger({
-      frames: { MAIN: { frame: "CARD" }, CARD: field },
-      outOfProcess: ["CARD"],
-    });
-    page.attach("CARD", "S1");
-    const target = await FrameKeys.findKeyTarget(page.tab, page.sessions);
-    const guest = { setIgnoreMenuShortcuts: () => undefined } as unknown as Electron.WebContents;
-    await FrameKeys.sendFrameKeys(guest, page.tab, { ...target, session: "S1" }, method, params);
-    return page.sent.filter(({ method }) => method.startsWith("Input."));
-  };
-
-  it("sends the command on the iframe's session, never the page's", async () => {
-    const params = { type: "keyDown", key: "x", text: "x" };
-    expect(await send("Input.dispatchKeyEvent", params)).toEqual([
-      { method: "Input.dispatchKeyEvent", params, session: "S1" },
-    ]);
-  });
-
-  it("refuses to send once the field it found has lost its frame's focus", async () => {
-    await expect(send("Input.insertText", { text: "x" }, { moved: true })).rejects.toThrow(
-      /focus moved/,
-    );
-  });
-
-  it("keeps line breaks in a multi-line editor and drops them from a single-line field", async () => {
-    const text = (sent: Array<Sent>) => sent.map(({ params }) => params["text"]);
-    expect(
-      text(await send("Input.insertText", { text: "a\nb\r\nc" }, { multiline: true })),
-    ).toEqual(["a\nb\nc"]);
-    expect(text(await send("Input.insertText", { text: "a\nb\r\nc" }))).toEqual(["abc"]);
-    expect(await send("Input.insertText", { text: "\n" })).toEqual([]);
-  });
-
-  it("refuses a composition", async () => {
-    await expect(send("Input.imeSetComposition", { text: "x" })).rejects.toThrow(
-      /does not support Input.imeSetComposition/,
-    );
+    expect(await FrameKeys.findKeyTarget(unnamed.tab, unnamed.sessions)).toBeNull();
   });
 });

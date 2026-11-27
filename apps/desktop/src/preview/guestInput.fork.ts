@@ -1,12 +1,12 @@
 // @effect-diagnostics globalTimers:off - Bounds Electron renderer calls, which run outside the Effect runtime.
 /**
  * Fork: the one door between the server and a desktop tab's debugger. Keys go to the guest's own
- * widget or a focused out-of-process iframe's session; a pointer press returns focus to the app's
- * previous element (Chromium focuses the guest on a DevTools press) while the page keeps its own;
- * input keeps send order; `Target.sendMessageToTarget` is refused, as it would bypass these checks.
+ * widget, or through upstream's routing to a focused cross-site frame; a pointer press returns focus
+ * to the app's previous element (Chromium focuses the guest on a DevTools press) while the page keeps
+ * its own; input keeps send order; `Target.sendMessageToTarget` is refused, as it bypasses these.
  */
-import { findKeyTarget, sendFrameKeys, targetFrame } from "./frameKeys.fork.ts";
-import { guestKeyPackets, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.ts";
+import { findKeyTarget, targetFrame } from "./frameKeys.fork.ts";
+import { asAgentKeys, isGuestKeyMethod, sendGuestKeys } from "./guestKeys.fork.ts";
 
 // @effect-diagnostics-next-line extendsNativeError:off - thrown back to Electron's debugger relay, outside Effect.
 class GuestInputError extends Error {
@@ -87,34 +87,32 @@ const keepAppFocus = async <A>(
   }
 };
 
-/** Sends a key command where the page's focus is: the main widget, or an iframe's session. */
+/**
+ * Sends a key command to the guest's own widget when its focused field is in the page's process;
+ * any other focus goes to `forward`, upstream's routing into a cross-site frame
+ * (pingdotgg/t3code#44012), still marked as the agent's key.
+ */
 const sendKeys = async (
   guest: Electron.WebContents,
   debuggee: Electron.Debugger,
   frameSessions: ReadonlyMap<string, string>,
   method: string,
   params: Record<string, unknown>,
+  forward: () => Promise<unknown>,
   signal: AbortSignal,
 ) => {
-  // An unsupported command is refused before the page is read.
-  guestKeyPackets(method, params);
   const target = await findKeyTarget(debuggee, frameSessions);
-  return target.session === undefined
-    ? sendGuestKeys(
-        guest,
-        method,
-        params,
-        { ...target, frame: targetFrame(debuggee, target) },
-        signal,
-      )
-    : sendFrameKeys(
-        guest,
-        debuggee,
-        { ...target, session: target.session },
-        method,
-        params,
-        signal,
-      );
+  if (target === null) {
+    signal.throwIfAborted();
+    return asAgentKeys(guest, forward);
+  }
+  return sendGuestKeys(
+    guest,
+    method,
+    params,
+    { ...target, frame: targetFrame(debuggee, target) },
+    signal,
+  );
 };
 
 /**
@@ -192,7 +190,7 @@ export const routeGuestCommand = (
   }
   if (isGuestKeyMethod(method)) {
     return inInputOrder(guest, (_sent, signal) =>
-      sendKeys(guest, debuggee, frameSessions, method, params, signal),
+      sendKeys(guest, debuggee, frameSessions, method, params, forward, signal),
     );
   }
   if (isPointerPress(method, params)) {

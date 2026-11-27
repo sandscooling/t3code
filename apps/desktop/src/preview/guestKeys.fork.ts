@@ -95,7 +95,7 @@ const chars = (text: string, modifiers: ReadonlyArray<Modifier>): Array<GuestKey
  * single-line field `"\r"` submits its form, so there breaks are dropped, as
  * the field's own value rules drop them. A pressed key keeps its text.
  */
-export const insertedText = (text: string, target: GuestKeyTarget) =>
+const insertedText = (text: string, target: GuestKeyTarget) =>
   text.replace(/\r\n|\r|\n/gu, target.multiline ? "\r" : "");
 
 /** The Electron packets that carry one DevTools key command to the guest's own widget. */
@@ -126,15 +126,19 @@ export const guestKeyPackets = (
 /** The guest being handed an agent's key right now; `before-input-event` fires inside the send. */
 let sending: Electron.WebContents | null = null;
 
+/** Guests with an agent's key in flight on upstream's routing, by how many. */
+const routing = new WeakMap<Electron.WebContents, number>();
+
 /** True while `contents` is taking an agent's key, which belongs to the page and not to the app. */
-export const isAgentKey = (contents: Electron.WebContents) => sending === contents;
+export const isAgentKey = (contents: Electron.WebContents) =>
+  sending === contents || (routing.get(contents) ?? 0) > 0;
 
 /**
- * Runs one key send with `guest` marked as taking an agent's key. `sendInputEvent` and an iframe
- * session's DevTools key command both emit `before-input-event` before returning, so the mark
- * covers exactly that call (not a promise it returns) and is gone before the user's next key.
+ * Runs one key send with `guest` marked as taking an agent's key. `sendInputEvent` emits
+ * `before-input-event` before returning, so the mark covers exactly that call (not a promise it
+ * returns) and is gone before the user's next key.
  */
-export const asAgentKey = <A>(guest: Electron.WebContents, send: () => A): A => {
+const asAgentKey = <A>(guest: Electron.WebContents, send: () => A): A => {
   // The guard skips the preview manager's menu-shortcut sync, and a human editing
   // shortcut may have opened the menu path. An agent's key never takes it, and an
   // unhandled one stops here instead of reaching the window's menu.
@@ -144,6 +148,25 @@ export const asAgentKey = <A>(guest: Electron.WebContents, send: () => A): A => 
     return send();
   } finally {
     sending = null;
+  }
+};
+
+/**
+ * Upstream's frame routing sends the key only after reading the page, so this mark spans the whole
+ * call. A key the user types into this guest meanwhile is the only one it can mislabel.
+ */
+export const asAgentKeys = async <A>(
+  guest: Electron.WebContents,
+  send: () => Promise<A>,
+): Promise<A> => {
+  guest.setIgnoreMenuShortcuts(true);
+  routing.set(guest, (routing.get(guest) ?? 0) + 1);
+  try {
+    return await send();
+  } finally {
+    const left = (routing.get(guest) ?? 1) - 1;
+    if (left > 0) routing.set(guest, left);
+    else routing.delete(guest);
   }
 };
 

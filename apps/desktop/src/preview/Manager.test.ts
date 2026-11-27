@@ -31,7 +31,6 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
-import * as FrameKeys from "./frameKeys.fork.ts"; // Fork
 import * as GuestKeys from "./guestKeys.fork.ts"; // Fork
 import * as PreviewManager from "./Manager.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
@@ -696,7 +695,7 @@ describe("PreviewManager", () => {
     ),
   );
 
-  // Fork: a key for a cross-site iframe goes over the iframe's CDP session and is the page's too.
+  // Fork: a key upstream routes into a cross-site iframe is still the agent's, the page's alone.
   effectIt.effect.each(["replies", "fails", "throws"] as const)(
     "an agent's chord into the guest's iframe is not forwarded, and the next key is the user's, when the send %s",
     (outcome) =>
@@ -735,28 +734,18 @@ describe("PreviewManager", () => {
             } as never,
           );
           expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
-          // The iframe's field keeps its focus, and Chromium runs the guest's
-          // before-input-event inside the key command, before the call returns.
-          const debuggee = {
-            sendCommand: (method: string) => {
-              if (method !== "Input.dispatchKeyEvent") {
-                return Promise.resolve({ result: { value: true } });
-              }
-              beforeInput();
-              if (outcome === "throws") throw new Error("Debugger is not attached.");
-              return outcome === "fails"
-                ? Promise.reject(new Error("No session with given id"))
-                : Promise.resolve({});
-            },
-          } as unknown as Electron.Debugger;
+          // Upstream's frame routing reads the page before it sends, and Chromium runs
+          // the guest's before-input-event inside the frame session's key command.
+          const route = async () => {
+            await Promise.resolve();
+            beforeInput();
+            if (outcome === "throws") throw new Error("Debugger is not attached.");
+            return outcome === "fails"
+              ? Promise.reject(new Error("No session with given id"))
+              : Promise.resolve({});
+          };
           const result = yield* Effect.promise(() =>
-            FrameKeys.sendFrameKeys(
-              preview.webContents,
-              debuggee,
-              { session: "S1", contextId: 1, multiline: false },
-              "Input.dispatchKeyEvent",
-              { type: "rawKeyDown", key: "u", modifiers: 3 },
-            ).then(
+            GuestKeys.asAgentKeys(preview.webContents, route).then(
               () => "replied",
               () => "failed",
             ),
@@ -2669,13 +2658,10 @@ describe("PreviewManager", () => {
             }),
           }),
         );
-      // Fork: guest keys start with the focus walk's frame read (guestInput.fork.ts), not insertText.
       const typed = () =>
         vi
           .mocked(contents.debugger.sendCommand)
-          .mock.calls.filter(
-            ([method]) => method === "Input.insertText" || method === "Page.getFrameTree",
-          ).length;
+          .mock.calls.filter(([method]) => method === "Input.insertText").length;
 
       const pick = yield* manager.pickElement("tab_1").pipe(Effect.forkChild);
       yield* Effect.yieldNow;

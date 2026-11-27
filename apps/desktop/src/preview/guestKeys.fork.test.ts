@@ -102,7 +102,7 @@ const makeGuest = (
   };
   /** The main-path target the focus walk would hand `sendGuestKeys`. */
   const target = (multiline = options.multiline ?? false) => {
-    const found = { session: undefined, contextId: 1, multiline };
+    const found = { contextId: 1, multiline };
     return { ...found, frame: FrameKeys.targetFrame(tab.debugger, found) };
   };
   return { tab, guest, sent, commands, agentKeyDuringEvent, expressions, settling, target };
