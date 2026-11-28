@@ -1058,6 +1058,15 @@ describe("question answer paths", () => {
           expected: ["[Extracted text truncated at document extraction limits.]"],
           absent: ["Lost"],
         })),
+        {
+          ext: "ods",
+          parts: {
+            "content.xml":
+              '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:spreadsheet><table:table table:name="Sheet"><table:table-row table:number-rows-repeated="+2"><table:table-cell table:number-columns-repeated=" +02 "><text:p>Quarter<text:s text:c="+2"/>one</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>',
+          },
+          exact: "## Sheet: Sheet\nQuarter one\tQuarter one\nQuarter one\tQuarter one",
+          expected: [],
+        },
         ...["ods", "odt", "odp", "docx"].flatMap((ext) =>
           [false, true].map((rows) => ({
             ext,
@@ -1445,6 +1454,24 @@ describe("question answer paths", () => {
           expected: [],
           exact:
             "Current route\t\tStatus\n\t\tOpen\n\t\tConfirmed\nNext route\nOrphan route\n\t\tAfter blank rows\nWidth changes",
+        },
+        {
+          ext: "pptx",
+          parts: {
+            "ppt/presentation.xml":
+              '<presentation><sldIdLst><sldId r:id="a"/></sldIdLst></presentation>',
+            "ppt/_rels/presentation.xml.rels":
+              '<Relationships><Relationship Id="a" Target="slides/a.xml"/></Relationships>',
+            "ppt/slides/a.xml":
+              '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+              "<p:cSld><p:spTree><p:graphicFrame><a:graphic><a:graphicData><a:tbl><a:tblGrid><a:gridCol/><a:gridCol/><a:gridCol/></a:tblGrid>" +
+              '<a:tr><a:tc gridSpan="2"><a:txBody><a:p><a:r><a:t>Route</a:t></a:r></a:p></a:txBody></a:tc><a:tc hMerge="1"><a:txBody><a:p><a:r><a:t>Old spare</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Status</a:t></a:r></a:p></a:txBody></a:tc></a:tr>' +
+              '<a:tr><a:tc rowSpan="2"><a:txBody><a:p><a:r><a:t>North</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Gate A</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Open</a:t></a:r></a:p></a:txBody></a:tc></a:tr>' +
+              '<a:tr><a:tc vMerge="1"><a:txBody><a:p><a:r><a:t>Old north</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Gate B</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Closed</a:t></a:r></a:p></a:txBody></a:tc></a:tr>' +
+              "</a:tbl></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>",
+          },
+          expected: ["## Slide 1", "Route\t\tStatus\nNorth\tGate A\tOpen\n\tGate B\tClosed"],
+          absent: ["Old spare", "Old north"],
         },
         {
           ext: "docx",
@@ -2116,10 +2143,25 @@ describe("question answer paths", () => {
               '<text:p><draw:frame draw:name="Frame1" text:anchor-type="paragraph"><draw:text-box><text:p>Call the dock manager</text:p><text:p>before noon</text:p></draw:text-box></draw:frame>Trucks leave at six.</text:p>' +
               '<text:p><draw:custom-shape text:anchor-type="char" draw:name="Text Box 1"><text:p>Gate 4</text:p><text:p>North side</text:p><draw:enhanced-geometry draw:type="ooxml-rect"/></draw:custom-shape>Drivers sign in.</text:p>' +
               '<text:p>Badge <draw:custom-shape text:anchor-type="as-char"><text:p>A</text:p><text:p>B</text:p></draw:custom-shape> required.</text:p>' +
+              "<table:table><table:table-row><table:table-cell><draw:custom-shape><text:p>Cell callout</text:p></draw:custom-shape></table:table-cell></table:table-row></table:table>" +
               "</office:text></office:body></office:document-content>",
           },
           exact:
-            "Shipping update.\nCall the dock manager\nbefore noon\nTrucks leave at six.\nGate 4\nNorth side\nDrivers sign in.\nBadge A\nB required.",
+            "Shipping update.\nCall the dock manager\nbefore noon\nTrucks leave at six.\nGate 4\nNorth side\nDrivers sign in.\nBadge A\nB required.\nCell callout",
+          expected: [],
+        },
+        {
+          ext: "ods",
+          parts: {
+            "content.xml":
+              '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:d="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:foo="urn:example:foo"><office:body><office:spreadsheet><table:table table:name="Stock">' +
+              '<table:table-row><table:table-cell><text:p>Apples</text:p></table:table-cell><table:table-cell office:value-type="float" office:value="42"><text:p>42</text:p><draw:custom-shape table:end-cell-address="Stock.D4"><text:p>Recount on Monday</text:p></draw:custom-shape></table:table-cell></table:table-row>' +
+              '<table:table-row><table:table-cell><text:p>Pears</text:p></table:table-cell><table:table-cell><draw:frame table:end-cell-address="Stock.D6"><draw:text-box><text:p>Supplier late</text:p></draw:text-box></draw:frame></table:table-cell></table:table-row>' +
+              '<table:table-row><table:table-cell office:value-type="float" office:value="99"><draw:custom-shape><text:p>Check bin</text:p></draw:custom-shape></table:table-cell><table:table-cell><d:g><d:custom-shape><text:p>Grouped note</text:p></d:custom-shape></d:g></table:table-cell><table:table-cell><text:list><text:list-item><text:p>Crate A</text:p></text:list-item><text:list-item><text:p>Crate B</text:p></text:list-item></text:list><custom-shape xmlns="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" foo:xmlns="urn:example:other"><text:p>Default NS shape</text:p></custom-shape></table:table-cell></table:table-row>' +
+              '<table:table-row><table:table-cell><text:p>Badge <draw:frame text:anchor-type="as-char"><draw:text-box><text:p>A</text:p></draw:text-box></draw:frame> required.</text:p></table:table-cell></table:table-row>' +
+              "</table:table></office:spreadsheet></office:body></office:document-content>",
+          },
+          exact: "## Sheet: Stock\nApples\t42\nPears\n99\t\tCrate A Crate B\nBadge A required.",
           expected: [],
         },
         {

@@ -56,6 +56,7 @@ import { FeedbackStore } from "../feedback/FeedbackStore.ts";
 import { AnalyticsService } from "../telemetry/AnalyticsService.ts";
 import { MilestoneHub } from "../milestones/MilestoneHub.ts";
 import { Workflows } from "../workflows/Workflows.ts";
+import { HostResources } from "../resourceTelemetry/HostResources.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(Orchestrator.OrchestratorV2)({}),
@@ -100,6 +101,7 @@ const layerStubServices = Layer.mergeAll(
   // handoff settings.
   Layer.succeed(SqlClient.SqlClient, {} as never),
   Layer.mock(SessionIdleHandoff.SessionIdleHandoffService)({}),
+  Layer.mock(HostResources)({}),
   McpProviderSessions.layer,
 );
 
