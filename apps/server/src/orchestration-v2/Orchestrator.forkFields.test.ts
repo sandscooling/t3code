@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -34,7 +35,7 @@ const adapter = {
 const database = SqlitePersistence.layerMemory;
 const testLayer = Layer.mergeAll(
   database,
-  ProjectionStore.layer.pipe(Layer.provide(database)),
+  ProjectionStore.layer.pipe(Layer.provide(NodeCrypto.layerDigest), Layer.provide(database)),
   ProviderReplayHarness.layerWithRegistry(
     { name: "fork-fields" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),

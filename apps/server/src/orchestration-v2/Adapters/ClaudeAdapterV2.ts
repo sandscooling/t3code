@@ -7088,10 +7088,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           return Queue.offer(events, event).pipe(Effect.asVoid);
         };
 
+        // `launch` describes the next turn, so an open turn (one being stopped too) never shows it.
+        const nextTurnLaunches = () => {
+          const live = Ref.getUnsafe(queryContext);
+          return Ref.getUnsafe(activeTurn) === null && (live === null || live.stopping);
+        };
         let reportedStartupPhase: string | undefined;
         const reportStartupPhase = Effect.fn("ClaudeAdapterV2.reportStartupPhase")(function* (
-          phase: string | undefined,
+          requested: string | undefined,
         ) {
+          const phase = requested ?? (nextTurnLaunches() ? "launch" : undefined);
           if (phase === reportedStartupPhase) return;
           reportedStartupPhase = phase;
           yield* emitProviderEvent({
@@ -7104,9 +7110,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             },
           });
         });
+        // Keeps a step a replacement CLI's open is reporting.
+        const reportCliGone = Effect.suspend(() =>
+          reportedStartupPhase === undefined ? reportStartupPhase(undefined) : Effect.void,
+        );
         // Only a process's first API request is startup; a reused process is already connected.
         const requestedQueries = new WeakSet<ClaudeAgentSdkQuerySession>();
-        let connectingTurn: ActiveClaudeTurnContext | undefined;
 
         const persistAttachmentBudget = Effect.fnUntraced(function* (nativeThreadId: string) {
           const providerThread = (yield* Ref.get(lastProviderThreadByNativeThread)).get(
@@ -10325,8 +10334,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : requested;
           input.context.steersClosed = true;
           steerAcks.forget(input.context.steerUuids); // Fork: a Stop after this waits on none
-          if (connectingTurn === input.context) {
-            connectingTurn = undefined;
+          if ((yield* Ref.get(activeTurn))?.providerTurnId === input.context.providerTurnId) {
             yield* reportStartupPhase(undefined);
           }
           yield* reasoningDeltas.flushTurn(input.context.nativeTurnId);
@@ -10712,6 +10720,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           yield* Ref.update(activeTurn, (current) =>
             current?.providerTurnId === input.context.providerTurnId ? null : current,
           );
+          yield* reportCliGone;
           yield* clearUnansweredRequestWatch(input.context);
           if (input.status === "completed") {
             settledTurnByNativeThread.set(input.context.nativeThreadId, input.context);
@@ -10811,6 +10820,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           closedQuery: ClaudeLiveQueryContext,
           cause?: Cause.Cause<ClaudeAgentSdkQueryRunnerError>,
         ) {
+          yield* reportCliGone;
           const current = yield* Ref.get(activeTurn);
           // A replacement query can reuse the native thread id; only this query's turn is ours.
           const context = closedQuery.lastTurn;
@@ -11814,7 +11824,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 !requestedQueries.has(input.query)
               ) {
                 requestedQueries.add(input.query);
-                connectingTurn = context;
                 yield* reportStartupPhase("connecting");
               }
               const since = yield* DateTime.now;
@@ -11844,10 +11853,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ) {
               context.unansweredRequestSince = undefined;
               yield* clearUnansweredRequestWatch(context);
-              if (connectingTurn === context) {
-                connectingTurn = undefined;
-                yield* reportStartupPhase(undefined);
-              }
+              if (reportedStartupPhase === "connecting") yield* reportStartupPhase(undefined);
             }
           }
           const focusedPlugin = claudeFocusRequestedPanePlugin(message);
@@ -14371,7 +14377,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
             .pipe(Effect.orElseSucceed(() => turnInput.runtimePolicy.cwd));
           // Read right before opening so an update during startup counts too.
-          const openQueryRuntime = readProgram.pipe(
+          const openQueryRuntime = reportStartupPhase("launch").pipe(
+            Effect.andThen(readProgram),
             Effect.flatMap((program) =>
               queryRunner
                 .open({
@@ -15068,6 +15075,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           (effect, turnInput) =>
             effect.pipe(
               Effect.scoped,
+              Effect.onError(() =>
+                Ref.get(activeTurn).pipe(
+                  Effect.flatMap((turn) =>
+                    turn === null ? reportStartupPhase(undefined) : Effect.void,
+                  ),
+                ),
+              ),
               Effect.mapError(
                 (cause) =>
                   new ProviderAdapter.ProviderAdapterTurnStartError({
@@ -15498,7 +15512,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           instanceId: adapterOptions.instanceId,
           driver: CLAUDE_PROVIDER,
           providerSessionId: input.providerSessionId,
-          providerSession: session,
+          get providerSession() {
+            const phase = reportedStartupPhase ?? (nextTurnLaunches() ? "launch" : undefined);
+            return phase === undefined ? session : { ...session, startupPhase: phase };
+          },
           getModelContextWindow: (selection) => claudeContextWindow(selection) ?? undefined,
           events: Stream.fromEffectRepeat(Queue.take(events)),
           backgroundTasksEndWithProcess: true,
